@@ -37,6 +37,10 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
+		if claims.TokenType != "access" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token type"})
+			return
+		}
 
 		c.Set(ContextUserIDKey, claims.UserID)
 		c.Set(ContextUserRole, claims.Role)

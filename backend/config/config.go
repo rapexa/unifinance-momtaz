@@ -19,6 +19,8 @@ type Config struct {
 	JWTSecret    string `mapstructure:"JWT_SECRET"`
 	JWTIssuer    string `mapstructure:"JWT_ISSUER"`
 	JWTExpiryHrs int    `mapstructure:"JWT_EXPIRY_HOURS"`
+	// JWTRefreshExpiryHrs controls refresh token lifetime in hours.
+	JWTRefreshExpiryHrs int `mapstructure:"JWT_REFRESH_EXPIRY_HOURS"`
 }
 
 var (
@@ -46,6 +48,7 @@ func LoadConfig() (*Config, error) {
 		viper.SetDefault("JWT_SECRET", "dev-secret-change-me")
 		viper.SetDefault("JWT_ISSUER", "unifinance-api")
 		viper.SetDefault("JWT_EXPIRY_HOURS", 24)
+		viper.SetDefault("JWT_REFRESH_EXPIRY_HOURS", 24*7)
 
 		if readErr := viper.ReadInConfig(); readErr != nil {
 			log.Printf("config: could not read .env file: %v (falling back to env vars only)", readErr)

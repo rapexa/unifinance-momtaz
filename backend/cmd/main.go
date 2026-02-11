@@ -43,13 +43,20 @@ func main() {
 	api := r.Group("/api/v1")
 
 	// Public auth routes
-	api.POST("/auth/login", authHandler.Login)
+	authGroup := api.Group("/auth")
+	{
+		authGroup.POST("/register", authHandler.Register)
+		authGroup.POST("/login", authHandler.Login)
+		authGroup.POST("/refresh", authHandler.Refresh)
+		authGroup.POST("/forgot-password", authHandler.ForgotPassword)
+		authGroup.POST("/reset-password", authHandler.ResetPassword)
+	}
 
 	// Protected routes
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(cfg))
 
-	// Example: current user endpoint
+	// current user endpoint
 	protected.GET("/users/me", func(c *gin.Context) {
 		userIDVal, _ := c.Get(middleware.ContextUserIDKey)
 		roleVal, _ := c.Get(middleware.ContextUserRole)
@@ -58,6 +65,13 @@ func main() {
 			"role":    roleVal,
 		})
 	})
+
+	// Protected auth routes (/auth/me, /auth/logout)
+	protectedAuth := protected.Group("/auth")
+	{
+		protectedAuth.GET("/me", authHandler.Me)
+		protectedAuth.POST("/logout", authHandler.Logout)
+	}
 
 	// Students endpoints (backing /students page)
 	students := protected.Group("/students")

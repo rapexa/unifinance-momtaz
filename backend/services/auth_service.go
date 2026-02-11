@@ -14,6 +14,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInactiveUser       = errors.New("user is inactive")
+	ErrNotImplemented     = errors.New("not implemented")
 )
 
 // AuthService implements login logic and JWT issuing.
@@ -30,12 +31,17 @@ func NewAuthService(userRepo repositories.UserRepository, cfg *config.Config) *A
 	}
 }
 
-type AuthResult struct {
-	User  *models.User
-	Token string
+type AuthTokens struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
-// Login validates credentials and returns JWT token.
+type AuthResult struct {
+	User   *models.User `json:"user"`
+	Tokens AuthTokens   `json:"tokens"`
+}
+
+// Login validates credentials and returns access + refresh tokens.
 func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthResult, error) {
 	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
@@ -51,14 +57,112 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 		return nil, ErrInvalidCredentials
 	}
 
-	token, err := utils.GenerateToken(user, s.cfg)
+	access, err := utils.GenerateAccessToken(user, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := utils.GenerateRefreshToken(user, s.cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AuthResult{
-		User:  user,
-		Token: token,
+		User: user,
+		Tokens: AuthTokens{
+			AccessToken:  access,
+			RefreshToken: refresh,
+		},
 	}, nil
 }
+
+// Register creates a new user and returns tokens (auto-login).
+func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, password, phone string) (*AuthResult, error) {
+	// Basic validation
+	if len(password) < 6 {
+		return nil, errors.New("password too short")
+	}
+
+	u := &models.User{
+		FirstName:     firstName,
+		LastName:      lastName,
+		Email:         email,
+		Phone:         phone,
+		Role:          models.UserRoleAdvisor, // default role
+		IsActive:      true,
+		PlainPassword: password,
+	}
+
+	if err := s.userRepo.Create(ctx, u); err != nil {
+		return nil, err
+	}
+
+	access, err := utils.GenerateAccessToken(u, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := utils.GenerateRefreshToken(u, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthResult{
+		User: u,
+		Tokens: AuthTokens{
+			AccessToken:  access,
+			RefreshToken: refresh,
+		},
+	}, nil
+}
+
+// Refresh validates a refresh token and issues new tokens.
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*AuthResult, error) {
+	claims, err := utils.ParseToken(refreshToken, s.cfg)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	if claims.TokenType != "refresh" {
+		return nil, ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.FindByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	if !user.IsActive {
+		return nil, ErrInactiveUser
+	}
+
+	access, err := utils.GenerateAccessToken(user, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	newRefresh, err := utils.GenerateRefreshToken(user, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthResult{
+		User: user,
+		Tokens: AuthTokens{
+			AccessToken:  access,
+			RefreshToken: newRefresh,
+		},
+	}, nil
+}
+
+// GetByID returns a user by ID (for /me endpoint).
+func (s *AuthService) GetByID(ctx context.Context, id uint) (*models.User, error) {
+	return s.userRepo.FindByID(ctx, id)
+}
+
+// ForgotPassword is a stub for sending reset links (email integration not implemented).
+func (s *AuthService) ForgotPassword(_ context.Context, _ string) error {
+	return ErrNotImplemented
+}
+
+// ResetPassword is a stub for resetting passwords using a token.
+func (s *AuthService) ResetPassword(_ context.Context, _ string, _ string) error {
+	return ErrNotImplemented
+}
+
 
