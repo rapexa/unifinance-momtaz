@@ -18,7 +18,30 @@ func NewStudentHandler(service *services.StudentService) *StudentHandler {
 	return &StudentHandler{service: service}
 }
 
+// StudentDoc is a simplified representation of Student for Swagger docs.
+type StudentDoc struct {
+	ID        uint   `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email,omitempty"`
+	Phone     string `json:"phone,omitempty"`
+	Status    string `json:"status"`
+}
+
 // List handles GET /students
+// @Summary      List students
+// @Description  List students with optional search and pagination
+// @Tags         students
+// @Security     BearerAuth
+// @Produce      json
+// @Param        limit   query     int     false "Page size" default(20)
+// @Param        offset  query     int     false "Offset" default(0)
+// @Param        search  query     string  false "Search by name, phone or email"
+// @Success      200     {object}  map[string]interface{}
+// @Failure      400     {object}  map[string]string
+// @Failure      401     {object}  map[string]string
+// @Failure      500     {object}  map[string]string
+// @Router       /students [get]
 func (h *StudentHandler) List(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "20")
 	offsetStr := c.DefaultQuery("offset", "0")
@@ -46,6 +69,17 @@ func (h *StudentHandler) List(c *gin.Context) {
 }
 
 // Get handles GET /students/:id
+// @Summary      Get student
+// @Description  Get student by ID
+// @Tags         students
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id   path      int  true "Student ID"
+// @Success      200  {object}  StudentDoc
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Router       /students/{id} [get]
 func (h *StudentHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -64,6 +98,19 @@ func (h *StudentHandler) Get(c *gin.Context) {
 }
 
 // Create handles POST /students
+// @Summary      Create student
+// @Description  Create a new student
+// @Tags         students
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      map[string]string true "Student data"
+// @Success      201   {object}  StudentDoc
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /students [post]
 func (h *StudentHandler) Create(c *gin.Context) {
 	var payload struct {
 		FirstName string `json:"first_name" binding:"required"`

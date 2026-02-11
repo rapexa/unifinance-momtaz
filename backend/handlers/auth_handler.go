@@ -44,7 +44,38 @@ type resetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required,min=6"`
 }
 
+// --- Swagger DTOs (used only for documentation) ---
+
+// AuthUserDoc represents the public user shape in auth responses.
+type AuthUserDoc struct {
+	ID        uint   `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+}
+
+type AuthTokensDoc struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// AuthResultDoc mirrors services.AuthResult for Swagger docs.
+type AuthResultDoc struct {
+	User   AuthUserDoc   `json:"user"`
+	Tokens AuthTokensDoc `json:"tokens"`
+}
+
 // Register handles POST /api/v1/auth/register
+// @Summary      Register new user
+// @Description  Create a new user and return access & refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      registerRequest true "Register data"
+// @Success      201   {object}  AuthResultDoc
+// @Failure      400   {object}  map[string]string
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -62,6 +93,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 // Login handles POST /api/v1/auth/login
+// @Summary      Login
+// @Description  Authenticate user with email and password and get access & refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      loginRequest true "Login credentials"
+// @Success      200   {object}  AuthResultDoc
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,6 +118,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		case services.ErrInactiveUser:
 			c.JSON(http.StatusForbidden, gin.H{"error": "user is inactive"})
+		case services.ErrAdminOnly:
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: Admin only"})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		}
@@ -86,6 +130,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 // Refresh handles POST /api/v1/auth/refresh
+// @Summary      Refresh tokens
+// @Description  Use refresh token to get new access & refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      refreshRequest true "Refresh token"
+// @Success      200   {object}  AuthResultDoc
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Router       /auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -110,6 +165,15 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 // Me handles GET /api/v1/auth/me
+// @Summary      Get current user
+// @Description  Returns the authenticated user's profile
+// @Tags         auth
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200   {object}  AuthUserDoc
+// @Failure      401   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Router       /auth/me [get]
 func (h *AuthHandler) Me(c *gin.Context) {
 	userIDVal, exists := c.Get(middleware.ContextUserIDKey)
 	if !exists {
@@ -139,12 +203,29 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 // Logout handles POST /api/v1/auth/logout
 // Since JWT is stateless here, logout is effectively a no-op on the server.
+// @Summary      Logout
+// @Description  Logout current user (stateless JWT, client should discard tokens)
+// @Tags         auth
+// @Security     BearerAuth
+// @Produce      json
+// @Success      204   "No Content"
+// @Failure      401   {object}  map[string]string
+// @Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	// In a real implementation, you could blacklist the token (e.g., Redis) or rotate keys.
 	c.Status(http.StatusNoContent)
 }
 
 // ForgotPassword handles POST /api/v1/auth/forgot-password
+// @Summary      Forgot password
+// @Description  Request a password reset link (stubbed, no email integration yet)
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      forgotPasswordRequest true "Forgot password data"
+// @Success      200   {object}  map[string]string
+// @Failure      400   {object}  map[string]string
+// @Router       /auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req forgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -162,6 +243,16 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 }
 
 // ResetPassword handles POST /api/v1/auth/reset-password
+// @Summary      Reset password
+// @Description  Reset password using a reset token (currently not implemented)
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      resetPasswordRequest true "Reset password data"
+// @Success      204   "No Content"
+// @Failure      400   {object}  map[string]string
+// @Failure      501   {object}  map[string]string
+// @Router       /auth/reset-password [post]
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

@@ -78,3 +78,8 @@ func RoleMiddleware(allowed ...models.UserRole) gin.HandlerFunc {
 	}
 }
 
+// AdminOnly is a convenience middleware for admin-only routes.
+func AdminOnly() gin.HandlerFunc {
+	return RoleMiddleware(models.UserRoleAdmin)
+}
+

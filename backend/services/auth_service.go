@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
+	"log"
+	"strings"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -15,6 +18,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInactiveUser       = errors.New("user is inactive")
 	ErrNotImplemented     = errors.New("not implemented")
+	ErrAdminOnly          = errors.New("admin only")
 )
 
 // AuthService implements login logic and JWT issuing.
@@ -55,6 +59,14 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
 		return nil, ErrInvalidCredentials
+	}
+
+	// Enforce admin-only login:
+	// Use constant-time comparison on uppercased role to avoid timing-based role probing.
+	roleUpper := strings.ToUpper(string(user.Role))
+	if subtle.ConstantTimeCompare([]byte(roleUpper), []byte(string(models.UserRoleAdmin))) != 1 {
+		log.Printf("auth: non-admin login attempt blocked for email=%s role=%s", user.Email, user.Role)
+		return nil, ErrAdminOnly
 	}
 
 	access, err := utils.GenerateAccessToken(user, s.cfg)
