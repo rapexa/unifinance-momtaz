@@ -5,6 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	docs "github.com/soheilsshh/unifinance-momtaz/docs"
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/database"
 	"github.com/soheilsshh/unifinance-momtaz/handlers"
@@ -14,11 +17,22 @@ import (
 	"github.com/soheilsshh/unifinance-momtaz/services"
 )
 
+// @title       Unifinance Momtaz API
+// @version     1.0
+// @description Backend API for Unifinance Momtaz dashboard
+// @BasePath   /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+
 // main sets up the HTTP server using Gin and wires dependencies (DI).
 // This file lives in backend/cmd/ to keep the module root clean.
 func main() {
 	cfg := config.MustLoadConfig()
 	db := database.MustGetDB()
+
+	// Programmatically set swagger base path
+	docs.SwaggerInfo.BasePath = "/api/v1"
 
 	// Repositories (Repository Pattern)
 	userRepo := repositories.NewUserRepository(db)
@@ -34,6 +48,9 @@ func main() {
 
 	// Gin engine
 	r := gin.Default()
+
+	// Swagger UI
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -93,4 +110,3 @@ func main() {
 		log.Fatalf("failed to start server: %v", err)
 	}
 }
-
