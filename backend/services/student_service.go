@@ -33,3 +33,8 @@ func (s *StudentService) Update(ctx context.Context, student *models.Student) er
 	return s.repo.Update(ctx, student)
 }
 
+func (s *StudentService) Delete(ctx context.Context, id uint) error {
+	return s.repo.Delete(ctx, id)
+}
+
+

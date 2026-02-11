@@ -13,6 +13,7 @@ type StudentRepository interface {
 	List(ctx context.Context, limit, offset int, search string) ([]models.Student, int64, error)
 	Create(ctx context.Context, student *models.Student) error
 	Update(ctx context.Context, student *models.Student) error
+	Delete(ctx context.Context, id uint) error
 }
 
 type GormStudentRepository struct {
@@ -70,4 +71,9 @@ func (r *GormStudentRepository) Create(ctx context.Context, student *models.Stud
 func (r *GormStudentRepository) Update(ctx context.Context, student *models.Student) error {
 	return r.db.WithContext(ctx).Save(student).Error
 }
+
+func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&models.Student{}, id).Error
+}
+
 
