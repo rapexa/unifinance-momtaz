@@ -43,10 +43,12 @@ func main() {
 	// Services (Service Layer)
 	authService := services.NewAuthService(userRepo, cfg)
 	studentService := services.NewStudentService(studentRepo)
+	userService := services.NewUserService(userRepo)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService)
+	userHandler := handlers.NewUserHandler(userService)
 
 	// Gin engine
 	r := gin.Default()
@@ -115,6 +117,17 @@ func main() {
 			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
 			studentHandler.Create,
 		)
+	}
+
+	// Users endpoints (admin-only management)
+	users := protected.Group("/users")
+	users.Use(middleware.AdminOnly())
+	{
+		users.GET("", userHandler.List)
+		users.GET("/:id", userHandler.Get)
+		users.POST("", userHandler.Create)
+		users.PUT("/:id", userHandler.Update)
+		users.DELETE("/:id", userHandler.Deactivate)
 	}
 
 	// TODO: add other groups for /users, /plans, /payments, /payroll, /reminders, /reports, /settings.
