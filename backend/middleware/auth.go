@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/soheilsshh/unifinance-momtaz/backend/config"
-	"github.com/soheilsshh/unifinance-momtaz/backend/models"
-	"github.com/soheilsshh/unifinance-momtaz/backend/utils"
+	"github.com/soheilsshh/unifinance-momtaz/config"
+	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/utils"
 )
 
 // Context keys

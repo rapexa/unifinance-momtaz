@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 
-	"github.com/soheilsshh/unifinance-momtaz/backend/models"
-	"github.com/soheilsshh/unifinance-momtaz/backend/repositories"
+	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/repositories"
 )
 
 // StudentService encapsulates business logic for students.

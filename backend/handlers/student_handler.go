@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/soheilsshh/unifinance-momtaz/backend/models"
-	"github.com/soheilsshh/unifinance-momtaz/backend/services"
+	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/services"
 )
 
 // StudentHandler exposes student-related endpoints.

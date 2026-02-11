@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/soheilsshh/unifinance-momtaz/backend/config"
-	"github.com/soheilsshh/unifinance-momtaz/backend/models"
-	"github.com/soheilsshh/unifinance-momtaz/backend/repositories"
-	"github.com/soheilsshh/unifinance-momtaz/backend/utils"
+	"github.com/soheilsshh/unifinance-momtaz/config"
+	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/repositories"
+	"github.com/soheilsshh/unifinance-momtaz/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 

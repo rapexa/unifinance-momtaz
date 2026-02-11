@@ -40,8 +40,9 @@ type User struct {
 
 	// Relationships
 	// A user (typically an advisor) can have many students assigned via AdvisorID on Student.
-	Students       []Student            `gorm:"foreignKey:AdvisorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	PayrollEntries []PayrollEntry       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Students []Student `gorm:"foreignKey:AdvisorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	// When a user is deleted, we also delete its payroll entries (they are derived data).
+	PayrollEntries []PayrollEntry `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	// NotificationConfigs holds per-user notification preferences.
 	NotificationConfigs []NotificationSetting `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }

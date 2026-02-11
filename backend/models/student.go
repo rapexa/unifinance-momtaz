@@ -37,8 +37,9 @@ type Student struct {
 	OrganizationID *uint         `gorm:"index"`
 	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	Enrollments []Enrollment
-	Payments    []Payment
-	Reminders   []PaymentReminder
+	// When a student is deleted, related enrollments, payments, and reminders are removed.
+	Enrollments []Enrollment    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Payments    []Payment       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Reminders   []PaymentReminder `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
 

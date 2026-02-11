@@ -3,7 +3,7 @@ package repositories
 import (
 	"context"
 
-	"github.com/soheilsshh/unifinance-momtaz/backend/models"
+	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
 )
 

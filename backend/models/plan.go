@@ -25,7 +25,8 @@ type Plan struct {
 	OrganizationID *uint         `gorm:"index"`
 	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	Enrollments []Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	// When a plan is deleted, it's safe to delete enrollments referencing it.
+	Enrollments []Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Features    []PlanFeature `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
 

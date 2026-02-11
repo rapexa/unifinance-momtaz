@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/soheilsshh/unifinance-momtaz/backend/services"
+	"github.com/soheilsshh/unifinance-momtaz/services"
 )
 
 // AuthHandler wires HTTP (Gin) to AuthService.
