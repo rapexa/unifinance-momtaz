@@ -1,6 +1,7 @@
 import { FormEvent, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail } from "lucide-react";
+import { login as loginApi } from "@/api/authApi";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -27,40 +28,25 @@ const Login = () => {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const msg =
-          data?.error ||
-          (res.status === 401
-            ? "ایمیل یا رمز عبور نامعتبر است."
-            : "خطا در ورود. دوباره تلاش کنید.");
-        setError(msg);
+      const result = await loginApi(email, password);
+      if (!result.success) {
+        // Map generic English messages to localized ones
+        if (result.error === "Invalid credentials") {
+          setError("ایمیل یا رمز عبور نامعتبر است.");
+        } else if (result.error === "Access denied") {
+          setError("دسترسی فقط برای ادمین مجاز است.");
+        } else if (
+          result.error ===
+          "Server unreachable. Please try again later."
+        ) {
+          setError("خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید.");
+        } else {
+          setError(result.error || "خطا در ورود. دوباره تلاش کنید.");
+        }
         return;
-      }
-
-      if (!data?.tokens?.access_token) {
-        setError("پاسخ نامعتبر از سرور دریافت شد.");
-        return;
-      }
-
-      localStorage.setItem("accessToken", data.tokens.access_token);
-      if (data.tokens.refresh_token) {
-        localStorage.setItem("refreshToken", data.tokens.refresh_token);
       }
 
       navigate("/", { replace: true });
-    } catch (err) {
-      console.error("Login error", err);
-      setError("خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید.");
     } finally {
       setLoading(false);
     }
