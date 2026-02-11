@@ -39,16 +39,19 @@ func main() {
 	// Repositories (Repository Pattern)
 	userRepo := repositories.NewUserRepository(db)
 	studentRepo := repositories.NewStudentRepository(db)
+	planRepo := repositories.NewPlanRepository(db)
 
 	// Services (Service Layer)
 	authService := services.NewAuthService(userRepo, cfg)
 	studentService := services.NewStudentService(studentRepo)
 	userService := services.NewUserService(userRepo)
+	planService := services.NewPlanService(planRepo)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService)
 	userHandler := handlers.NewUserHandler(userService)
+	planHandler := handlers.NewPlanHandler(planService)
 
 	// Gin engine
 	r := gin.Default()
@@ -128,6 +131,17 @@ func main() {
 		users.POST("", userHandler.Create)
 		users.PUT("/:id", userHandler.Update)
 		users.DELETE("/:id", userHandler.Deactivate)
+	}
+
+	// Plans endpoints (admin-only management)
+	plans := protected.Group("/plans")
+	plans.Use(middleware.AdminOnly())
+	{
+		plans.GET("", planHandler.List)
+		plans.GET("/:id", planHandler.Get)
+		plans.POST("", planHandler.Create)
+		plans.PUT("/:id", planHandler.Update)
+		plans.DELETE("/:id", planHandler.Deactivate)
 	}
 
 	// TODO: add other groups for /users, /plans, /payments, /payroll, /reminders, /reports, /settings.

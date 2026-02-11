@@ -21,6 +21,8 @@ type Plan struct {
 	// Optional discount percentage (e.g. 10.0 = 10%)
 	DiscountPercent *float64
 	IsActive        bool `gorm:"not null;default:true;index"`
+	// Optional limit on number of users/students for this plan
+	MaxUsers *int
 
 	OrganizationID *uint         `gorm:"index"`
 	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
