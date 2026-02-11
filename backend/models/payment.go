@@ -28,10 +28,10 @@ const (
 type Payment struct {
 	gorm.Model
 	StudentID uint    `gorm:"not null;index"`
-	Student   Student
+	Student   Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	// Optional link to an Enrollment
 	EnrollmentID *uint
-	Enrollment   *Enrollment
+	Enrollment   *Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	AmountCents int64  `gorm:"not null"`
 	Currency    string `gorm:"size:3;not null;default:'IRR'"`

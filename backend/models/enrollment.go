@@ -17,10 +17,10 @@ const (
 // Enrollment links Students to Plans (active subscriptions / registrations).
 type Enrollment struct {
 	gorm.Model
-	StudentID uint   `gorm:"not null;index"`
-	Student   Student
-	PlanID    uint `gorm:"not null;index"`
-	Plan      Plan
+	StudentID uint    `gorm:"not null;index"`
+	Student   Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	PlanID    uint    `gorm:"not null;index"`
+	Plan      Plan    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	StartDate time.Time
 	EndDate   *time.Time

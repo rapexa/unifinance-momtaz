@@ -17,7 +17,7 @@ const (
 type PayrollEntry struct {
 	gorm.Model
 	UserID uint `gorm:"not null;index"`
-	User   User
+	User   User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	PeriodYear  int `gorm:"not null;index"`
 	PeriodMonth int `gorm:"not null;index"` // 1-12

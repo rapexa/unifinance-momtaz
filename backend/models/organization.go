@@ -10,10 +10,12 @@ type Organization struct {
 	Address string `gorm:"size:500"`
 	Email   string `gorm:"size:255"`
 
-	Users     []User
-	Students  []Student
-	Plans     []Plan
-	Settings  []PaymentSettings
-	Reminders []ReminderRule
+	// One organization can have many users, students, plans, settings and reminder rules.
+	// Foreign keys are on the child models (OrganizationID).
+	Users     []User            `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Students  []Student         `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Plans     []Plan            `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Settings  []PaymentSettings `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Reminders []ReminderRule    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }
 

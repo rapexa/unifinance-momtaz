@@ -133,7 +133,7 @@ Edit `.env` for your DB host, port, user, password, and database name.
 From the `backend` folder:
 
 ```bash
-go run ./migrations
+go run ./cmd/migrate
 ```
 
 This will:

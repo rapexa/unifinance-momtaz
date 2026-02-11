@@ -22,18 +22,18 @@ type Plan struct {
 	DiscountPercent *float64
 	IsActive        bool `gorm:"not null;default:true;index"`
 
-	OrganizationID *uint
-	Organization   *Organization
+	OrganizationID *uint         `gorm:"index"`
+	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	Enrollments []Enrollment
-	Features    []PlanFeature
+	Enrollments []Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Features    []PlanFeature `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
 
 // PlanFeature represents entries under "امکانات" list in plan cards.
 type PlanFeature struct {
 	gorm.Model
-	PlanID      uint   `gorm:"not null;index"`
-	Plan        Plan
+	PlanID      uint `gorm:"not null;index"`
+	Plan        Plan `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Description string `gorm:"size:255;not null"`
 }
 

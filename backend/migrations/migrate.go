@@ -1,4 +1,4 @@
-package main
+package migrations
 
 import (
 	"log"
@@ -9,7 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func main() {
+// Run executes all migrations and seeders.
+// Exposed as a function so it can be called from different commands (e.g. cmd/migrate).
+func Run() {
 	cfg := config.MustLoadConfig()
 	log.Printf("migrations: running in %s environment", cfg.AppEnv)
 

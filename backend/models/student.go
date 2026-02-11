@@ -27,14 +27,15 @@ type Student struct {
 	// Financial balance (in smallest unit, e.g. rials)
 	BalanceCents int64 `gorm:"not null;default:0"`
 
+	// Advisor is the user responsible for this student.
 	AdvisorID *uint `gorm:"index"`
-	Advisor   *User
+	Advisor   *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	CurrentPlanID *uint `gorm:"index"`
-	CurrentPlan   *Plan
+	CurrentPlan   *Plan `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	OrganizationID *uint
-	Organization   *Organization
+	OrganizationID *uint         `gorm:"index"`
+	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	Enrollments []Enrollment
 	Payments    []Payment

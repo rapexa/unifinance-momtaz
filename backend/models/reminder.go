@@ -37,21 +37,21 @@ type ReminderRule struct {
 	Channel    ReminderChannel `gorm:"type:varchar(32);not null;uniqueIndex:idx_rule_type_channel_offset"`
 	Enabled    bool            `gorm:"not null;default:true"`
 
-	OrganizationID *uint
-	Organization   *Organization
+	OrganizationID *uint         `gorm:"index"`
+	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }
 
 // PaymentReminder is a log for actual reminder sends per student/payment.
 type PaymentReminder struct {
 	gorm.Model
-	StudentID uint `gorm:"not null;index"`
-	Student   Student
+	StudentID uint    `gorm:"not null;index"`
+	Student   Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	PaymentID *uint `gorm:"index"`
-	Payment   *Payment
+	Payment   *Payment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	RuleID *uint `gorm:"index"`
-	Rule   *ReminderRule
+	Rule   *ReminderRule `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	AmountCents int64 `gorm:"not null;default:0"`
 

@@ -35,12 +35,15 @@ type User struct {
 	Bio       string `gorm:"type:text"`
 
 	LastLoginAt    *time.Time
-	OrganizationID *uint
-	Organization   *Organization
+	OrganizationID *uint         `gorm:"index"`
+	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	Students            []Student
-	PayrollEntries      []PayrollEntry
-	NotificationConfigs []NotificationSetting
+	// Relationships
+	// A user (typically an advisor) can have many students assigned via AdvisorID on Student.
+	Students       []Student            `gorm:"foreignKey:AdvisorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	PayrollEntries []PayrollEntry       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	// NotificationConfigs holds per-user notification preferences.
+	NotificationConfigs []NotificationSetting `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
 
 // BeforeCreate hashes PlainPassword into PasswordHash if provided.

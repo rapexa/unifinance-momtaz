@@ -31,7 +31,7 @@ const (
 type NotificationSetting struct {
 	gorm.Model
 	UserID uint `gorm:"not null;index:idx_user_type,priority:1"`
-	User   User
+	User   User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	Type    NotificationType `gorm:"type:varchar(64);not null;index:idx_user_type,priority:2"`
 	Enabled bool             `gorm:"not null;default:true"`
