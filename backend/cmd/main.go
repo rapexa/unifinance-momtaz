@@ -40,18 +40,23 @@ func main() {
 	userRepo := repositories.NewUserRepository(db)
 	studentRepo := repositories.NewStudentRepository(db)
 	planRepo := repositories.NewPlanRepository(db)
+	paymentRepo := repositories.NewPaymentRepository(db)
 
 	// Services (Service Layer)
 	authService := services.NewAuthService(userRepo, cfg)
 	studentService := services.NewStudentService(studentRepo)
 	userService := services.NewUserService(userRepo)
 	planService := services.NewPlanService(planRepo)
+	paymentService := services.NewPaymentService(paymentRepo)
+	dashboardService := services.NewDashboardService(db, paymentRepo)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService)
 	userHandler := handlers.NewUserHandler(userService)
 	planHandler := handlers.NewPlanHandler(planService)
+	paymentHandler := handlers.NewPaymentHandler(paymentService)
+	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
 
 	// Gin engine
 	r := gin.Default()
@@ -144,7 +149,29 @@ func main() {
 		plans.DELETE("/:id", planHandler.Deactivate)
 	}
 
-	// TODO: add other groups for /users, /plans, /payments, /payroll, /reminders, /reports, /settings.
+	// Payments endpoints (admin-only management, backing /payments page and export)
+	payments := protected.Group("/payments")
+	payments.Use(middleware.AdminOnly())
+	{
+		payments.GET("", paymentHandler.List)
+		payments.GET("/export", paymentHandler.Export)
+		payments.POST("", paymentHandler.Create)
+		payments.GET("/:id", paymentHandler.Get)
+		payments.PUT("/:id", paymentHandler.Update)
+		payments.DELETE("/:id", paymentHandler.Delete)
+		payments.POST("/:id/link", paymentHandler.GenerateLink)
+	}
+
+	// Dashboard endpoints (backing dashboard widgets and charts)
+	dashboard := protected.Group("/dashboard")
+	{
+		dashboard.GET("/summary", dashboardHandler.GetSummary)
+		dashboard.GET("/recent-payments", dashboardHandler.GetRecentPayments)
+		dashboard.GET("/debt-alerts", dashboardHandler.GetDebtAlerts)
+		dashboard.GET("/revenue-trend", dashboardHandler.GetRevenueTrend)
+	}
+
+	// TODO: add other groups for /payroll, /reminders, /reports, /settings.
 
 	addr := ":8081"
 	log.Printf("API server listening on %s", addr)
