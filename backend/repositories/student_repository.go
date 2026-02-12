@@ -14,6 +14,7 @@ type StudentRepository interface {
 	Create(ctx context.Context, student *models.Student) error
 	Update(ctx context.Context, student *models.Student) error
 	Delete(ctx context.Context, id uint) error
+	Stats(ctx context.Context) (total, active, inactive, debtors int64, err error)
 }
 
 type GormStudentRepository struct {
@@ -74,6 +75,29 @@ func (r *GormStudentRepository) Update(ctx context.Context, student *models.Stud
 
 func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Student{}, id).Error
+}
+
+// Stats returns aggregate counts for students: total, active, inactive, and debtors (balance < 0).
+func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inactive, debtors int64, err error) {
+	db := r.db.WithContext(ctx).Model(&models.Student{})
+
+	if err = db.Count(&total).Error; err != nil {
+		return
+	}
+
+	if err = db.Where("status = ?", models.StudentStatusActive).Count(&active).Error; err != nil {
+		return
+	}
+
+	if err = db.Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
+		return
+	}
+
+	if err = db.Where("balance_cents < 0").Count(&debtors).Error; err != nil {
+		return
+	}
+
+	return
 }
 
 

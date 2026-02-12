@@ -1,8 +1,15 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Plus,
   Search,
@@ -16,9 +23,15 @@ import {
   List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  createStudent,
+  listStudents,
+  getStudentsSummary,
+  StudentApi,
+} from "@/api/studentsApi";
 
-interface Student {
-  id: string;
+interface StudentRow {
+  id: number;
   name: string;
   phone: string;
   email: string;
@@ -26,21 +39,77 @@ interface Student {
   plan: string;
   balance: string;
   status: "active" | "inactive";
-  joinDate: string;
 }
 
-const mockStudents: Student[] = [
-  { id: "1", name: "علی احمدی", phone: "۰۹۱۲۱۲۳۴۵۶۷", email: "ali@email.com", advisor: "سارا محمدی", plan: "مشاوره ماهانه", balance: "۰", status: "active", joinDate: "۱۴۰۳/۰۶/۱۵" },
-  { id: "2", name: "مریم رضایی", phone: "۰۹۱۳۹۸۷۶۵۴۳", email: "maryam@email.com", advisor: "علی نوری", plan: "دوره سالانه", balance: "-۱,۸۰۰,۰۰۰", status: "active", joinDate: "۱۴۰۳/۰۴/۲۰" },
-  { id: "3", name: "محمد حسینی", phone: "۰۹۳۵۵۵۵۱۲۳۴", email: "mohammad@email.com", advisor: "سارا محمدی", plan: "کارگاه", balance: "۰", status: "active", joinDate: "۱۴۰۳/۰۷/۰۱" },
-  { id: "4", name: "زهرا کریمی", phone: "۰۹۱۲۸۸۸۷۷۷۶", email: "zahra@email.com", advisor: "رضا احمدی", plan: "مشاوره ماهانه", balance: "-۹۵۰,۰۰۰", status: "inactive", joinDate: "۱۴۰۳/۰۳/۱۰" },
-  { id: "5", name: "امیر محمدی", phone: "۰۹۱۵۴۴۴۳۳۳۲", email: "amir@email.com", advisor: "علی نوری", plan: "دوره سالانه", balance: "۰", status: "active", joinDate: "۱۴۰۳/۰۸/۰۵" },
-  { id: "6", name: "فاطمه علوی", phone: "۰۹۳۸۲۲۲۱۱۱۰", email: "fatemeh@email.com", advisor: "سارا محمدی", plan: "کارگاه", balance: "-۲,۸۰۰,۰۰۰", status: "active", joinDate: "۱۴۰۳/۰۵/۲۵" },
-];
+function mapStudent(api: StudentApi): StudentRow {
+  const name = `${api.first_name ?? ""} ${api.last_name ?? ""}`.trim();
+  return {
+    id: api.id,
+    name: name || "بدون نام",
+    phone: api.phone || "",
+    email: api.email || "",
+    advisor: "—",
+    plan: "—",
+    balance: "۰",
+    status: api.status === "INACTIVE" ? "inactive" : "active",
+  };
+}
 
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [advisorId, setAdvisorId] = useState("");
+  const [planId, setPlanId] = useState("");
+  const [balance, setBalance] = useState("");
+
+  const queryClient = useQueryClient();
+
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ["students", { search: searchQuery }],
+    queryFn: () =>
+      listStudents({
+        search: searchQuery || undefined,
+        page: 1,
+        page_size: 50,
+      }),
+  });
+
+  const {
+    data: summary,
+    isLoading: isSummaryLoading,
+    isError: isSummaryError,
+  } = useQuery({
+    queryKey: ["students-summary"],
+    queryFn: getStudentsSummary,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: createStudent,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      setIsCreateOpen(false);
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setPhone("");
+      setAdvisorId("");
+      setPlanId("");
+      setBalance("");
+    },
+  });
+
+  const students: StudentRow[] = (data?.data || []).map(mapStudent);
 
   return (
     <MainLayout title="دانش‌آموزان" subtitle="مدیریت پروفایل و اطلاعات مالی دانش‌آموزان">
@@ -78,7 +147,7 @@ const Students = () => {
             <Filter className="ml-2 h-4 w-4" />
             فیلتر
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={() => setIsCreateOpen(true)}>
             <Plus className="ml-2 h-4 w-4" />
             دانش‌آموز جدید
           </Button>
@@ -89,27 +158,61 @@ const Students = () => {
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">کل دانش‌آموزان</p>
-          <p className="text-2xl font-bold text-foreground">۱۲۸</p>
+          <p className="text-2xl font-bold text-foreground">
+            {isSummaryLoading || isSummaryError
+              ? "—"
+              : summary?.total ?? 0}
+          </p>
         </div>
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">فعال</p>
-          <p className="text-2xl font-bold text-success">۱۱۵</p>
+          <p className="text-2xl font-bold text-success">
+            {isSummaryLoading || isSummaryError
+              ? "—"
+              : summary?.active ?? 0}
+          </p>
         </div>
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">غیرفعال</p>
-          <p className="text-2xl font-bold text-muted-foreground">۱۳</p>
+          <p className="text-2xl font-bold text-muted-foreground">
+            {isSummaryLoading || isSummaryError
+              ? "—"
+              : summary?.inactive ?? 0}
+          </p>
         </div>
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">بدهکار</p>
-          <p className="text-2xl font-bold text-destructive">۸</p>
+          <p className="text-2xl font-bold text-destructive">
+            {isSummaryLoading || isSummaryError
+              ? "—"
+              : summary?.debtors ?? 0}
+          </p>
         </div>
       </div>
 
       {/* Students grid/list */}
-      {viewMode === "grid" ? (
+      {isLoading && (
+        <div className="card-elevated p-6 text-sm text-muted-foreground">
+          در حال بارگذاری لیست دانش‌آموزان...
+        </div>
+      )}
+      {isError && (
+        <div className="card-elevated p-6 text-sm text-destructive">
+          {(error as Error)?.message || "خطا در دریافت لیست دانش‌آموزان"}
+        </div>
+      )}
+      {!isLoading && !isError && students.length === 0 && (
+        <div className="card-elevated p-6 text-sm text-muted-foreground">
+          هیچ دانش‌آموزی ثبت نشده است.
+        </div>
+      )}
+      {!isLoading && !isError && students.length > 0 && (viewMode === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {mockStudents.map((student) => (
-            <div key={student.id} className="card-elevated p-5 hover:border-primary/50 transition-colors cursor-pointer">
+          {students.map((student) => (
+            <div
+              key={student.id}
+              className="card-elevated p-5 hover:border-primary/50 transition-colors cursor-pointer"
+            >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
@@ -139,14 +242,22 @@ const Students = () => {
               </div>
               <div className="mt-4 pt-4 border-t flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">مانده حساب</span>
-                <span className={cn("font-bold number-display", student.balance.startsWith("-") ? "text-destructive" : "text-success")}>
+                <span
+                  className={cn(
+                    "font-bold number-display",
+                    student.balance.startsWith("-")
+                      ? "text-destructive"
+                      : "text-success"
+                  )}
+                >
                   {student.balance} تومان
                 </span>
               </div>
             </div>
           ))}
         </div>
-      ) : (
+      ) : null)}
+      {!isLoading && !isError && students.length > 0 && viewMode === "list" && (
         <div className="card-elevated overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -162,8 +273,11 @@ const Students = () => {
                 </tr>
               </thead>
               <tbody>
-                {mockStudents.map((student) => (
-                  <tr key={student.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                {students.map((student) => (
+                  <tr
+                    key={student.id}
+                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                  >
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
@@ -175,7 +289,9 @@ const Students = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="p-4 text-muted-foreground" dir="ltr">{student.phone}</td>
+                    <td className="p-4 text-muted-foreground" dir="ltr">
+                      {student.phone}
+                    </td>
                     <td className="p-4 text-foreground">{student.advisor}</td>
                     <td className="p-4">
                       <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
@@ -183,7 +299,14 @@ const Students = () => {
                       </span>
                     </td>
                     <td className="p-4">
-                      <span className={cn("font-bold number-display", student.balance.startsWith("-") ? "text-destructive" : "text-success")}>
+                      <span
+                        className={cn(
+                          "font-bold number-display",
+                          student.balance.startsWith("-")
+                            ? "text-destructive"
+                            : "text-success"
+                        )}
+                      >
                         {student.balance}
                       </span>
                     </td>
@@ -210,6 +333,132 @@ const Students = () => {
           </div>
         </div>
       )}
+
+      {/* Create student dialog */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>دانش‌آموز جدید</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  نام
+                </label>
+                <Input
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="نام"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  نام خانوادگی
+                </label>
+                <Input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="نام خانوادگی"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  ایمیل
+                </label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="example@email.com"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  موبایل
+                </label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="۰۹۱۲..."
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  شناسه مشاور (اختیاری)
+                </label>
+                <Input
+                  value={advisorId}
+                  onChange={(e) => setAdvisorId(e.target.value)}
+                  placeholder="ID مشاور"
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  شناسه پلن خریداری‌شده (اختیاری)
+                </label>
+                <Input
+                  value={planId}
+                  onChange={(e) => setPlanId(e.target.value)}
+                  placeholder="ID پلن"
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  مانده حساب اولیه (ریال)
+                </label>
+                <Input
+                  value={balance}
+                  onChange={(e) => setBalance(e.target.value)}
+                  placeholder="مثلاً -2500000"
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateOpen(false)}
+              disabled={createMutation.isPending}
+            >
+              انصراف
+            </Button>
+            <Button
+              onClick={() =>
+                createMutation.mutate({
+                  first_name: firstName.trim(),
+                  last_name: lastName.trim(),
+                  email: email.trim() || undefined,
+                  phone: phone.trim() || undefined,
+                  advisor_id: advisorId ? Number(advisorId) : undefined,
+                  current_plan_id: planId ? Number(planId) : undefined,
+                  balance_cents: balance ? Number(balance) : undefined,
+                })
+              }
+              disabled={
+                createMutation.isPending ||
+                !firstName.trim() ||
+                !lastName.trim()
+              }
+            >
+              {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}
+            </Button>
+          </DialogFooter>
+          {createMutation.isError && (
+            <p className="pt-2 text-xs text-destructive">
+              {(createMutation.error as Error)?.message ||
+                "ثبت دانش‌آموز با خطا مواجه شد"}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };

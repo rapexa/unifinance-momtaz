@@ -37,4 +37,9 @@ func (s *StudentService) Delete(ctx context.Context, id uint) error {
 	return s.repo.Delete(ctx, id)
 }
 
+// Stats returns aggregate student counters for use in the Students page stats.
+func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, debtors int64, err error) {
+	return s.repo.Stats(ctx)
+}
+
 

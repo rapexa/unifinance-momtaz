@@ -48,6 +48,14 @@ func toStudentDocSlice(students []models.Student) []StudentDoc {
 	return out
 }
 
+// StudentStatsDoc represents summary stats for the Students page.
+type StudentStatsDoc struct {
+	Total    int64 `json:"total"`
+	Active   int64 `json:"active"`
+	Inactive int64 `json:"inactive"`
+	Debtors  int64 `json:"debtors"`
+}
+
 // List handles GET /students
 // @Summary      List students
 // @Description  List students with optional search and pagination
@@ -100,6 +108,31 @@ func (h *StudentHandler) List(c *gin.Context) {
 	})
 }
 
+// Summary handles GET /students/summary
+// @Summary      Students summary
+// @Description  Summary counts for students (total, active, inactive, debtors)
+// @Tags         students
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  StudentStatsDoc
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /students/summary [get]
+func (h *StudentHandler) Summary(c *gin.Context) {
+	total, active, inactive, debtors, err := h.service.Stats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students summary"})
+		return
+	}
+
+	c.JSON(http.StatusOK, StudentStatsDoc{
+		Total:    total,
+		Active:   active,
+		Inactive: inactive,
+		Debtors:  debtors,
+	})
+}
+
 // Get handles GET /students/:id
 // @Summary      Get student
 // @Description  Get student by ID
@@ -145,10 +178,13 @@ func (h *StudentHandler) Get(c *gin.Context) {
 // @Router       /students [post]
 func (h *StudentHandler) Create(c *gin.Context) {
 	var payload struct {
-		FirstName string `json:"first_name" binding:"required,min=2,max=100"`
-		LastName  string `json:"last_name" binding:"required,min=2,max=100"`
-		Email     string `json:"email" binding:"omitempty,email,max=255"`
-		Phone     string `json:"phone" binding:"omitempty,max=20"`
+		FirstName     string  `json:"first_name" binding:"required,min=2,max=100"`
+		LastName      string  `json:"last_name" binding:"required,min=2,max=100"`
+		Email         string  `json:"email" binding:"omitempty,email,max=255"`
+		Phone         string  `json:"phone" binding:"omitempty,max=20"`
+		AdvisorID     *uint   `json:"advisor_id" binding:"omitempty"`
+		CurrentPlanID *uint   `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents  *int64  `json:"balance_cents" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -161,6 +197,15 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		LastName:  payload.LastName,
 		Email:     payload.Email,
 		Phone:     payload.Phone,
+	}
+	if payload.AdvisorID != nil {
+		student.AdvisorID = payload.AdvisorID
+	}
+	if payload.CurrentPlanID != nil {
+		student.CurrentPlanID = payload.CurrentPlanID
+	}
+	if payload.BalanceCents != nil {
+		student.BalanceCents = *payload.BalanceCents
 	}
 
 	if err := h.service.Create(c.Request.Context(), student); err != nil {

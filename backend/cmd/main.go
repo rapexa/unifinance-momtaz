@@ -125,6 +125,7 @@ func main() {
 	students := protected.Group("/students")
 	{
 		students.GET("", studentHandler.List)
+		students.GET("/summary", studentHandler.Summary)
 		students.GET("/:id", studentHandler.Get)
 		// Only admins and advisors can create students
 		students.POST("",
