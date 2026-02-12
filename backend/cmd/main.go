@@ -49,6 +49,8 @@ func main() {
 	planService := services.NewPlanService(planRepo)
 	paymentService := services.NewPaymentService(paymentRepo)
 	dashboardService := services.NewDashboardService(db, paymentRepo)
+	payrollService := services.NewPayrollService(db)
+	reportService := services.NewReportService(db)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -57,6 +59,8 @@ func main() {
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
+	payrollHandler := handlers.NewPayrollHandler(payrollService)
+	reportHandler := handlers.NewReportHandler(reportService)
 
 	// Gin engine
 	r := gin.Default()
@@ -171,7 +175,26 @@ func main() {
 		dashboard.GET("/revenue-trend", dashboardHandler.GetRevenueTrend)
 	}
 
-	// TODO: add other groups for /payroll, /reminders, /reports, /settings.
+	// Payroll endpoints (admin-only, backing /payroll page)
+	payroll := protected.Group("/payroll")
+	payroll.Use(middleware.AdminOnly())
+	{
+		payroll.GET("/summary", payrollHandler.GetSummary)
+		payroll.GET("/entries", payrollHandler.ListEntries)
+		payroll.GET("/schemes", payrollHandler.GetSchemes)
+	}
+
+	// Reports endpoints (admin-only, backing /reports page)
+	reports := protected.Group("/reports")
+	reports.Use(middleware.AdminOnly())
+	{
+		reports.GET("/summary", reportHandler.GetSummary)
+		reports.GET("/revenue", reportHandler.GetRevenueSeries)
+		reports.GET("/payroll", reportHandler.GetPayrollSeries)
+		reports.GET("/debts", reportHandler.GetDebtsByAdvisor)
+	}
+
+	// TODO: add other groups for /reminders, /settings.
 
 	addr := ":8081"
 	log.Printf("API server listening on %s", addr)

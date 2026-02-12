@@ -1,0 +1,258 @@
+package handlers
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/services"
+)
+
+// PayrollHandler exposes payroll-related endpoints.
+type PayrollHandler struct {
+	service *services.PayrollService
+}
+
+func NewPayrollHandler(service *services.PayrollService) *PayrollHandler {
+	return &PayrollHandler{service: service}
+}
+
+// PayrollSummaryDTO mirrors services.PayrollSummary for Swagger docs.
+type PayrollSummaryDTO struct {
+	PeriodYear         int   `json:"period_year"`
+	PeriodMonth        int   `json:"period_month"`
+	TotalBaseCents     int64 `json:"total_base_cents"`
+	TotalVariableCents int64 `json:"total_variable_cents"`
+	TotalPaidCents     int64 `json:"total_paid_cents"`
+	TotalPendingCents  int64 `json:"total_pending_cents"`
+}
+
+// PayrollEntryDTO is the public representation of a payroll entry row.
+type PayrollEntryDTO struct {
+	ID                 uint      `json:"id"`
+	UserID             uint      `json:"user_id"`
+	UserFirstName      string    `json:"user_first_name"`
+	UserLastName       string    `json:"user_last_name"`
+	UserRole           string    `json:"user_role"`
+	PeriodYear         int       `json:"period_year"`
+	PeriodMonth        int       `json:"period_month"`
+	BaseSalaryCents    int64     `json:"base_salary_cents"`
+	VariableSalaryCents int64     `json:"variable_salary_cents"`
+	TotalSalaryCents   int64     `json:"total_salary_cents"`
+	StudentsCount      int       `json:"students_count"`
+	Status             string    `json:"status"`
+	PaidAt             *time.Time `json:"paid_at,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+// PayrollSchemeDTO represents the salary scheme per role.
+type PayrollSchemeDTO struct {
+	ID                uint   `json:"id"`
+	Role              string `json:"role"`
+	BaseSalaryCents   int64  `json:"base_salary_cents"`
+	PerStudentCents   int64  `json:"per_student_cents"`
+	RevenuePercent    float64 `json:"revenue_percent"`
+	MonthlyBonusCents int64  `json:"monthly_bonus_cents"`
+	IsActive          bool   `json:"is_active"`
+}
+
+func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
+	dto := PayrollEntryDTO{
+		ID:                  e.ID,
+		UserID:              e.UserID,
+		PeriodYear:          e.PeriodYear,
+		PeriodMonth:         e.PeriodMonth,
+		BaseSalaryCents:     e.BaseSalaryCents,
+		VariableSalaryCents: e.VariableSalaryCents,
+		TotalSalaryCents:    e.TotalSalaryCents,
+		StudentsCount:       e.StudentsCount,
+		Status:              string(e.Status),
+		PaidAt:              e.PaidAt,
+		CreatedAt:           e.CreatedAt,
+	}
+	if e.User.ID != 0 {
+		dto.UserFirstName = e.User.FirstName
+		dto.UserLastName = e.User.LastName
+		dto.UserRole = string(e.User.Role)
+	}
+	return dto
+}
+
+func toPayrollEntryDTOSlice(entries []models.PayrollEntry) []PayrollEntryDTO {
+	out := make([]PayrollEntryDTO, len(entries))
+	for i, e := range entries {
+		out[i] = toPayrollEntryDTO(&e)
+	}
+	return out
+}
+
+func toPayrollSchemeDTOSlice(schemes []models.PayrollScheme) []PayrollSchemeDTO {
+	out := make([]PayrollSchemeDTO, len(schemes))
+	for i, s := range schemes {
+		out[i] = PayrollSchemeDTO{
+			ID:                s.ID,
+			Role:              string(s.Role),
+			BaseSalaryCents:   s.BaseSalaryCents,
+			PerStudentCents:   s.PerStudentCents,
+			RevenuePercent:    s.RevenuePercent,
+			MonthlyBonusCents: s.MonthlyBonusCents,
+			IsActive:          s.IsActive,
+		}
+	}
+	return out
+}
+
+// GetSummary handles GET /payroll/summary
+// @Summary      Payroll monthly summary
+// @Description  Aggregated payroll metrics (base, variable, paid, pending) for a given period (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Produce      json
+// @Param        year   query     int  false "Period year (default: current year)"
+// @Param        month  query     int  false "Period month (1-12, default: current month)"
+// @Success      200    {object}  PayrollSummaryDTO
+// @Failure      400    {object}  map[string]string
+// @Failure      401    {object}  map[string]string
+// @Failure      403    {object}  map[string]string
+// @Failure      500    {object}  map[string]string
+// @Router       /payroll/summary [get]
+func (h *PayrollHandler) GetSummary(c *gin.Context) {
+	now := time.Now()
+	defaultYear, defaultMonth := services.DefaultPeriod(now)
+
+	year := parseIntWithDefault(c.Query("year"), defaultYear)
+	month := parseIntWithDefault(c.Query("month"), defaultMonth)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+
+	summary, err := h.service.GetMonthlySummary(c.Request.Context(), year, month)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll summary"})
+		return
+	}
+
+	dto := PayrollSummaryDTO{
+		PeriodYear:         summary.PeriodYear,
+		PeriodMonth:        summary.PeriodMonth,
+		TotalBaseCents:     summary.TotalBaseCents,
+		TotalVariableCents: summary.TotalVariableCents,
+		TotalPaidCents:     summary.TotalPaidCents,
+		TotalPendingCents:  summary.TotalPendingCents,
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
+// ListEntries handles GET /payroll/entries
+// @Summary      List payroll entries
+// @Description  Paginated list of payroll entries for a period (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Produce      json
+// @Param        year        query     int     false "Period year (default: current year)"
+// @Param        month       query     int     false "Period month (1-12, default: current month)"
+// @Param        page        query     int     false "Page number (1-based)" default(1)
+// @Param        page_size   query     int     false "Page size" default(20)
+// @Param        status      query     string  false "Status filter (PAID or PENDING)"
+// @Param        user_id     query     int     false "Filter by user ID"
+// @Success      200         {object}  map[string]interface{}
+// @Failure      400         {object}  map[string]string
+// @Failure      401         {object}  map[string]string
+// @Failure      403         {object}  map[string]string
+// @Failure      500         {object}  map[string]string
+// @Router       /payroll/entries [get]
+func (h *PayrollHandler) ListEntries(c *gin.Context) {
+	now := time.Now()
+	defaultYear, defaultMonth := services.DefaultPeriod(now)
+
+	year := parseIntWithDefault(c.Query("year"), defaultYear)
+	month := parseIntWithDefault(c.Query("month"), defaultMonth)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "20")
+	status := c.DefaultQuery("status", "")
+	userIDStr := c.DefaultQuery("user_id", "")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+
+	var userID *uint
+	if userIDStr != "" {
+		id64, err := strconv.ParseUint(userIDStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+			return
+		}
+		id := uint(id64)
+		userID = &id
+	}
+
+	entries, total, err := h.service.ListEntries(c.Request.Context(), year, month, pageSize, offset, status, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list payroll entries"})
+		return
+	}
+
+	dtos := toPayrollEntryDTOSlice(entries)
+	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": dtos,
+		"meta": gin.H{
+			"current_page": page,
+			"page_size":    pageSize,
+			"total_items":  total,
+			"total_pages":  totalPages,
+		},
+	})
+}
+
+// GetSchemes handles GET /payroll/schemes
+// @Summary      List payroll schemes
+// @Description  List active salary schemes per role (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {array}   PayrollSchemeDTO
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /payroll/schemes [get]
+func (h *PayrollHandler) GetSchemes(c *gin.Context) {
+	schemes, err := h.service.GetSchemes(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll schemes"})
+		return
+	}
+	c.JSON(http.StatusOK, toPayrollSchemeDTOSlice(schemes))
+}
+
+// parseIntWithDefault parses an int or falls back to default on error/empty.
+func parseIntWithDefault(raw string, def int) int {
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	return v
+}
+
