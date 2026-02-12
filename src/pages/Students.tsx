@@ -11,6 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Plus,
   Search,
   MoreHorizontal,
@@ -29,6 +36,8 @@ import {
   getStudentsSummary,
   StudentApi,
 } from "@/api/studentsApi";
+import { listAdvisors, UserApi } from "@/api/usersApi";
+import { listActivePlans, PlanApi } from "@/api/plansApi";
 
 interface StudentRow {
   id: number;
@@ -91,6 +100,16 @@ const Students = () => {
   } = useQuery({
     queryKey: ["students-summary"],
     queryFn: getStudentsSummary,
+  });
+
+  const { data: advisors } = useQuery({
+    queryKey: ["advisors"],
+    queryFn: listAdvisors,
+  });
+
+  const { data: plans } = useQuery({
+    queryKey: ["plans-active"],
+    queryFn: listActivePlans,
   });
 
   const createMutation = useMutation({
@@ -389,25 +408,47 @@ const Students = () => {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  شناسه مشاور (اختیاری)
+                  مشاور (اختیاری)
                 </label>
-                <Input
+                <Select
                   value={advisorId}
-                  onChange={(e) => setAdvisorId(e.target.value)}
-                  placeholder="ID مشاور"
-                  inputMode="numeric"
-                />
+                  onValueChange={(val) =>
+                    setAdvisorId(val === "none" ? "" : val)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="انتخاب مشاور" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">بدون مشاور</SelectItem>
+                    {(advisors || []).map((advisor: UserApi) => (
+                      <SelectItem key={advisor.id} value={String(advisor.id)}>
+                        {advisor.first_name} {advisor.last_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  شناسه پلن خریداری‌شده (اختیاری)
+                  پلن خریداری‌شده (اختیاری)
                 </label>
-                <Input
+                <Select
                   value={planId}
-                  onChange={(e) => setPlanId(e.target.value)}
-                  placeholder="ID پلن"
-                  inputMode="numeric"
-                />
+                  onValueChange={(val) => setPlanId(val === "none" ? "" : val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="انتخاب پلن" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">بدون پلن</SelectItem>
+                    {(plans || []).map((plan: PlanApi) => (
+                      <SelectItem key={plan.id} value={String(plan.id)}>
+                        {plan.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
