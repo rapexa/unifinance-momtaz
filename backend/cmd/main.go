@@ -51,6 +51,7 @@ func main() {
 	dashboardService := services.NewDashboardService(db, paymentRepo)
 	payrollService := services.NewPayrollService(db)
 	reportService := services.NewReportService(db)
+	settingsService := services.NewSettingsService(db, userService)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -61,6 +62,7 @@ func main() {
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService)
+	settingsHandler := handlers.NewSettingsHandler(settingsService)
 
 	// Gin engine
 	r := gin.Default()
@@ -194,7 +196,41 @@ func main() {
 		reports.GET("/debts", reportHandler.GetDebtsByAdvisor)
 	}
 
-	// TODO: add other groups for /reminders, /settings.
+	// Settings endpoints (backing /settings page)
+	settings := protected.Group("/settings")
+
+	// Organization & payments settings (admin only)
+	orgGroup := settings.Group("/organization")
+	orgGroup.Use(middleware.AdminOnly())
+	{
+		orgGroup.GET("", settingsHandler.GetOrganization)
+		orgGroup.PUT("", settingsHandler.UpdateOrganization)
+	}
+
+	paymentsSettings := settings.Group("/payments")
+	paymentsSettings.Use(middleware.AdminOnly())
+	{
+		paymentsSettings.GET("", settingsHandler.GetPaymentSettings)
+		paymentsSettings.PUT("", settingsHandler.UpdatePaymentSettings)
+	}
+
+	// Profile, security and notifications for current user
+	settings.GET("/profile", settingsHandler.GetProfile)
+	settings.PUT("/profile", settingsHandler.UpdateProfile)
+
+	security := settings.Group("/security")
+	{
+		security.PUT("/password", settingsHandler.ChangePassword)
+		security.PUT("/2fa", settingsHandler.ToggleTwoFactor)
+	}
+
+	notifications := settings.Group("/notifications")
+	{
+		notifications.GET("", settingsHandler.GetNotifications)
+		notifications.PUT("", settingsHandler.UpdateNotifications)
+	}
+
+	// TODO: add other groups for /reminders.
 
 	addr := ":8081"
 	log.Printf("API server listening on %s", addr)

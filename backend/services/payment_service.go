@@ -72,8 +72,8 @@ type UpdatePaymentParams struct {
 
 func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*models.Payment, error) {
 	now := time.Now()
-	status := strings.ToUpper(p.Status)
-	method := strings.ToUpper(p.Method)
+	status := models.PaymentStatus(strings.ToUpper(p.Status))
+	method := models.PaymentMethod(strings.ToUpper(p.Method))
 	currency := p.Currency
 	if currency == "" {
 		currency = "IRR"
@@ -91,7 +91,7 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		ReferenceCode: p.ReferenceCode,
 	}
 
-	if status == "PAID" {
+	if status == models.PaymentStatusPaid {
 		if p.PaidAt != nil {
 			payment.PaidAt = p.PaidAt
 		} else {
@@ -119,7 +119,7 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 		payment.AmountCents = *p.AmountCents
 	}
 	if p.Method != nil {
-		payment.Method = strings.ToUpper(*p.Method)
+		payment.Method = models.PaymentMethod(strings.ToUpper(*p.Method))
 	}
 	if p.Description != nil {
 		payment.Description = *p.Description
@@ -134,9 +134,9 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 		payment.EnrollmentID = p.EnrollmentID
 	}
 	if p.Status != nil {
-		newStatus := strings.ToUpper(*p.Status)
+		newStatus := models.PaymentStatus(strings.ToUpper(*p.Status))
 		payment.Status = newStatus
-		if newStatus == "PAID" && payment.PaidAt == nil {
+		if newStatus == models.PaymentStatusPaid && payment.PaidAt == nil {
 			payment.PaidAt = &now
 		}
 	}
