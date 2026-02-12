@@ -163,3 +163,8 @@ func (s *UserService) Deactivate(ctx context.Context, id uint) error {
 	return s.repo.Update(ctx, u)
 }
 
+// RoleStats returns counts of users per role.
+func (s *UserService) RoleStats(ctx context.Context) (map[models.UserRole]int64, error) {
+	return s.repo.RoleCounts(ctx)
+}
+

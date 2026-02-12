@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"net/http"
 	"strconv"
 	"time"
@@ -52,6 +53,14 @@ func toUserDTOSlice(users []models.User) []UserDTO {
 		out[i] = toUserDTO(&u)
 	}
 	return out
+}
+
+// UserRoleStatsDoc represents counts of users per role.
+type UserRoleStatsDoc struct {
+	Admins      int64 `json:"admins"`
+	Accountants int64 `json:"accountants"`
+	Advisors    int64 `json:"advisors"`
+	Operators   int64 `json:"operators"`
 }
 
 func userError(c *gin.Context, status int, msg string) {
@@ -142,6 +151,33 @@ func (h *UserHandler) List(c *gin.Context) {
 			"total_pages":  totalPages,
 		},
 	})
+}
+
+// Summary handles GET /users/summary
+// @Summary      Users summary
+// @Description  Counts of users per role (admin, accountant, advisor, operator)
+// @Tags         users
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  UserRoleStatsDoc
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /users/summary [get]
+func (h *UserHandler) Summary(c *gin.Context) {
+	stats, err := h.service.RoleStats(c.Request.Context())
+	if err != nil {
+		userError(c, http.StatusInternalServerError, "failed to load users summary")
+		return
+	}
+
+	resp := UserRoleStatsDoc{
+		Admins:      stats[models.UserRoleAdmin],
+		Accountants: stats[models.UserRoleAccountant],
+		Advisors:    stats[models.UserRoleAdvisor],
+		Operators:   stats[models.UserRoleOperator],
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // Get handles GET /users/:id
@@ -316,5 +352,62 @@ func (h *UserHandler) Deactivate(c *gin.Context) {
 		"message": "User deactivated",
 		"code":    http.StatusOK,
 	})
+}
+
+// Export handles GET /users/export
+// @Summary      Export users
+// @Description  Export users as CSV with optional search/filters (admin only)
+// @Tags         users
+// @Security     BearerAuth
+// @Produce      text/csv
+// @Param        search     query     string  false "Search by first name, last name or email"
+// @Param        role       query     string  false "Filter by role (e.g. ADMIN, ADVISOR)"
+// @Param        status     query     string  false "Filter by status: active or inactive"
+// @Success      200        "CSV file"
+// @Failure      400        {object}  map[string]string
+// @Failure      401        {object}  map[string]string
+// @Failure      403        {object}  map[string]string
+// @Failure      500        {object}  map[string]string
+// @Router       /users/export [get]
+func (h *UserHandler) Export(c *gin.Context) {
+	search := c.DefaultQuery("search", "")
+	role := c.DefaultQuery("role", "")
+	status := c.DefaultQuery("status", "")
+
+	if status != "" && status != "active" && status != "inactive" {
+		userError(c, http.StatusBadRequest, "invalid status; must be 'active' or 'inactive'")
+		return
+	}
+
+	// For export, fetch up to 10k rows in one shot.
+	const pageSize = 10000
+	users, _, err := h.service.List(c.Request.Context(), pageSize, 0, search, role, status)
+	if err != nil {
+		userError(c, http.StatusInternalServerError, "failed to export users")
+		return
+	}
+
+	filename := "users_export.csv"
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+
+	w := csv.NewWriter(c.Writer)
+	defer w.Flush()
+
+	_ = w.Write([]string{"ID", "FirstName", "LastName", "Email", "Phone", "Role", "IsActive", "CreatedAt"})
+
+	for _, u := range users {
+		row := []string{
+			strconv.FormatUint(uint64(u.ID), 10),
+			u.FirstName,
+			u.LastName,
+			u.Email,
+			u.Phone,
+			string(u.Role),
+			strconv.FormatBool(u.IsActive),
+			u.CreatedAt.Format(time.RFC3339),
+		}
+		_ = w.Write(row)
+	}
 }
 

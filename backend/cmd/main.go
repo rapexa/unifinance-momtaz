@@ -139,6 +139,8 @@ func main() {
 	users.Use(middleware.AdminOnly())
 	{
 		users.GET("", userHandler.List)
+		users.GET("/summary", userHandler.Summary)
+		users.GET("/export", userHandler.Export)
 		users.GET("/:id", userHandler.Get)
 		users.POST("", userHandler.Create)
 		users.PUT("/:id", userHandler.Update)

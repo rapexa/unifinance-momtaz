@@ -15,6 +15,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	Update(ctx context.Context, user *models.User) error
 	List(ctx context.Context, limit, offset int, search, role string, isActive *bool) ([]models.User, int64, error)
+	RoleCounts(ctx context.Context) (map[models.UserRole]int64, error)
 }
 
 type GormUserRepository struct {
@@ -88,6 +89,31 @@ func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search
 	}
 
 	return users, count, nil
+}
+
+// RoleCounts returns the number of users per role.
+func (r *GormUserRepository) RoleCounts(ctx context.Context) (map[models.UserRole]int64, error) {
+	result := make(map[models.UserRole]int64, 4)
+
+	type row struct {
+		Role  models.UserRole
+		Count int64
+	}
+	var rows []row
+
+	if err := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Select("role, COUNT(*) as count").
+		Group("role").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, r2 := range rows {
+		result[r2.Role] = r2.Count
+	}
+
+	return result, nil
 }
 
 
