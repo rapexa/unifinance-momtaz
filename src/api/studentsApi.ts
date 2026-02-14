@@ -18,7 +18,14 @@ export interface StudentApi {
   email?: string;
   phone?: string;
   status: string;
+  father_phone?: string;
+  mother_phone?: string;
+  school_name?: string;
+  school_address?: string;
+  home_address?: string;
+  advisor_id?: number;
   advisor_name?: string;
+  current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
 }
@@ -84,6 +91,11 @@ export interface CreateStudentPayload {
   last_name: string;
   email?: string;
   phone?: string;
+  father_phone?: string;
+  mother_phone?: string;
+  school_name?: string;
+  school_address?: string;
+  home_address?: string;
   advisor_id?: number;
   current_plan_id?: number;
   balance_cents?: number;
@@ -152,7 +164,15 @@ export interface UpdateStudentPayload {
   last_name: string;
   email?: string;
   phone?: string;
+  father_phone?: string;
+  mother_phone?: string;
+  school_name?: string;
+  school_address?: string;
+  home_address?: string;
   status?: "ACTIVE" | "INACTIVE";
+  advisor_id?: number | null;
+  current_plan_id?: number | null;
+  balance_cents?: number;
 }
 
 export async function updateStudent(

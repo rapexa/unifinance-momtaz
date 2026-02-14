@@ -24,6 +24,17 @@ type Student struct {
 	Status    StudentStatus `gorm:"type:varchar(32);not null;default:'ACTIVE';index"`
 	JoinDate  *time.Time
 
+	// Parent contacts
+	FatherPhone string `gorm:"size:20"`
+	MotherPhone string `gorm:"size:20"`
+
+	// School info
+	SchoolName    string `gorm:"size:200"`
+	SchoolAddress string `gorm:"size:500"`
+
+	// Home address
+	HomeAddress string `gorm:"size:500"`
+
 	// Financial balance (in smallest unit, e.g. rials)
 	BalanceCents int64 `gorm:"not null;default:0"`
 

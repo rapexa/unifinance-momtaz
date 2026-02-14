@@ -26,21 +26,35 @@ type StudentDoc struct {
 	Email           string `json:"email,omitempty"`
 	Phone           string `json:"phone,omitempty"`
 	Status          string `json:"status"`
+	FatherPhone     string `json:"father_phone,omitempty"`
+	MotherPhone     string `json:"mother_phone,omitempty"`
+	SchoolName      string `json:"school_name,omitempty"`
+	SchoolAddress   string `json:"school_address,omitempty"`
+	HomeAddress     string `json:"home_address,omitempty"`
 	AdvisorName     string `json:"advisor_name,omitempty"`
+	AdvisorID       *uint  `json:"advisor_id,omitempty"`
 	CurrentPlanName string `json:"current_plan_name,omitempty"`
+	CurrentPlanID   *uint  `json:"current_plan_id,omitempty"`
 	BalanceCents    int64  `json:"balance_cents"`
 }
 
 // toStudentDoc converts a Student model to a public DTO.
 func toStudentDoc(s *models.Student) StudentDoc {
 	doc := StudentDoc{
-		ID:           s.ID,
-		FirstName:    s.FirstName,
-		LastName:     s.LastName,
-		Email:        s.Email,
-		Phone:        s.Phone,
-		Status:       string(s.Status),
-		BalanceCents: s.BalanceCents,
+		ID:            s.ID,
+		FirstName:     s.FirstName,
+		LastName:      s.LastName,
+		Email:         s.Email,
+		Phone:         s.Phone,
+		Status:        string(s.Status),
+		FatherPhone:   s.FatherPhone,
+		MotherPhone:   s.MotherPhone,
+		SchoolName:    s.SchoolName,
+		SchoolAddress: s.SchoolAddress,
+		HomeAddress:   s.HomeAddress,
+		BalanceCents:  s.BalanceCents,
+		AdvisorID:     s.AdvisorID,
+		CurrentPlanID: s.CurrentPlanID,
 	}
 	if s.Advisor != nil {
 		doc.AdvisorName = s.Advisor.FirstName + " " + s.Advisor.LastName
@@ -189,13 +203,18 @@ func (h *StudentHandler) Get(c *gin.Context) {
 // @Router       /students [post]
 func (h *StudentHandler) Create(c *gin.Context) {
 	var payload struct {
-		FirstName     string  `json:"first_name" binding:"required,min=2,max=100"`
-		LastName      string  `json:"last_name" binding:"required,min=2,max=100"`
-		Email         string  `json:"email" binding:"omitempty,email,max=255"`
-		Phone         string  `json:"phone" binding:"omitempty,max=20"`
-		AdvisorID     *uint   `json:"advisor_id" binding:"omitempty"`
-		CurrentPlanID *uint   `json:"current_plan_id" binding:"omitempty"`
-		BalanceCents  *int64  `json:"balance_cents" binding:"omitempty"`
+		FirstName     string `json:"first_name" binding:"required,min=2,max=100"`
+		LastName      string `json:"last_name" binding:"required,min=2,max=100"`
+		Email         string `json:"email" binding:"omitempty,email,max=255"`
+		Phone         string `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone   string `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone   string `json:"mother_phone" binding:"omitempty,max=20"`
+		SchoolName    string `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress string `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress   string `json:"home_address" binding:"omitempty,max=500"`
+		AdvisorID     *uint  `json:"advisor_id" binding:"omitempty"`
+		CurrentPlanID *uint  `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents  *int64 `json:"balance_cents" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -204,10 +223,15 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	}
 
 	student := &models.Student{
-		FirstName: payload.FirstName,
-		LastName:  payload.LastName,
-		Email:     payload.Email,
-		Phone:     payload.Phone,
+		FirstName:     payload.FirstName,
+		LastName:      payload.LastName,
+		Email:         payload.Email,
+		Phone:         payload.Phone,
+		FatherPhone:   payload.FatherPhone,
+		MotherPhone:   payload.MotherPhone,
+		SchoolName:    payload.SchoolName,
+		SchoolAddress: payload.SchoolAddress,
+		HomeAddress:   payload.HomeAddress,
 	}
 	if payload.AdvisorID != nil {
 		student.AdvisorID = payload.AdvisorID
@@ -252,11 +276,19 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	}
 
 	var payload struct {
-		FirstName string `json:"first_name" binding:"required,min=2,max=100"`
-		LastName  string `json:"last_name" binding:"required,min=2,max=100"`
-		Email     string `json:"email" binding:"omitempty,email,max=255"`
-		Phone     string `json:"phone" binding:"omitempty,max=20"`
-		Status    string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE"`
+		FirstName     string `json:"first_name" binding:"required,min=2,max=100"`
+		LastName      string `json:"last_name" binding:"required,min=2,max=100"`
+		Email         string `json:"email" binding:"omitempty,email,max=255"`
+		Phone         string `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone   string `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone   string `json:"mother_phone" binding:"omitempty,max=20"`
+		SchoolName    string `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress string `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress   string `json:"home_address" binding:"omitempty,max=500"`
+		Status        string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE"`
+		AdvisorID     *uint  `json:"advisor_id" binding:"omitempty"`
+		CurrentPlanID *uint  `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents  *int64 `json:"balance_cents" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -274,8 +306,26 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	student.LastName = payload.LastName
 	student.Email = payload.Email
 	student.Phone = payload.Phone
+	student.FatherPhone = payload.FatherPhone
+	student.MotherPhone = payload.MotherPhone
+	student.SchoolName = payload.SchoolName
+	student.SchoolAddress = payload.SchoolAddress
+	student.HomeAddress = payload.HomeAddress
 	if payload.Status != "" {
 		student.Status = models.StudentStatus(payload.Status)
+	}
+	if payload.AdvisorID != nil {
+		student.AdvisorID = payload.AdvisorID
+	} else {
+		student.AdvisorID = nil
+	}
+	if payload.CurrentPlanID != nil {
+		student.CurrentPlanID = payload.CurrentPlanID
+	} else {
+		student.CurrentPlanID = nil
+	}
+	if payload.BalanceCents != nil {
+		student.BalanceCents = *payload.BalanceCents
 	}
 
 	if err := h.service.Update(c.Request.Context(), student); err != nil {
@@ -283,6 +333,10 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	updated, _ := h.service.GetByID(c.Request.Context(), uint(id))
+	if updated != nil {
+		student = updated
+	}
 	c.JSON(http.StatusOK, toStudentDoc(student))
 }
 

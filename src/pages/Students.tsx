@@ -95,21 +95,32 @@ function mapStudent(api: StudentApi): StudentRow {
 
 function EditStudentForm({
   student,
+  advisors,
+  plans,
   onCancel,
   onSuccess,
   mutation,
 }: {
-  student: StudentRow;
+  student: StudentApi;
+  advisors: UserApi[];
+  plans: PlanApi[];
   onCancel: () => void;
   onSuccess: () => void;
   mutation: ReturnType<typeof useMutation<StudentApi, Error, { id: number; payload: UpdateStudentPayload }>>;
 }) {
-  const parts = student.name.split(" ");
-  const [firstName, setFirstName] = useState(parts[0] || "");
-  const [lastName, setLastName] = useState(parts.slice(1).join(" ") || "");
+  const [firstName, setFirstName] = useState(student.first_name || "");
+  const [lastName, setLastName] = useState(student.last_name || "");
   const [email, setEmail] = useState(student.email || "");
   const [phone, setPhone] = useState(student.phone || "");
-  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(student.status === "active" ? "ACTIVE" : "INACTIVE");
+  const [fatherPhone, setFatherPhone] = useState(student.father_phone || "");
+  const [motherPhone, setMotherPhone] = useState(student.mother_phone || "");
+  const [schoolName, setSchoolName] = useState(student.school_name || "");
+  const [schoolAddress, setSchoolAddress] = useState(student.school_address || "");
+  const [homeAddress, setHomeAddress] = useState(student.home_address || "");
+  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(student.status === "INACTIVE" ? "INACTIVE" : "ACTIVE");
+  const [advisorId, setAdvisorId] = useState(student.advisor_id != null ? String(student.advisor_id) : "none");
+  const [planId, setPlanId] = useState(student.current_plan_id != null ? String(student.current_plan_id) : "none");
+  const [balance, setBalance] = useState(student.balance_cents != null ? String(student.balance_cents) : "0");
 
   return (
     <div className="space-y-4 py-2">
@@ -130,7 +141,63 @@ function EditStudentForm({
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." />
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
+          <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره مادر</label>
+          <Input value={motherPhone} onChange={(e) => setMotherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+        </div>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
+        <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
+        <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
+        <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+          <Select value={advisorId} onValueChange={setAdvisorId}>
+            <SelectTrigger>
+              <SelectValue placeholder="انتخاب مشاور" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">بدون مشاور</SelectItem>
+              {advisors.map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>{a.first_name} {a.last_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن</label>
+          <Select value={planId} onValueChange={setPlanId}>
+            <SelectTrigger>
+              <SelectValue placeholder="انتخاب پلن" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">بدون پلن</SelectItem>
+              {plans.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب (ریال)</label>
+          <Input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} dir="ltr" />
         </div>
       </div>
       <div className="flex items-center justify-between">
@@ -149,19 +216,22 @@ function EditStudentForm({
         <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
         <Button
           onClick={() => {
-            mutation.mutate(
-              {
-                id: student.id,
-                payload: {
-                  first_name: firstName.trim(),
-                  last_name: lastName.trim(),
-                  email: email.trim() || undefined,
-                  phone: phone.trim() || undefined,
-                  status,
-                },
-              },
-              { onSuccess }
-            );
+            const payload: UpdateStudentPayload = {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+              email: email.trim() || undefined,
+              phone: phone.trim() || undefined,
+              father_phone: fatherPhone.trim() || undefined,
+              mother_phone: motherPhone.trim() || undefined,
+              school_name: schoolName.trim() || undefined,
+              school_address: schoolAddress.trim() || undefined,
+              home_address: homeAddress.trim() || undefined,
+              status,
+              advisor_id: advisorId === "none" ? null : Number(advisorId),
+              current_plan_id: planId === "none" ? null : Number(planId),
+              balance_cents: Number(balance) || 0,
+            };
+            mutation.mutate({ id: student.id, payload }, { onSuccess });
           }}
           disabled={mutation.isPending || !firstName.trim() || !lastName.trim()}
         >
@@ -180,7 +250,7 @@ const Students = () => {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
-  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+  const [editStudentId, setEditStudentId] = useState<number | null>(null);
   const [deleteStudent, setDeleteStudent] = useState<StudentRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -189,6 +259,11 @@ const Students = () => {
   const [advisorId, setAdvisorId] = useState("");
   const [planId, setPlanId] = useState("");
   const [balance, setBalance] = useState("");
+  const [fatherPhone, setFatherPhone] = useState("");
+  const [motherPhone, setMotherPhone] = useState("");
+  const [schoolName, setSchoolName] = useState("");
+  const [schoolAddress, setSchoolAddress] = useState("");
+  const [homeAddress, setHomeAddress] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -198,13 +273,19 @@ const Students = () => {
     enabled: detailsStudentId != null,
   });
 
+  const { data: editStudentData } = useQuery({
+    queryKey: ["student", editStudentId],
+    queryFn: () => getStudent(editStudentId!),
+    enabled: editStudentId != null,
+  });
+
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: UpdateStudentPayload }) =>
       updateStudent(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
-      setEditStudent(null);
+      setEditStudentId(null);
     },
   });
 
@@ -264,6 +345,11 @@ const Students = () => {
       setAdvisorId("");
       setPlanId("");
       setBalance("");
+      setFatherPhone("");
+      setMotherPhone("");
+      setSchoolName("");
+      setSchoolAddress("");
+      setHomeAddress("");
     },
   });
 
@@ -491,7 +577,7 @@ const Students = () => {
                             <Eye className="ml-2 h-4 w-4" />
                             جزئیات
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setEditStudent(student)}>
+                          <DropdownMenuItem onClick={() => setEditStudentId(student.id)}>
                             <Pencil className="ml-2 h-4 w-4" />
                             ویرایش
                           </DropdownMenuItem>
@@ -520,10 +606,15 @@ const Students = () => {
             <DialogTitle>جزئیات دانش‌آموز</DialogTitle>
           </DialogHeader>
           {detailsStudentData && (
-            <div className="space-y-3 text-sm">
-              <p><span className="text-muted-foreground">نام:</span> {detailsStudentData.first_name} {detailsStudentData.last_name}</p>
+            <div className="space-y-3 text-sm max-h-[70vh] overflow-y-auto">
+              <p><span className="text-muted-foreground">نام و نام خانوادگی:</span> {detailsStudentData.first_name} {detailsStudentData.last_name}</p>
               <p><span className="text-muted-foreground">ایمیل:</span> {detailsStudentData.email || "—"}</p>
-              <p><span className="text-muted-foreground">موبایل:</span> {detailsStudentData.phone || "—"}</p>
+              <p><span className="text-muted-foreground">موبایل:</span> {detailsStudentData.phone ? <span dir="ltr">{detailsStudentData.phone}</span> : "—"}</p>
+              <p><span className="text-muted-foreground">شماره پدر:</span> {detailsStudentData.father_phone ? <span dir="ltr">{detailsStudentData.father_phone}</span> : "—"}</p>
+              <p><span className="text-muted-foreground">شماره مادر:</span> {detailsStudentData.mother_phone ? <span dir="ltr">{detailsStudentData.mother_phone}</span> : "—"}</p>
+              <p><span className="text-muted-foreground">اسم مدرسه:</span> {detailsStudentData.school_name || "—"}</p>
+              <p><span className="text-muted-foreground">آدرس مدرسه:</span> {detailsStudentData.school_address || "—"}</p>
+              <p><span className="text-muted-foreground">آدرس خانه:</span> {detailsStudentData.home_address || "—"}</p>
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
               <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
               <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
@@ -534,16 +625,18 @@ const Students = () => {
       </Dialog>
 
       {/* Edit student dialog */}
-      <Dialog open={editStudent != null} onOpenChange={(open) => !open && setEditStudent(null)}>
-        <DialogContent>
+      <Dialog open={editStudentId != null} onOpenChange={(open) => !open && setEditStudentId(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>ویرایش دانش‌آموز</DialogTitle>
           </DialogHeader>
-          {editStudent && (
+          {editStudentData && (
             <EditStudentForm
-              student={editStudent}
-              onCancel={() => setEditStudent(null)}
-              onSuccess={() => setEditStudent(null)}
+              student={editStudentData}
+              advisors={advisors || []}
+              plans={plans || []}
+              onCancel={() => setEditStudentId(null)}
+              onSuccess={() => setEditStudentId(null)}
               mutation={updateMutation}
             />
           )}
@@ -623,6 +716,58 @@ const Students = () => {
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  شماره پدر
+                </label>
+                <Input
+                  value={fatherPhone}
+                  onChange={(e) => setFatherPhone(e.target.value)}
+                  placeholder="۰۹۱۲..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  شماره مادر
+                </label>
+                <Input
+                  value={motherPhone}
+                  onChange={(e) => setMotherPhone(e.target.value)}
+                  placeholder="۰۹۱۲..."
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                اسم مدرسه
+              </label>
+              <Input
+                value={schoolName}
+                onChange={(e) => setSchoolName(e.target.value)}
+                placeholder="نام مدرسه"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                آدرس مدرسه
+              </label>
+              <Input
+                value={schoolAddress}
+                onChange={(e) => setSchoolAddress(e.target.value)}
+                placeholder="آدرس مدرسه"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                آدرس خانه
+              </label>
+              <Input
+                value={homeAddress}
+                onChange={(e) => setHomeAddress(e.target.value)}
+                placeholder="آدرس منزل"
+              />
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -696,6 +841,11 @@ const Students = () => {
                   last_name: lastName.trim(),
                   email: email.trim() || undefined,
                   phone: phone.trim() || undefined,
+                  father_phone: fatherPhone.trim() || undefined,
+                  mother_phone: motherPhone.trim() || undefined,
+                  school_name: schoolName.trim() || undefined,
+                  school_address: schoolAddress.trim() || undefined,
+                  home_address: homeAddress.trim() || undefined,
                   advisor_id: advisorId ? Number(advisorId) : undefined,
                   current_plan_id: planId ? Number(planId) : undefined,
                   balance_cents: balance ? Number(balance) : undefined,
