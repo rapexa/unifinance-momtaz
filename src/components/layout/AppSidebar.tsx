@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -12,11 +12,27 @@ import {
   Settings,
   ChevronRight,
   Menu,
-  X,
   Building2,
+  User,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "مدیر کل",
+  ACCOUNTANT: "حسابدار",
+  ADVISOR: "مشاور",
+  OPERATOR: "اپراتور",
+};
 
 interface NavItem {
   title: string;
@@ -40,10 +56,21 @@ const navItems: NavItem[] = [
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { profile, isLoading, isError, logout } = useCurrentUser();
+
+  const displayName = profile
+    ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "کاربر"
+    : "ورود";
+  const roleLabel = profile ? ROLE_LABELS[profile.role] ?? profile.role : "";
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   return (
     <>
-      {/* Mobile overlay */}
       <div
         className={cn(
           "fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm transition-opacity lg:hidden",
@@ -52,7 +79,6 @@ export function AppSidebar() {
         onClick={() => setCollapsed(true)}
       />
 
-      {/* Sidebar */}
       <aside
         className={cn(
           "fixed right-0 top-0 z-50 flex h-screen flex-col bg-sidebar transition-all duration-300",
@@ -60,7 +86,6 @@ export function AppSidebar() {
           "lg:relative"
         )}
       >
-        {/* Header */}
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
           <div className={cn("flex items-center gap-3", collapsed && "justify-center w-full")}>
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary">
@@ -86,7 +111,6 @@ export function AppSidebar() {
           </Button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
@@ -106,7 +130,7 @@ export function AppSidebar() {
                 {!collapsed && (
                   <>
                     <span className="flex-1">{item.title}</span>
-                    {item.badge && (
+                    {item.badge != null && (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-xs font-bold text-sidebar-accent-foreground">
                         {item.badge}
                       </span>
@@ -118,28 +142,54 @@ export function AppSidebar() {
           })}
         </nav>
 
-        {/* User section */}
         <div className="border-t border-sidebar-border p-3">
-          <div
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2",
-              collapsed && "justify-center px-2"
-            )}
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-bold text-sidebar-accent-foreground">
-              م
-            </div>
-            {!collapsed && (
-              <div className="flex-1 animate-fade-in">
-                <p className="text-sm font-medium text-sidebar-foreground">مدیر سیستم</p>
-                <p className="text-xs text-sidebar-muted">مدیر کل</p>
-              </div>
-            )}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-lg px-3 py-2 text-right hover:bg-sidebar-accent transition-colors",
+                  collapsed && "justify-center px-2"
+                )}
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-bold text-sidebar-accent-foreground shrink-0">
+                  {(displayName || "م").charAt(0)}
+                </div>
+                {!collapsed && (
+                  <div className="flex-1 min-w-0 animate-fade-in">
+                    <p className="text-sm font-medium text-sidebar-foreground truncate">
+                      {isLoading ? "..." : isError ? "ورود" : displayName}
+                    </p>
+                    <p className="text-xs text-sidebar-muted truncate">{roleLabel}</p>
+                  </div>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuItem asChild>
+                <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
+                  <User className="h-4 w-4" />
+                  پروفایل
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
+                  <Settings className="h-4 w-4" />
+                  تنظیمات
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={handleLogout}
+              >
+                <LogOut className="ml-2 h-4 w-4" />
+                خروج
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
-      {/* Mobile toggle button */}
       <Button
         variant="outline"
         size="icon"

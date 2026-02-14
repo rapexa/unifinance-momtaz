@@ -183,7 +183,16 @@ func (s *SettingsService) SetTwoFactorEnabled(ctx context.Context, userID uint, 
 
 // --- Notifications (Settings > Notifications) ---
 
-// GetNotificationSettings returns all notification settings rows for the user.
+// AllNotificationTypes is the list of notification types returned to the client (defaults for missing rows).
+var AllNotificationTypes = []models.NotificationType{
+	models.NotificationNewPayment,
+	models.NotificationNewDebt,
+	models.NotificationDueReminder,
+	models.NotificationDailyReport,
+	models.NotificationWeeklyReport,
+}
+
+// GetNotificationSettings returns all notification settings for the user. Missing types are returned with Enabled=false.
 func (s *SettingsService) GetNotificationSettings(ctx context.Context, userID uint) ([]models.NotificationSetting, error) {
 	var settings []models.NotificationSetting
 	if err := s.db.WithContext(ctx).
@@ -191,7 +200,16 @@ func (s *SettingsService) GetNotificationSettings(ctx context.Context, userID ui
 		Find(&settings).Error; err != nil {
 		return nil, err
 	}
-	return settings, nil
+	byType := make(map[models.NotificationType]bool)
+	for _, ss := range settings {
+		byType[ss.Type] = ss.Enabled
+	}
+	out := make([]models.NotificationSetting, 0, len(AllNotificationTypes))
+	for _, t := range AllNotificationTypes {
+		enabled := byType[t]
+		out = append(out, models.NotificationSetting{UserID: userID, Type: t, Enabled: enabled})
+	}
+	return out, nil
 }
 
 type NotificationToggle struct {
