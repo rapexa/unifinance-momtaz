@@ -234,6 +234,7 @@ func main() {
 	notifications := settings.Group("/notifications")
 	{
 		notifications.GET("", settingsHandler.GetNotifications)
+		notifications.GET("/count", settingsHandler.GetNotificationCount)
 		notifications.PUT("", settingsHandler.UpdateNotifications)
 	}
 

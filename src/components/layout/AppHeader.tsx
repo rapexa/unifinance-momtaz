@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, Search, ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { getNotificationCount } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "مدیر کل",
@@ -26,6 +28,11 @@ interface AppHeaderProps {
 export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const navigate = useNavigate();
   const { profile, isLoading, isError, logout } = useCurrentUser();
+  const { data: notificationCount = 0 } = useQuery({
+    queryKey: ["notification-count"],
+    queryFn: getNotificationCount,
+    staleTime: 60 * 1000,
+  });
 
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "کاربر"
@@ -55,9 +62,11 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
 
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
-          <span className="absolute -top-0.5 -left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-            ۵
-          </span>
+          {notificationCount > 0 && (
+            <span className="absolute -top-0.5 -left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+              {notificationCount > 99 ? "99+" : notificationCount}
+            </span>
+          )}
         </Button>
 
         <DropdownMenu>

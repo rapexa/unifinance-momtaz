@@ -13,7 +13,7 @@ const Login = () => {
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (token) {
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
 
@@ -46,7 +46,7 @@ const Login = () => {
         return;
       }
 
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     } finally {
       setLoading(false);
     }

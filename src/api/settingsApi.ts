@@ -100,6 +100,15 @@ export interface NotificationSettingItem {
   enabled: boolean;
 }
 
+export async function getNotificationCount(): Promise<number> {
+  const res = await fetch(`${API_BASE}/settings/notifications/count`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return 0;
+  return (data as { count?: number })?.count ?? 0;
+}
+
 export async function getNotifications(): Promise<NotificationSettingItem[]> {
   const res = await fetch(`${API_BASE}/settings/notifications`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },

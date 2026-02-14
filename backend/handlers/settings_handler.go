@@ -385,6 +385,25 @@ func (h *SettingsHandler) GetNotifications(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// GetNotificationCount handles GET /settings/notifications/count
+// @Summary      Unread notification count
+// @Description  Returns the number of unread notifications for the current user (for header badge)
+// @Tags         settings
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  map[string]int
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /settings/notifications/count [get]
+func (h *SettingsHandler) GetNotificationCount(c *gin.Context) {
+	_, ok := getCurrentUserID(c)
+	if !ok {
+		return
+	}
+	// No notification inbox table yet; return 0. Replace with real count when notifications are implemented.
+	c.JSON(http.StatusOK, gin.H{"count": 0})
+}
+
 type updateNotificationsRequest struct {
 	Settings []NotificationSettingDTO `json:"settings" binding:"required,dive"`
 }

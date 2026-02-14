@@ -38,15 +38,14 @@ interface NavItem {
   title: string;
   href: string;
   icon: React.ElementType;
-  badge?: number;
 }
 
 const navItems: NavItem[] = [
-  { title: "داشبورد", href: "/", icon: LayoutDashboard },
+  { title: "داشبورد", href: "/dashboard", icon: LayoutDashboard },
   { title: "کاربران و نقش‌ها", href: "/users", icon: Users },
-  { title: "دانش‌آموزان", href: "/students", icon: GraduationCap, badge: 12 },
+  { title: "دانش‌آموزان", href: "/students", icon: GraduationCap },
   { title: "پلن‌ها و خدمات", href: "/plans", icon: FileText },
-  { title: "پرداخت‌ها", href: "/payments", icon: CreditCard, badge: 3 },
+  { title: "پرداخت‌ها", href: "/payments", icon: CreditCard },
   { title: "حقوق و دستمزد", href: "/payroll", icon: Wallet },
   { title: "یادآوری‌ها", href: "/reminders", icon: Bell },
   { title: "گزارش‌ها", href: "/reports", icon: BarChart3 },
@@ -127,16 +126,7 @@ export function AppSidebar() {
                 )}
               >
                 <item.icon className={cn("h-5 w-5 shrink-0", isActive && "animate-pulse-soft")} />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1">{item.title}</span>
-                    {item.badge != null && (
-                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-xs font-bold text-sidebar-accent-foreground">
-                        {item.badge}
-                      </span>
-                    )}
-                  </>
-                )}
+                {!collapsed && <span className="flex-1">{item.title}</span>}
               </Link>
             );
           })}
