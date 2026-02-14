@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "مدیر کل",
@@ -38,19 +39,25 @@ interface NavItem {
   title: string;
   href: string;
   icon: React.ElementType;
+  permission: PermissionCode;
 }
 
 const navItems: NavItem[] = [
-  { title: "داشبورد", href: "/dashboard", icon: LayoutDashboard },
-  { title: "کاربران و نقش‌ها", href: "/users", icon: Users },
-  { title: "دانش‌آموزان", href: "/students", icon: GraduationCap },
-  { title: "پلن‌ها و خدمات", href: "/plans", icon: FileText },
-  { title: "پرداخت‌ها", href: "/payments", icon: CreditCard },
-  { title: "حقوق و دستمزد", href: "/payroll", icon: Wallet },
-  { title: "یادآوری‌ها", href: "/reminders", icon: Bell },
-  { title: "گزارش‌ها", href: "/reports", icon: BarChart3 },
-  { title: "تنظیمات", href: "/settings", icon: Settings },
+  { title: "داشبورد", href: "/dashboard", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD },
+  { title: "کاربران و نقش‌ها", href: "/users", icon: Users, permission: PERMISSIONS.USERS },
+  { title: "دانش‌آموزان", href: "/students", icon: GraduationCap, permission: PERMISSIONS.STUDENTS },
+  { title: "پلن‌ها و خدمات", href: "/plans", icon: FileText, permission: PERMISSIONS.PLANS },
+  { title: "پرداخت‌ها", href: "/payments", icon: CreditCard, permission: PERMISSIONS.PAYMENTS },
+  { title: "حقوق و دستمزد", href: "/payroll", icon: Wallet, permission: PERMISSIONS.PAYROLL },
+  { title: "یادآوری‌ها", href: "/reminders", icon: Bell, permission: PERMISSIONS.REMINDERS },
+  { title: "گزارش‌ها", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS },
+  { title: "تنظیمات", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
 ];
+
+function hasPermission(permissions: string[] | undefined, permission: PermissionCode): boolean {
+  if (permissions === undefined) return true;
+  return permissions.includes(permission);
+}
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -111,7 +118,9 @@ export function AppSidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {navItems.map((item) => {
+          {navItems
+            .filter((item) => hasPermission(profile?.permissions, item.permission))
+            .map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link

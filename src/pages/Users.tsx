@@ -43,6 +43,19 @@ import {
   UserApi,
   UpdateUserPayload,
 } from "@/api/usersApi";
+import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
+
+const PERMISSION_LABELS: Record<string, string> = {
+  DASHBOARD: "داشبورد",
+  STUDENTS: "دانش‌آموزان",
+  USERS: "کاربران و نقش‌ها",
+  PLANS: "پلن‌ها و خدمات",
+  PAYMENTS: "پرداخت‌ها",
+  PAYROLL: "حقوق و دستمزد",
+  REMINDERS: "یادآوری‌ها",
+  REPORTS: "گزارش‌ها",
+  SETTINGS: "تنظیمات",
+};
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,23 +112,36 @@ function mapUser(u: UserApi): UserRow {
   } as any;
 }
 
+const ALL_PERMISSION_CODES: PermissionCode[] = [
+  PERMISSIONS.DASHBOARD, PERMISSIONS.STUDENTS, PERMISSIONS.USERS, PERMISSIONS.PLANS,
+  PERMISSIONS.PAYMENTS, PERMISSIONS.PAYROLL, PERMISSIONS.REMINDERS, PERMISSIONS.REPORTS, PERMISSIONS.SETTINGS,
+];
+
 function EditUserForm({
   user,
   onCancel,
   onSuccess,
   mutation,
 }: {
-  user: UserRow;
+  user: UserApi;
   onCancel: () => void;
   onSuccess: () => void;
   mutation: ReturnType<typeof useMutation<UserApi, Error, { id: number; payload: UpdateUserPayload }>>;
 }) {
-  const [firstName, setFirstName] = useState(user.name.split(" ")[0] || "");
-  const [lastName, setLastName] = useState(user.name.split(" ").slice(1).join(" ") || "");
-  const [email, setEmail] = useState(user.email);
-  const [phone, setPhone] = useState("");
-  const [role, setRole] = useState(user.roleCode);
-  const [isActive, setIsActive] = useState(user.status === "active");
+  const [firstName, setFirstName] = useState(user.first_name || "");
+  const [lastName, setLastName] = useState(user.last_name || "");
+  const [email, setEmail] = useState(user.email || "");
+  const [phone, setPhone] = useState(user.phone || "");
+  const [role, setRole] = useState((user.role || "").toUpperCase());
+  const [isActive, setIsActive] = useState(user.is_active ?? true);
+  const [newPassword, setNewPassword] = useState("");
+  const [permissions, setPermissions] = useState<string[]>(user.permissions ?? []);
+
+  const togglePermission = (code: string) => {
+    setPermissions((prev) =>
+      prev.includes(code) ? prev.filter((p) => p !== code) : [...prev, code]
+    );
+  }
 
   return (
     <div className="space-y-4 py-2">
@@ -139,6 +165,15 @@ function EditUserForm({
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." />
         </div>
       </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">رمز عبور جدید (اختیاری؛ خالی بگذارید تا تغییر نکند)</label>
+        <Input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="حداقل ۸ کاراکتر"
+        />
+      </div>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">نقش</span>
         <Select value={role} onValueChange={setRole}>
@@ -157,22 +192,38 @@ function EditUserForm({
         <span className="text-xs text-muted-foreground">وضعیت</span>
         <Switch checked={isActive} onCheckedChange={setIsActive} />
       </div>
+      <div>
+        <label className="mb-2 block text-xs font-medium text-muted-foreground">دسترسی‌ها (بخش‌های قابل مشاهده)</label>
+        <div className="flex flex-wrap gap-3">
+          {ALL_PERMISSION_CODES.map((code) => (
+            <label key={code} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={permissions.includes(code)}
+                onChange={() => togglePermission(code)}
+                className="rounded border-input"
+              />
+              <span className="text-sm">{PERMISSION_LABELS[code] ?? code}</span>
+            </label>
+          ))}
+        </div>
+      </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
         <Button
           onClick={() => {
+            const payload: UpdateUserPayload = {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+              email: email.trim(),
+              phone: phone.trim() || undefined,
+              role,
+              is_active: isActive,
+              permissions,
+            };
+            if (newPassword.trim()) payload.password = newPassword.trim();
             mutation.mutate(
-              {
-                id: user.id,
-                payload: {
-                  first_name: firstName.trim(),
-                  last_name: lastName.trim(),
-                  email: email.trim(),
-                  phone: phone.trim() || undefined,
-                  role,
-                  is_active: isActive,
-                },
-              },
+              { id: user.id, payload },
               { onSuccess: onSuccess }
             );
           }}
@@ -196,7 +247,7 @@ const Users = () => {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsUserId, setDetailsUserId] = useState<number | null>(null);
-  const [editUser, setEditUser] = useState<UserRow | null>(null);
+  const [editUserId, setEditUserId] = useState<number | null>(null);
   const [deleteUser, setDeleteUser] = useState<UserRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -214,13 +265,19 @@ const Users = () => {
     enabled: detailsUserId != null,
   });
 
+  const { data: editUserData } = useQuery({
+    queryKey: ["user", editUserId],
+    queryFn: () => getUser(editUserId!),
+    enabled: editUserId != null,
+  });
+
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: Parameters<typeof updateUser>[1] }) =>
+    mutationFn: ({ id, payload }: { id: number; payload: UpdateUserPayload }) =>
       updateUser(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
-      setEditUser(null);
+      setEditUserId(null);
     },
   });
 
@@ -525,7 +582,7 @@ const Users = () => {
                           <Eye className="ml-2 h-4 w-4" />
                           جزئیات
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditUser(user)}>
+                        <DropdownMenuItem onClick={() => setEditUserId(user.id)}>
                           <Pencil className="ml-2 h-4 w-4" />
                           ویرایش
                         </DropdownMenuItem>
@@ -695,22 +752,23 @@ const Users = () => {
               <p><span className="text-muted-foreground">موبایل:</span> {detailsUserData.phone || "—"}</p>
               <p><span className="text-muted-foreground">نقش:</span> {roleLabelMap[detailsUserData.role?.toUpperCase() || ""] || detailsUserData.role}</p>
               <p><span className="text-muted-foreground">وضعیت:</span> {detailsUserData.is_active ? "فعال" : "غیرفعال"}</p>
+              <p><span className="text-muted-foreground">دسترسی‌ها:</span> {(detailsUserData.permissions ?? []).length ? (detailsUserData.permissions ?? []).map((p) => PERMISSION_LABELS[p] ?? p).join("، ") : "—"}</p>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
       {/* Edit user dialog */}
-      <Dialog open={editUser != null} onOpenChange={(open) => !open && setEditUser(null)}>
+      <Dialog open={editUserId != null} onOpenChange={(open) => !open && setEditUserId(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>ویرایش کاربر</DialogTitle>
           </DialogHeader>
-          {editUser && (
+          {editUserData && (
             <EditUserForm
-              user={editUser}
-              onCancel={() => setEditUser(null)}
-              onSuccess={() => setEditUser(null)}
+              user={editUserData}
+              onCancel={() => setEditUserId(null)}
+              onSuccess={() => setEditUserId(null)}
               mutation={updateMutation}
             />
           )}

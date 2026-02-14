@@ -14,10 +14,11 @@ import (
 // UserHandler exposes user management endpoints.
 type UserHandler struct {
 	service *services.UserService
+	permSvc *services.PermissionService
 }
 
-func NewUserHandler(service *services.UserService) *UserHandler {
-	return &UserHandler{service: service}
+func NewUserHandler(service *services.UserService, permSvc *services.PermissionService) *UserHandler {
+	return &UserHandler{service: service, permSvc: permSvc}
 }
 
 // UserDTO is the public representation of a user.
@@ -31,6 +32,7 @@ type UserDTO struct {
 	IsActive       bool      `json:"is_active"`
 	OrganizationID *uint     `json:"organization_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
+	Permissions    []string  `json:"permissions,omitempty"` // only for GET when caller has USERS permission
 }
 
 func toUserDTO(u *models.User) UserDTO {
@@ -82,13 +84,15 @@ type createUserRequest struct {
 }
 
 type updateUserRequest struct {
-	FirstName      *string `json:"first_name" binding:"omitempty,min=2,max=100"`
-	LastName       *string `json:"last_name" binding:"omitempty,min=2,max=100"`
-	Email          *string `json:"email" binding:"omitempty,email,max=255"`
-	Phone          *string `json:"phone" binding:"omitempty,max=20"`
-	Role           *string `json:"role" binding:"omitempty"`
-	IsActive       *bool   `json:"is_active" binding:"omitempty"`
-	OrganizationID *uint   `json:"organization_id" binding:"omitempty"`
+	FirstName      *string  `json:"first_name" binding:"omitempty,min=2,max=100"`
+	LastName       *string  `json:"last_name" binding:"omitempty,min=2,max=100"`
+	Email          *string  `json:"email" binding:"omitempty,email,max=255"`
+	Phone          *string  `json:"phone" binding:"omitempty,max=20"`
+	Role           *string  `json:"role" binding:"omitempty"`
+	IsActive       *bool    `json:"is_active" binding:"omitempty"`
+	OrganizationID *uint    `json:"organization_id" binding:"omitempty"`
+	Password       *string  `json:"password" binding:"omitempty,min=8"`       // admin can set user password
+	Permissions    []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
 // List handles GET /users
@@ -211,7 +215,14 @@ func (h *UserHandler) Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserDTO(u))
+	dto := toUserDTO(u)
+	if h.permSvc != nil {
+		perms, _ := h.permSvc.GetForUser(c.Request.Context(), u.ID, u.Role)
+		for _, p := range perms {
+			dto.Permissions = append(dto.Permissions, string(p))
+		}
+	}
+	c.JSON(http.StatusOK, dto)
 }
 
 // Create handles POST /users
@@ -299,6 +310,13 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Role:           req.Role,
 		IsActive:       req.IsActive,
 		OrganizationID: req.OrganizationID,
+		Password:       req.Password,
+	}
+	if req.Permissions != nil {
+		params.Permissions = make([]models.Permission, 0, len(req.Permissions))
+		for _, s := range req.Permissions {
+			params.Permissions = append(params.Permissions, models.Permission(s))
+		}
 	}
 
 	u, err := h.service.Update(c.Request.Context(), uint(id), params)

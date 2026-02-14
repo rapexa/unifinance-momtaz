@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/services"
 	"github.com/soheilsshh/unifinance-momtaz/utils"
 )
 
@@ -81,5 +82,34 @@ func RoleMiddleware(allowed ...models.UserRole) gin.HandlerFunc {
 // AdminOnly is a convenience middleware for admin-only routes.
 func AdminOnly() gin.HandlerFunc {
 	return RoleMiddleware(models.UserRoleAdmin)
+}
+
+// PermissionMiddleware ensures the current user has the required permission (admin has all).
+func PermissionMiddleware(permService *services.PermissionService, required models.Permission) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDVal, exists := c.Get(ContextUserIDKey)
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing user in context"})
+			return
+		}
+		userID, ok := userIDVal.(uint)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid user id type"})
+			return
+		}
+		roleVal, _ := c.Get(ContextUserRole)
+		role, _ := roleVal.(models.UserRole)
+
+		ok, err := permService.HasPermission(c.Request.Context(), userID, role, required)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to check permission"})
+			return
+		}
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+		c.Next()
+	}
 }
 

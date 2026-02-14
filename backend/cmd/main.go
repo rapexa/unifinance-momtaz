@@ -38,14 +38,16 @@ func main() {
 
 	// Repositories (Repository Pattern)
 	userRepo := repositories.NewUserRepository(db)
+	permRepo := repositories.NewPermissionRepository(db)
 	studentRepo := repositories.NewStudentRepository(db)
 	planRepo := repositories.NewPlanRepository(db)
 	paymentRepo := repositories.NewPaymentRepository(db)
 
 	// Services (Service Layer)
 	authService := services.NewAuthService(userRepo, cfg)
+	permService := services.NewPermissionService(permRepo)
+	userService := services.NewUserService(userRepo, permService)
 	studentService := services.NewStudentService(studentRepo)
-	userService := services.NewUserService(userRepo)
 	planService := services.NewPlanService(planRepo)
 	paymentService := services.NewPaymentService(paymentRepo)
 	dashboardService := services.NewDashboardService(db, paymentRepo)
@@ -56,13 +58,13 @@ func main() {
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService)
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, permService)
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService)
-	settingsHandler := handlers.NewSettingsHandler(settingsService)
+	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
 
 	// Gin engine
 	r := gin.Default()
@@ -121,30 +123,22 @@ func main() {
 		protectedAuth.POST("/logout", authHandler.Logout)
 	}
 
-	// Students endpoints (backing /students page)
+	// RBAC: each group requires the corresponding permission (admin has all)
+	// Students
 	students := protected.Group("/students")
+	students.Use(middleware.PermissionMiddleware(permService, models.PermStudents))
 	{
 		students.GET("", studentHandler.List)
 		students.GET("/summary", studentHandler.Summary)
 		students.GET("/:id", studentHandler.Get)
-		// Only admins and advisors can create/update/delete students
-		students.POST("",
-			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
-			studentHandler.Create,
-		)
-		students.PUT("/:id",
-			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
-			studentHandler.Update,
-		)
-		students.DELETE("/:id",
-			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
-			studentHandler.Delete,
-		)
+		students.POST("", studentHandler.Create)
+		students.PUT("/:id", studentHandler.Update)
+		students.DELETE("/:id", studentHandler.Delete)
 	}
 
-	// Users endpoints (admin-only management)
+	// Users (admin: full access; others only if granted USERS permission)
 	users := protected.Group("/users")
-	users.Use(middleware.AdminOnly())
+	users.Use(middleware.PermissionMiddleware(permService, models.PermUsers))
 	{
 		users.GET("", userHandler.List)
 		users.GET("/summary", userHandler.Summary)
@@ -155,9 +149,9 @@ func main() {
 		users.DELETE("/:id", userHandler.Deactivate)
 	}
 
-	// Plans endpoints (admin-only management)
+	// Plans
 	plans := protected.Group("/plans")
-	plans.Use(middleware.AdminOnly())
+	plans.Use(middleware.PermissionMiddleware(permService, models.PermPlans))
 	{
 		plans.GET("", planHandler.List)
 		plans.GET("/summary", planHandler.Summary)
@@ -167,9 +161,9 @@ func main() {
 		plans.DELETE("/:id", planHandler.Deactivate)
 	}
 
-	// Payments endpoints (admin-only management, backing /payments page and export)
+	// Payments
 	payments := protected.Group("/payments")
-	payments.Use(middleware.AdminOnly())
+	payments.Use(middleware.PermissionMiddleware(permService, models.PermPayments))
 	{
 		payments.GET("", paymentHandler.List)
 		payments.GET("/summary", paymentHandler.Summary)
@@ -181,8 +175,9 @@ func main() {
 		payments.POST("/:id/link", paymentHandler.GenerateLink)
 	}
 
-	// Dashboard endpoints (backing dashboard widgets and charts)
+	// Dashboard: only for users with DASHBOARD permission (admin by default)
 	dashboard := protected.Group("/dashboard")
+	dashboard.Use(middleware.PermissionMiddleware(permService, models.PermDashboard))
 	{
 		dashboard.GET("/summary", dashboardHandler.GetSummary)
 		dashboard.GET("/recent-payments", dashboardHandler.GetRecentPayments)
@@ -190,9 +185,9 @@ func main() {
 		dashboard.GET("/revenue-trend", dashboardHandler.GetRevenueTrend)
 	}
 
-	// Payroll endpoints (admin-only, backing /payroll page)
+	// Payroll
 	payroll := protected.Group("/payroll")
-	payroll.Use(middleware.AdminOnly())
+	payroll.Use(middleware.PermissionMiddleware(permService, models.PermPayroll))
 	{
 		payroll.GET("/summary", payrollHandler.GetSummary)
 		payroll.GET("/entries", payrollHandler.ListEntries)
@@ -201,9 +196,9 @@ func main() {
 		payroll.GET("/schemes", payrollHandler.GetSchemes)
 	}
 
-	// Reports endpoints (admin-only, backing /reports page)
+	// Reports
 	reports := protected.Group("/reports")
-	reports.Use(middleware.AdminOnly())
+	reports.Use(middleware.PermissionMiddleware(permService, models.PermReports))
 	{
 		reports.GET("/summary", reportHandler.GetSummary)
 		reports.GET("/revenue", reportHandler.GetRevenueSeries)
@@ -211,19 +206,18 @@ func main() {
 		reports.GET("/debts", reportHandler.GetDebtsByAdvisor)
 	}
 
-	// Settings endpoints (backing /settings page)
+	// Settings
 	settings := protected.Group("/settings")
 
-	// Organization & payments settings (admin only)
 	orgGroup := settings.Group("/organization")
-	orgGroup.Use(middleware.AdminOnly())
+	orgGroup.Use(middleware.PermissionMiddleware(permService, models.PermSettings))
 	{
 		orgGroup.GET("", settingsHandler.GetOrganization)
 		orgGroup.PUT("", settingsHandler.UpdateOrganization)
 	}
 
 	paymentsSettings := settings.Group("/payments")
-	paymentsSettings.Use(middleware.AdminOnly())
+	paymentsSettings.Use(middleware.PermissionMiddleware(permService, models.PermSettings))
 	{
 		paymentsSettings.GET("", settingsHandler.GetPaymentSettings)
 		paymentsSettings.PUT("", settingsHandler.UpdatePaymentSettings)

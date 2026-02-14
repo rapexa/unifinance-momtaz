@@ -2,10 +2,7 @@ package services
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
-	"log"
-	"strings"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -61,13 +58,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 		return nil, ErrInvalidCredentials
 	}
 
-	// Enforce admin-only login:
-	// Use constant-time comparison on uppercased role to avoid timing-based role probing.
-	roleUpper := strings.ToUpper(string(user.Role))
-	if subtle.ConstantTimeCompare([]byte(roleUpper), []byte(string(models.UserRoleAdmin))) != 1 {
-		log.Printf("auth: non-admin login attempt blocked for email=%s role=%s", user.Email, user.Role)
-		return nil, ErrAdminOnly
-	}
+	// RBAC: all roles can login; access is controlled by permissions per route.
 
 	access, err := utils.GenerateAccessToken(user, s.cfg)
 	if err != nil {

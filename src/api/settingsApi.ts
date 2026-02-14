@@ -51,7 +51,23 @@ export interface Profile {
   avatar_url: string;
   bio: string;
   two_factor_enabled: boolean;
+  permissions?: string[];
 }
+
+/** Permission codes returned by API (RBAC). */
+export const PERMISSIONS = {
+  DASHBOARD: "DASHBOARD",
+  STUDENTS: "STUDENTS",
+  USERS: "USERS",
+  PLANS: "PLANS",
+  PAYMENTS: "PAYMENTS",
+  PAYROLL: "PAYROLL",
+  REMINDERS: "REMINDERS",
+  REPORTS: "REPORTS",
+  SETTINGS: "SETTINGS",
+} as const;
+
+export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export async function getProfile(): Promise<Profile> {
   const res = await fetch(`${API_BASE}/settings/profile`, {

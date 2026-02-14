@@ -17,11 +17,12 @@ var (
 
 // UserService encapsulates business logic for users.
 type UserService struct {
-	repo repositories.UserRepository
+	repo    repositories.UserRepository
+	permSvc *PermissionService
 }
 
-func NewUserService(repo repositories.UserRepository) *UserService {
-	return &UserService{repo: repo}
+func NewUserService(repo repositories.UserRepository, permSvc *PermissionService) *UserService {
+	return &UserService{repo: repo, permSvc: permSvc}
 }
 
 // List returns paginated users based on filters.
@@ -75,6 +76,8 @@ type UpdateUserParams struct {
 	Role           *string
 	IsActive       *bool
 	OrganizationID *uint
+	Password       *string // admin can set user password
+	Permissions    []models.Permission
 }
 
 func (s *UserService) Create(ctx context.Context, p CreateUserParams) (*models.User, error) {
@@ -103,6 +106,10 @@ func (s *UserService) Create(ctx context.Context, p CreateUserParams) (*models.U
 
 	if err := s.repo.Create(ctx, u); err != nil {
 		return nil, err
+	}
+
+	if s.permSvc != nil {
+		_ = s.permSvc.SetDefaultsForRole(ctx, u.ID, u.Role)
 	}
 
 	return u, nil
@@ -142,9 +149,18 @@ func (s *UserService) Update(ctx context.Context, id uint, p UpdateUserParams) (
 	if p.OrganizationID != nil {
 		u.OrganizationID = p.OrganizationID
 	}
+	if p.Password != nil && *p.Password != "" {
+		u.PlainPassword = *p.Password
+	}
 
 	if err := s.repo.Update(ctx, u); err != nil {
 		return nil, err
+	}
+
+	if s.permSvc != nil && p.Permissions != nil {
+		if err := s.permSvc.SetForUser(ctx, id, p.Permissions); err != nil {
+			return nil, err
+		}
 	}
 
 	return u, nil

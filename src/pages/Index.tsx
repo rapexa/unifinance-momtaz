@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Wallet, TrendingUp, Users, AlertCircle } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -7,6 +9,19 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { DebtAlerts } from "@/components/dashboard/DebtAlerts";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { getDashboardSummary, getRevenueTrend } from "@/api/dashboardApi";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { PERMISSIONS } from "@/api/settingsApi";
+
+const FIRST_ROUTE_BY_PERMISSION: Record<string, string> = {
+  [PERMISSIONS.STUDENTS]: "/students",
+  [PERMISSIONS.USERS]: "/users",
+  [PERMISSIONS.PLANS]: "/plans",
+  [PERMISSIONS.PAYMENTS]: "/payments",
+  [PERMISSIONS.PAYROLL]: "/payroll",
+  [PERMISSIONS.REMINDERS]: "/reminders",
+  [PERMISSIONS.REPORTS]: "/reports",
+  [PERMISSIONS.SETTINGS]: "/settings",
+};
 
 function formatCentsToToman(cents: number): string {
   const tomans = Math.floor(cents / 10);
@@ -14,6 +29,18 @@ function formatCentsToToman(cents: number): string {
 }
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const { profile } = useCurrentUser();
+
+  useEffect(() => {
+    if (!profile) return;
+    const perms = profile.permissions;
+    if (perms !== undefined && !perms.includes(PERMISSIONS.DASHBOARD)) {
+      const first = [PERMISSIONS.STUDENTS, PERMISSIONS.USERS, PERMISSIONS.PLANS, PERMISSIONS.PAYMENTS, PERMISSIONS.PAYROLL, PERMISSIONS.REMINDERS, PERMISSIONS.REPORTS, PERMISSIONS.SETTINGS].find((p) => perms.includes(p));
+      navigate(FIRST_ROUTE_BY_PERMISSION[first ?? PERMISSIONS.SETTINGS] ?? "/settings", { replace: true });
+    }
+  }, [profile, navigate]);
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: () => getDashboardSummary({ recent_limit: 5, alerts_limit: 5 }),

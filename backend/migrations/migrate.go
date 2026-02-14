@@ -24,6 +24,7 @@ func autoMigrate(db *gorm.DB) {
 	if err := db.AutoMigrate(
 		&models.Organization{},
 		&models.User{},
+		&models.UserPermission{},
 		&models.PaymentSettings{},
 		&models.NotificationSetting{},
 		&models.Plan{},
@@ -77,6 +78,12 @@ func seed(db *gorm.DB) {
 
 		if err := db.Create(&admin).Error; err != nil {
 			log.Fatalf("migrations: failed to create admin user: %v", err)
+		}
+		// Seed default permissions for admin (all permissions)
+		for _, p := range models.AllPermissions {
+			if err := db.Create(&models.UserPermission{UserID: admin.ID, Permission: p}).Error; err != nil {
+				log.Printf("migrations: warning seeding admin permission %s: %v", p, err)
+			}
 		}
 		log.Println("migrations: seeded default admin user (email: admin@example.com, password: change-me-please). Please change this in production.")
 	}

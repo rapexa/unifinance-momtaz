@@ -19,6 +19,7 @@ export interface UserApi {
   phone?: string;
   role: string;
   is_active: boolean;
+  permissions?: string[];
 }
 
 export interface PaginatedUsersResponse {
@@ -141,6 +142,8 @@ export interface UpdateUserPayload {
   phone?: string;
   role?: string;
   is_active?: boolean;
+  password?: string;
+  permissions?: string[];
 }
 
 export async function updateUser(

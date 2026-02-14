@@ -13,10 +13,11 @@ import (
 // SettingsHandler exposes settings-related endpoints (organization, profile, security, notifications, payments).
 type SettingsHandler struct {
 	service *services.SettingsService
+	permSvc *services.PermissionService
 }
 
-func NewSettingsHandler(service *services.SettingsService) *SettingsHandler {
-	return &SettingsHandler{service: service}
+func NewSettingsHandler(service *services.SettingsService, permSvc *services.PermissionService) *SettingsHandler {
+	return &SettingsHandler{service: service, permSvc: permSvc}
 }
 
 // --- DTOs ---
@@ -30,15 +31,16 @@ type OrganizationSettingsDTO struct {
 }
 
 type ProfileDTO struct {
-	ID              uint   `json:"id"`
-	FirstName       string `json:"first_name"`
-	LastName        string `json:"last_name"`
-	Email           string `json:"email"`
-	Phone           string `json:"phone,omitempty"`
-	Role            string `json:"role"`
-	AvatarURL       string `json:"avatar_url,omitempty"`
-	Bio             string `json:"bio,omitempty"`
-	TwoFactorEnabled bool   `json:"two_factor_enabled"`
+	ID               uint     `json:"id"`
+	FirstName        string   `json:"first_name"`
+	LastName         string   `json:"last_name"`
+	Email            string   `json:"email"`
+	Phone            string   `json:"phone,omitempty"`
+	Role             string   `json:"role"`
+	AvatarURL        string   `json:"avatar_url,omitempty"`
+	Bio              string   `json:"bio,omitempty"`
+	TwoFactorEnabled bool     `json:"two_factor_enabled"`
+	Permissions      []string `json:"permissions,omitempty"`
 }
 
 type NotificationSettingDTO struct {
@@ -196,7 +198,7 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ProfileDTO{
+	dto := ProfileDTO{
 		ID:               user.ID,
 		FirstName:        user.FirstName,
 		LastName:         user.LastName,
@@ -206,7 +208,14 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 		AvatarURL:        user.AvatarURL,
 		Bio:              user.Bio,
 		TwoFactorEnabled: user.TwoFactorEnabled,
-	})
+	}
+	if h.permSvc != nil {
+		perms, _ := h.permSvc.GetForUser(c.Request.Context(), user.ID, user.Role)
+		for _, p := range perms {
+			dto.Permissions = append(dto.Permissions, string(p))
+		}
+	}
+	c.JSON(http.StatusOK, dto)
 }
 
 // UpdateProfile handles PUT /settings/profile
