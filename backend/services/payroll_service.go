@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -134,5 +135,59 @@ func (s *PayrollService) GetSchemes(ctx context.Context) ([]models.PayrollScheme
 func DefaultPeriod(now time.Time) (int, int) {
 	year, month, _ := now.Date()
 	return year, int(month)
+}
+
+// CreateEntryParams is the input for creating a payroll entry.
+type CreateEntryParams struct {
+	UserID              uint
+	PeriodYear          int
+	PeriodMonth         int
+	BaseSalaryCents     int64
+	VariableSalaryCents int64
+	StudentsCount       int
+	Status              models.PayrollStatus
+}
+
+// CreateEntry creates a new payroll entry (payslip). Total = Base + Variable.
+func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (*models.PayrollEntry, error) {
+	total := p.BaseSalaryCents + p.VariableSalaryCents
+	entry := &models.PayrollEntry{
+		UserID:              p.UserID,
+		PeriodYear:          p.PeriodYear,
+		PeriodMonth:         p.PeriodMonth,
+		BaseSalaryCents:     p.BaseSalaryCents,
+		VariableSalaryCents: p.VariableSalaryCents,
+		TotalSalaryCents:    total,
+		StudentsCount:       p.StudentsCount,
+		Status:              p.Status,
+	}
+	if p.Status == models.PayrollStatusPaid {
+		now := time.Now()
+		entry.PaidAt = &now
+	}
+	if err := s.db.WithContext(ctx).Create(entry).Error; err != nil {
+		return nil, err
+	}
+	// Reload with User preload for response
+	if err := s.db.WithContext(ctx).Preload("User").First(entry, entry.ID).Error; err != nil {
+		return entry, nil // return created even if reload fails
+	}
+	return entry, nil
+}
+
+var ErrPayrollEntryNotFound = errors.New("payroll entry not found")
+
+// GetEntryByID returns a single payroll entry by ID.
+func (s *PayrollService) GetEntryByID(ctx context.Context, id uint) (*models.PayrollEntry, error) {
+	var entry models.PayrollEntry
+	if err := s.db.WithContext(ctx).
+		Preload("User").
+		First(&entry, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPayrollEntryNotFound
+		}
+		return nil, err
+	}
+	return &entry, nil
 }
 

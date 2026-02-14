@@ -188,6 +188,8 @@ func main() {
 	{
 		payroll.GET("/summary", payrollHandler.GetSummary)
 		payroll.GET("/entries", payrollHandler.ListEntries)
+		payroll.POST("/entries", payrollHandler.CreateEntry)
+		payroll.GET("/entries/:id", payrollHandler.GetEntry)
 		payroll.GET("/schemes", payrollHandler.GetSchemes)
 	}
 

@@ -256,3 +256,90 @@ func parseIntWithDefault(raw string, def int) int {
 	return v
 }
 
+// createPayrollEntryRequest is the body for POST /payroll/entries.
+type createPayrollEntryRequest struct {
+	UserID              uint   `json:"user_id" binding:"required"`
+	PeriodYear          int    `json:"period_year" binding:"required"`
+	PeriodMonth         int    `json:"period_month" binding:"required,min=1,max=12"`
+	BaseSalaryCents     int64  `json:"base_salary_cents" binding:"required,min=0"`
+	VariableSalaryCents int64  `json:"variable_salary_cents" binding:"min=0"`
+	StudentsCount       int    `json:"students_count" binding:"min=0"`
+	Status              string `json:"status" binding:"required,oneof=PAID PENDING"`
+}
+
+// CreateEntry handles POST /payroll/entries
+// @Summary      Create payroll entry
+// @Description  Register a new payslip for an employee (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createPayrollEntryRequest  true  "Entry data"
+// @Success      201   {object}  PayrollEntryDTO
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /payroll/entries [post]
+func (h *PayrollHandler) CreateEntry(c *gin.Context) {
+	var req createPayrollEntryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	status := models.PayrollStatus(req.Status)
+	params := services.CreateEntryParams{
+		UserID:              req.UserID,
+		PeriodYear:          req.PeriodYear,
+		PeriodMonth:         req.PeriodMonth,
+		BaseSalaryCents:     req.BaseSalaryCents,
+		VariableSalaryCents: req.VariableSalaryCents,
+		StudentsCount:       req.StudentsCount,
+		Status:              status,
+	}
+
+	entry, err := h.service.CreateEntry(c.Request.Context(), params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payroll entry"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, toPayrollEntryDTO(entry))
+}
+
+// GetEntry handles GET /payroll/entries/:id
+// @Summary      Get payroll entry
+// @Description  Get a single payslip by ID (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id   path      int  true  "Entry ID"
+// @Success      200  {object}  PayrollEntryDTO
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /payroll/entries/{id} [get]
+func (h *PayrollHandler) GetEntry(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	entry, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPayrollEntryNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payroll entry"})
+		return
+	}
+
+	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
+}
+
