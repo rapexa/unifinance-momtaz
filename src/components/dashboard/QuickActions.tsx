@@ -1,11 +1,12 @@
-import { Plus, Link2, FileText, Send } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, FileText, Send, FilePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const actions = [
-  { label: "ثبت پرداخت", icon: Plus, variant: "default" as const },
-  { label: "لینک پرداخت", icon: Link2, variant: "outline" as const },
-  { label: "فیش حقوقی", icon: FileText, variant: "outline" as const },
-  { label: "ارسال یادآوری", icon: Send, variant: "outline" as const },
+  { label: "ثبت پرداخت", icon: Plus, variant: "default" as const, to: "/payments" },
+  { label: "اضافه کردن پلن", icon: FilePlus, variant: "outline" as const, to: "/plans" },
+  { label: "فیش حقوقی", icon: FileText, variant: "outline" as const, to: "/payroll" },
+  { label: "ارسال یادآوری", icon: Send, variant: "outline" as const, to: "/reminders" },
 ];
 
 export function QuickActions() {
@@ -18,9 +19,12 @@ export function QuickActions() {
             key={action.label}
             variant={action.variant}
             className="h-auto flex-col gap-2 py-4"
+            asChild
           >
-            <action.icon className="h-5 w-5" />
-            <span className="text-xs">{action.label}</span>
+            <Link to={action.to}>
+              <action.icon className="h-5 w-5" />
+              <span className="text-xs">{action.label}</span>
+            </Link>
           </Button>
         ))}
       </div>

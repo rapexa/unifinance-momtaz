@@ -96,10 +96,10 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 		return DashboardKPIs{}, err
 	}
 
-	// Monthly payroll sum for current period (if any payroll entries exist).
+	// Monthly payroll paid (only PAID status) for current period.
 	if err := s.db.WithContext(ctx).
 		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ?", year, int(month)).
+		Where("period_year = ? AND period_month = ? AND status = ?", year, int(month), models.PayrollStatusPaid).
 		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&monthlyPayroll).Error; err != nil {
 		return DashboardKPIs{}, err
