@@ -18,6 +18,9 @@ export interface StudentApi {
   email?: string;
   phone?: string;
   status: string;
+  advisor_name?: string;
+  current_plan_name?: string;
+  balance_cents?: number;
 }
 
 export interface StudentsSummary {
@@ -124,5 +127,68 @@ export async function getStudentsSummary(): Promise<StudentsSummary> {
   }
 
   return data as StudentsSummary;
+}
+
+export async function getStudent(id: number): Promise<StudentApi> {
+  const res = await fetch(`${API_BASE}/students/${id}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && data.error) || "خطا در دریافت اطلاعات دانش‌آموز";
+    throw new Error(message);
+  }
+
+  return data as StudentApi;
+}
+
+export interface UpdateStudentPayload {
+  first_name: string;
+  last_name: string;
+  email?: string;
+  phone?: string;
+  status?: "ACTIVE" | "INACTIVE";
+}
+
+export async function updateStudent(
+  id: number,
+  payload: UpdateStudentPayload
+): Promise<StudentApi> {
+  const res = await fetch(`${API_BASE}/students/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && data.error) || "خطا در بروزرسانی دانش‌آموز";
+    throw new Error(message);
+  }
+
+  return data as StudentApi;
+}
+
+export async function deleteStudent(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/students/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const message =
+      (data && data.error) || "خطا در حذف دانش‌آموز";
+    throw new Error(message);
+  }
 }
 

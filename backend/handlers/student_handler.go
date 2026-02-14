@@ -18,26 +18,37 @@ func NewStudentHandler(service *services.StudentService) *StudentHandler {
 	return &StudentHandler{service: service}
 }
 
-// StudentDoc is a simplified representation of Student for Swagger docs.
+// StudentDoc is a simplified representation of Student for Swagger docs and API responses.
 type StudentDoc struct {
-	ID        uint   `json:"id"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Email     string `json:"email,omitempty"`
-	Phone     string `json:"phone,omitempty"`
-	Status    string `json:"status"`
+	ID              uint   `json:"id"`
+	FirstName       string `json:"first_name"`
+	LastName        string `json:"last_name"`
+	Email           string `json:"email,omitempty"`
+	Phone           string `json:"phone,omitempty"`
+	Status          string `json:"status"`
+	AdvisorName     string `json:"advisor_name,omitempty"`
+	CurrentPlanName string `json:"current_plan_name,omitempty"`
+	BalanceCents    int64  `json:"balance_cents"`
 }
 
 // toStudentDoc converts a Student model to a public DTO.
 func toStudentDoc(s *models.Student) StudentDoc {
-	return StudentDoc{
-		ID:        s.ID,
-		FirstName: s.FirstName,
-		LastName:  s.LastName,
-		Email:     s.Email,
-		Phone:     s.Phone,
-		Status:    string(s.Status),
+	doc := StudentDoc{
+		ID:           s.ID,
+		FirstName:    s.FirstName,
+		LastName:     s.LastName,
+		Email:        s.Email,
+		Phone:        s.Phone,
+		Status:       string(s.Status),
+		BalanceCents: s.BalanceCents,
 	}
+	if s.Advisor != nil {
+		doc.AdvisorName = s.Advisor.FirstName + " " + s.Advisor.LastName
+	}
+	if s.CurrentPlan != nil {
+		doc.CurrentPlanName = s.CurrentPlan.Name
+	}
+	return doc
 }
 
 func toStudentDocSlice(students []models.Student) []StudentDoc {

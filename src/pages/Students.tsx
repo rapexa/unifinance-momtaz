@@ -28,16 +28,39 @@ import {
   Filter,
   Grid,
   List,
+  Pencil,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   createStudent,
   listStudents,
   getStudentsSummary,
+  getStudent,
+  updateStudent,
+  deleteStudent,
   StudentApi,
+  UpdateStudentPayload,
 } from "@/api/studentsApi";
 import { listAdvisors, UserApi } from "@/api/usersApi";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface StudentRow {
   id: number;
@@ -50,6 +73,12 @@ interface StudentRow {
   status: "active" | "inactive";
 }
 
+function formatBalance(cents: number | undefined): string {
+  const n = cents ?? 0;
+  const s = Math.abs(n).toLocaleString("fa-IR");
+  return n < 0 ? `-${s}` : s;
+}
+
 function mapStudent(api: StudentApi): StudentRow {
   const name = `${api.first_name ?? ""} ${api.last_name ?? ""}`.trim();
   return {
@@ -57,17 +86,102 @@ function mapStudent(api: StudentApi): StudentRow {
     name: name || "بدون نام",
     phone: api.phone || "",
     email: api.email || "",
-    advisor: "—",
-    plan: "—",
-    balance: "۰",
+    advisor: api.advisor_name?.trim() || "—",
+    plan: api.current_plan_name?.trim() || "—",
+    balance: formatBalance(api.balance_cents),
     status: api.status === "INACTIVE" ? "inactive" : "active",
   };
+}
+
+function EditStudentForm({
+  student,
+  onCancel,
+  onSuccess,
+  mutation,
+}: {
+  student: StudentRow;
+  onCancel: () => void;
+  onSuccess: () => void;
+  mutation: ReturnType<typeof useMutation<StudentApi, Error, { id: number; payload: UpdateStudentPayload }>>;
+}) {
+  const parts = student.name.split(" ");
+  const [firstName, setFirstName] = useState(parts[0] || "");
+  const [lastName, setLastName] = useState(parts.slice(1).join(" ") || "");
+  const [email, setEmail] = useState(student.email || "");
+  const [phone, setPhone] = useState(student.phone || "");
+  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(student.status === "active" ? "ACTIVE" : "INACTIVE");
+
+  return (
+    <div className="space-y-4 py-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام</label>
+          <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="نام" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام خانوادگی</label>
+          <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="نام خانوادگی" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">ایمیل</label>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">وضعیت</span>
+        <Select value={status} onValueChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE")}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ACTIVE">فعال</SelectItem>
+            <SelectItem value="INACTIVE">غیرفعال</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
+        <Button
+          onClick={() => {
+            mutation.mutate(
+              {
+                id: student.id,
+                payload: {
+                  first_name: firstName.trim(),
+                  last_name: lastName.trim(),
+                  email: email.trim() || undefined,
+                  phone: phone.trim() || undefined,
+                  status,
+                },
+              },
+              { onSuccess }
+            );
+          }}
+          disabled={mutation.isPending || !firstName.trim() || !lastName.trim()}
+        >
+          {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
+        </Button>
+      </DialogFooter>
+      {mutation.isError && (
+        <p className="text-xs text-destructive">{(mutation.error as Error)?.message}</p>
+      )}
+    </div>
+  );
 }
 
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+  const [deleteStudent, setDeleteStudent] = useState<StudentRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -77,6 +191,31 @@ const Students = () => {
   const [balance, setBalance] = useState("");
 
   const queryClient = useQueryClient();
+
+  const { data: detailsStudentData } = useQuery({
+    queryKey: ["student", detailsStudentId],
+    queryFn: () => getStudent(detailsStudentId!),
+    enabled: detailsStudentId != null,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: UpdateStudentPayload }) =>
+      updateStudent(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      setEditStudent(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteStudent,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      setDeleteStudent(null);
+    },
+  });
 
   const {
     data,
@@ -341,9 +480,30 @@ const Students = () => {
                       </span>
                     </td>
                     <td className="p-4">
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setDetailsStudentId(student.id)}>
+                            <Eye className="ml-2 h-4 w-4" />
+                            جزئیات
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setEditStudent(student)}>
+                            <Pencil className="ml-2 h-4 w-4" />
+                            ویرایش
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteStudent(student)}
+                          >
+                            <Trash2 className="ml-2 h-4 w-4" />
+                            حذف
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}
@@ -352,6 +512,64 @@ const Students = () => {
           </div>
         </div>
       )}
+
+      {/* Details dialog */}
+      <Dialog open={detailsStudentId != null} onOpenChange={(open) => !open && setDetailsStudentId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>جزئیات دانش‌آموز</DialogTitle>
+          </DialogHeader>
+          {detailsStudentData && (
+            <div className="space-y-3 text-sm">
+              <p><span className="text-muted-foreground">نام:</span> {detailsStudentData.first_name} {detailsStudentData.last_name}</p>
+              <p><span className="text-muted-foreground">ایمیل:</span> {detailsStudentData.email || "—"}</p>
+              <p><span className="text-muted-foreground">موبایل:</span> {detailsStudentData.phone || "—"}</p>
+              <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
+              <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
+              <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
+              <p><span className="text-muted-foreground">وضعیت:</span> {detailsStudentData.status === "INACTIVE" ? "غیرفعال" : "فعال"}</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit student dialog */}
+      <Dialog open={editStudent != null} onOpenChange={(open) => !open && setEditStudent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ویرایش دانش‌آموز</DialogTitle>
+          </DialogHeader>
+          {editStudent && (
+            <EditStudentForm
+              student={editStudent}
+              onCancel={() => setEditStudent(null)}
+              onSuccess={() => setEditStudent(null)}
+              mutation={updateMutation}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={deleteStudent != null} onOpenChange={(open) => !open && setDeleteStudent(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف دانش‌آموز</AlertDialogTitle>
+            <AlertDialogDescription>
+              آیا از حذف دانش‌آموز «{deleteStudent?.name}» اطمینان دارید؟ این عمل قابل بازگشت نیست.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteStudent && deleteMutation.mutate(deleteStudent.id)}
+            >
+              {deleteMutation.isPending ? "در حال حذف..." : "حذف"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Create student dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

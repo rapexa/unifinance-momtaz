@@ -127,10 +127,18 @@ func main() {
 		students.GET("", studentHandler.List)
 		students.GET("/summary", studentHandler.Summary)
 		students.GET("/:id", studentHandler.Get)
-		// Only admins and advisors can create students
+		// Only admins and advisors can create/update/delete students
 		students.POST("",
 			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
 			studentHandler.Create,
+		)
+		students.PUT("/:id",
+			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
+			studentHandler.Update,
+		)
+		students.DELETE("/:id",
+			middleware.RoleMiddleware(models.UserRoleAdmin, models.UserRoleAdvisor),
+			studentHandler.Delete,
 		)
 	}
 

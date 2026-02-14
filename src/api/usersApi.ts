@@ -116,6 +116,70 @@ export async function listUsers(
   return data as PaginatedUsersResponse;
 }
 
+export async function getUser(id: number): Promise<UserApi> {
+  const res = await fetch(`${API_BASE}/users/${id}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && data.error) || "خطا در دریافت اطلاعات کاربر";
+    throw new Error(message);
+  }
+
+  return data as UserApi;
+}
+
+export interface UpdateUserPayload {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  is_active?: boolean;
+}
+
+export async function updateUser(
+  id: number,
+  payload: UpdateUserPayload,
+): Promise<UserApi> {
+  const res = await fetch(`${API_BASE}/users/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && data.error) || "خطا در بروزرسانی کاربر";
+    throw new Error(message);
+  }
+
+  return data as UserApi;
+}
+
+export async function deactivateUser(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/users/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && data.error) || "خطا در غیرفعال کردن کاربر";
+    throw new Error(message);
+  }
+}
+
 export interface CreateUserPayload {
   first_name: string;
   last_name: string;

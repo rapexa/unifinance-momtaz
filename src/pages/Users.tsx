@@ -27,6 +27,9 @@ import {
   UserX,
   Filter,
   Download,
+  Pencil,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,8 +37,28 @@ import {
   getUsersSummary,
   listUsers,
   exportUsers,
+  getUser,
+  updateUser,
+  deactivateUser,
   UserApi,
+  UpdateUserPayload,
 } from "@/api/usersApi";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface UserRow {
   id: number;
@@ -72,8 +95,97 @@ function mapUser(u: UserApi): UserRow {
     roleLabel,
     roleCode,
     status: u.is_active ? "active" : "inactive",
-    createdAt: new Date(u.created_at as any).toLocaleDateString("fa-IR"),
+    createdAt: new Date((u as any).created_at).toLocaleDateString("fa-IR"),
   } as any;
+}
+
+function EditUserForm({
+  user,
+  onCancel,
+  onSuccess,
+  mutation,
+}: {
+  user: UserRow;
+  onCancel: () => void;
+  onSuccess: () => void;
+  mutation: ReturnType<typeof useMutation<UserApi, Error, { id: number; payload: UpdateUserPayload }>>;
+}) {
+  const [firstName, setFirstName] = useState(user.name.split(" ")[0] || "");
+  const [lastName, setLastName] = useState(user.name.split(" ").slice(1).join(" ") || "");
+  const [email, setEmail] = useState(user.email);
+  const [phone, setPhone] = useState("");
+  const [role, setRole] = useState(user.roleCode);
+  const [isActive, setIsActive] = useState(user.status === "active");
+
+  return (
+    <div className="space-y-4 py-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام</label>
+          <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="نام" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام خانوادگی</label>
+          <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="نام خانوادگی" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">ایمیل</label>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">نقش</span>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ADMIN">مدیر کل</SelectItem>
+            <SelectItem value="ACCOUNTANT">حسابدار</SelectItem>
+            <SelectItem value="ADVISOR">مشاور</SelectItem>
+            <SelectItem value="OPERATOR">اپراتور</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">وضعیت</span>
+        <Switch checked={isActive} onCheckedChange={setIsActive} />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
+        <Button
+          onClick={() => {
+            mutation.mutate(
+              {
+                id: user.id,
+                payload: {
+                  first_name: firstName.trim(),
+                  last_name: lastName.trim(),
+                  email: email.trim(),
+                  phone: phone.trim() || undefined,
+                  role,
+                  is_active: isActive,
+                },
+              },
+              { onSuccess: onSuccess }
+            );
+          }}
+          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || !email.trim()}
+        >
+          {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
+        </Button>
+      </DialogFooter>
+      {mutation.isError && (
+        <p className="text-xs text-destructive">{(mutation.error as Error)?.message}</p>
+      )}
+    </div>
+  );
 }
 
 const Users = () => {
@@ -83,6 +195,9 @@ const Users = () => {
   const [showFilters, setShowFilters] = useState(false);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [detailsUserId, setDetailsUserId] = useState<number | null>(null);
+  const [editUser, setEditUser] = useState<UserRow | null>(null);
+  const [deleteUser, setDeleteUser] = useState<UserRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -92,6 +207,31 @@ const Users = () => {
   const [isActive, setIsActive] = useState(true);
 
   const queryClient = useQueryClient();
+
+  const { data: detailsUserData } = useQuery({
+    queryKey: ["user", detailsUserId],
+    queryFn: () => getUser(detailsUserId!),
+    enabled: detailsUserId != null,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: Parameters<typeof updateUser>[1] }) =>
+      updateUser(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      setEditUser(null);
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: deactivateUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      setDeleteUser(null);
+    },
+  });
 
   const {
     data: summary,
@@ -374,9 +514,30 @@ const Users = () => {
                     {user.createdAt}
                   </td>
                   <td className="p-4">
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setDetailsUserId(user.id)}>
+                          <Eye className="ml-2 h-4 w-4" />
+                          جزئیات
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setEditUser(user)}>
+                          <Pencil className="ml-2 h-4 w-4" />
+                          ویرایش
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setDeleteUser(user)}
+                        >
+                          <Trash2 className="ml-2 h-4 w-4" />
+                          حذف (غیرفعال‌سازی)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                   </tr>
                 ))}
@@ -520,6 +681,62 @@ const Users = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Details dialog */}
+      <Dialog open={detailsUserId != null} onOpenChange={(open) => !open && setDetailsUserId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>جزئیات کاربر</DialogTitle>
+          </DialogHeader>
+          {detailsUserData && (
+            <div className="space-y-3 text-sm">
+              <p><span className="text-muted-foreground">نام:</span> {detailsUserData.first_name} {detailsUserData.last_name}</p>
+              <p><span className="text-muted-foreground">ایمیل:</span> {detailsUserData.email}</p>
+              <p><span className="text-muted-foreground">موبایل:</span> {detailsUserData.phone || "—"}</p>
+              <p><span className="text-muted-foreground">نقش:</span> {roleLabelMap[detailsUserData.role?.toUpperCase() || ""] || detailsUserData.role}</p>
+              <p><span className="text-muted-foreground">وضعیت:</span> {detailsUserData.is_active ? "فعال" : "غیرفعال"}</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit user dialog */}
+      <Dialog open={editUser != null} onOpenChange={(open) => !open && setEditUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ویرایش کاربر</DialogTitle>
+          </DialogHeader>
+          {editUser && (
+            <EditUserForm
+              user={editUser}
+              onCancel={() => setEditUser(null)}
+              onSuccess={() => setEditUser(null)}
+              mutation={updateMutation}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete (deactivate) confirm */}
+      <AlertDialog open={deleteUser != null} onOpenChange={(open) => !open && setDeleteUser(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>غیرفعال کردن کاربر</AlertDialogTitle>
+            <AlertDialogDescription>
+              آیا از غیرفعال کردن کاربر «{deleteUser?.name}» اطمینان دارید؟ این کاربر دیگر نمی‌تواند وارد سیستم شود.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteUser && deactivateMutation.mutate(deleteUser.id)}
+            >
+              {deactivateMutation.isPending ? "در حال انجام..." : "غیرفعال کردن"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 };
