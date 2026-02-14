@@ -23,6 +23,10 @@ func NewPaymentService(repo repositories.PaymentRepository) *PaymentService {
 	return &PaymentService{repo: repo}
 }
 
+func (s *PaymentService) Summary(ctx context.Context) (*repositories.PaymentSummary, error) {
+	return s.repo.Summary(ctx)
+}
+
 func (s *PaymentService) List(
 	ctx context.Context,
 	limit, offset int,

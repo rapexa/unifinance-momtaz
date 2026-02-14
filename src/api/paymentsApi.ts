@@ -1,0 +1,185 @@
+const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
+
+const API_BASE =
+  (typeof import.meta !== "undefined" &&
+    (import.meta as any).env?.VITE_API_BASE_URL) ||
+  DEFAULT_API_BASE;
+
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface PaymentApi {
+  id: number;
+  student_id: number;
+  student_name: string;
+  enrollment_id?: number;
+  plan_name?: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  method: string;
+  due_date: string | null;
+  paid_at: string | null;
+  created_at: string;
+  description?: string;
+  reference_code?: string;
+}
+
+export interface PaymentsSummary {
+  today_received_cents: number;
+  pending_cents: number;
+  overdue_cents: number;
+  this_month_received_cents: number;
+}
+
+export interface PaginatedPaymentsResponse {
+  data: PaymentApi[];
+  meta: {
+    current_page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface ListPaymentsParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: string;
+  method?: string;
+  from_date?: string; // YYYY-MM-DD
+  to_date?: string;
+  sort?: string;
+}
+
+export async function listPayments(
+  params: ListPaymentsParams = {}
+): Promise<PaginatedPaymentsResponse> {
+  const url = new URL(`${API_BASE}/payments`);
+  url.searchParams.set("page", String(params.page ?? 1));
+  url.searchParams.set("page_size", String(params.page_size ?? 20));
+  if (params.search) url.searchParams.set("search", params.search);
+  if (params.status) url.searchParams.set("status", params.status);
+  if (params.method) url.searchParams.set("method", params.method);
+  if (params.from_date) url.searchParams.set("from_date", params.from_date);
+  if (params.to_date) url.searchParams.set("to_date", params.to_date);
+  if (params.sort) url.searchParams.set("sort", params.sort);
+
+  const res = await fetch(url.toString(), {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      (data && data.error) ||
+      (res.status === 401 ? "احراز هویت نامعتبر است" : "خطا در دریافت لیست پرداخت‌ها");
+    throw new Error(msg);
+  }
+  return data as PaginatedPaymentsResponse;
+}
+
+export async function getPaymentsSummary(): Promise<PaymentsSummary> {
+  const res = await fetch(`${API_BASE}/payments/summary`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data && data.error) || "خطا در دریافت خلاصه پرداخت‌ها";
+    throw new Error(msg);
+  }
+  return data as PaymentsSummary;
+}
+
+export interface CreatePaymentPayload {
+  student_id: number;
+  amount_cents: number;
+  method: string;
+  status: string;
+  description?: string;
+  reference_number?: string;
+  enrollment_id?: number;
+  due_date?: string; // YYYY-MM-DD or ISO
+  paid_at?: string;
+  currency?: string;
+}
+
+export async function createPayment(
+  payload: CreatePaymentPayload
+): Promise<PaymentApi> {
+  const res = await fetch(`${API_BASE}/payments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data && data.error) || "ثبت پرداخت با خطا مواجه شد";
+    throw new Error(msg);
+  }
+  return data as PaymentApi;
+}
+
+export interface PaymentLinkResponse {
+  payment_link: string;
+  expires_at: string;
+  qr_code_url?: string;
+}
+
+export async function generatePaymentLink(
+  paymentId: number
+): Promise<PaymentLinkResponse> {
+  const res = await fetch(`${API_BASE}/payments/${paymentId}/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data && data.error) || "خطا در ایجاد لینک پرداخت";
+    throw new Error(msg);
+  }
+  return data as PaymentLinkResponse;
+}
+
+/** Export payments as CSV; returns blob and suggested filename. */
+export async function exportPayments(
+  params: Omit<ListPaymentsParams, "page" | "page_size"> & {
+    page_size?: number;
+  } = {}
+): Promise<{ blob: Blob; filename: string }> {
+  const url = new URL(`${API_BASE}/payments/export`);
+  url.searchParams.set("page", "1");
+  url.searchParams.set("page_size", String(params.page_size ?? 10000));
+  if (params.search) url.searchParams.set("search", params.search);
+  if (params.status) url.searchParams.set("status", params.status);
+  if (params.method) url.searchParams.set("method", params.method ?? "");
+  if (params.from_date) url.searchParams.set("from_date", params.from_date);
+  if (params.to_date) url.searchParams.set("to_date", params.to_date ?? "");
+  if (params.sort) url.searchParams.set("sort", params.sort ?? "-created_at");
+
+  const res = await fetch(url.toString(), {
+    headers: getAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const msg = (data && data.error) || "خطا در خروجی گرفتن از پرداخت‌ها";
+    throw new Error(msg);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  let filename = "payments_export.csv";
+  if (disposition) {
+    const match = /filename=(.+?)(?:;|$)/i.exec(disposition);
+    if (match) filename = match[1].trim().replace(/^["']|["']$/g, "");
+  }
+  return { blob, filename };
+}

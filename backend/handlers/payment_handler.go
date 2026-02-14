@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -77,16 +78,16 @@ func toPaymentDTOSlice(payments []models.Payment) []PaymentDTO {
 }
 
 type createPaymentRequest struct {
-	StudentID      uint       `json:"student_id" binding:"required"`
-	AmountCents    int64      `json:"amount_cents" binding:"required,gt=0"`
-	PaidAt         *time.Time `json:"paid_at" binding:"omitempty"`
-	Method         string     `json:"method" binding:"required"`
-	Description    string     `json:"description" binding:"omitempty,max=500"`
-	ReferenceCode  string     `json:"reference_number" binding:"omitempty,max=255"`
-	Status         string     `json:"status" binding:"required"`
-	EnrollmentID   *uint      `json:"enrollment_id" binding:"omitempty"`
-	DueDate        *time.Time `json:"due_date" binding:"omitempty"`
-	Currency       string     `json:"currency" binding:"omitempty,len=3"`
+	StudentID     uint   `json:"student_id" binding:"required"`
+	AmountCents   int64  `json:"amount_cents" binding:"required,gt=0"`
+	PaidAtStr     string `json:"paid_at" binding:"omitempty"`
+	Method        string `json:"method" binding:"required"`
+	Description   string `json:"description" binding:"omitempty,max=500"`
+	ReferenceCode string `json:"reference_number" binding:"omitempty,max=255"`
+	Status        string `json:"status" binding:"required"`
+	EnrollmentID  *uint  `json:"enrollment_id" binding:"omitempty"`
+	DueDateStr    string `json:"due_date" binding:"omitempty"`
+	Currency      string `json:"currency" binding:"omitempty"`
 }
 
 type updatePaymentRequest struct {
@@ -98,6 +99,31 @@ type updatePaymentRequest struct {
 	Status        *string    `json:"status" binding:"omitempty"`
 	EnrollmentID  *uint      `json:"enrollment_id" binding:"omitempty"`
 	DueDate       *time.Time `json:"due_date" binding:"omitempty"`
+}
+
+// Summary handles GET /payments/summary
+// @Summary      Payment summary
+// @Description  Aggregated amounts: today received, pending, overdue, this month received (admin only)
+// @Tags         payments
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /payments/summary [get]
+func (h *PaymentHandler) Summary(c *gin.Context) {
+	sum, err := h.service.Summary(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment summary"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"today_received_cents":     sum.TodayReceivedCents,
+		"pending_cents":           sum.PendingCents,
+		"overdue_cents":           sum.OverdueCents,
+		"this_month_received_cents": sum.ThisMonthReceivedCents,
+	})
 }
 
 // List handles GET /payments
@@ -230,6 +256,20 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 // @Failure      403   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /payments [post]
+// parseOptionalDate parses "2006-01-02" or RFC3339 and returns *time.Time or nil.
+func parseOptionalDate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	for _, layout := range []string{"2006-01-02", time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return &t, nil
+		}
+	}
+	return nil, fmt.Errorf("invalid date format: %q (use YYYY-MM-DD or ISO8601)", s)
+}
+
 func (h *PaymentHandler) Create(c *gin.Context) {
 	var req createPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,16 +277,27 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		return
 	}
 
+	dueDate, err := parseOptionalDate(req.DueDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	paidAt, err := parseOptionalDate(req.PaidAtStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	params := services.CreatePaymentParams{
 		StudentID:     req.StudentID,
 		AmountCents:   req.AmountCents,
-		PaidAt:        req.PaidAt,
+		PaidAt:        paidAt,
 		Method:        req.Method,
 		Description:   req.Description,
 		ReferenceCode: req.ReferenceCode,
 		Status:        req.Status,
 		EnrollmentID:  req.EnrollmentID,
-		DueDate:       req.DueDate,
+		DueDate:       dueDate,
 		Currency:      req.Currency,
 	}
 

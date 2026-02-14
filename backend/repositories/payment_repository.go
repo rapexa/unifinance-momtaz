@@ -8,8 +8,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// PaymentSummary holds aggregated amounts for the payments page.
+type PaymentSummary struct {
+	TodayReceivedCents   int64
+	PendingCents         int64
+	OverdueCents         int64
+	ThisMonthReceivedCents int64
+}
+
 type PaymentRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Payment, error)
+	Summary(ctx context.Context) (*PaymentSummary, error)
 	List(
 		ctx context.Context,
 		limit, offset int,
@@ -45,6 +54,50 @@ func (r *GormPaymentRepository) FindByID(ctx context.Context, id uint) (*models.
 
 func (r *GormPaymentRepository) baseQuery(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Model(&models.Payment{})
+}
+
+func (r *GormPaymentRepository) Summary(ctx context.Context) (*PaymentSummary, error) {
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	todayEnd := todayStart.Add(24 * time.Hour)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+
+	var todayReceived, pending, overdue, monthReceived int64
+
+	// Today received: PAID and paid_at today
+	if err := r.baseQuery(ctx).Where("status = ?", models.PaymentStatusPaid).
+		Where("paid_at >= ? AND paid_at < ?", todayStart, todayEnd).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&todayReceived).Error; err != nil {
+		return nil, err
+	}
+	// Pending
+	if err := r.baseQuery(ctx).Where("status = ?", models.PaymentStatusPending).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&pending).Error; err != nil {
+		return nil, err
+	}
+	// Overdue
+	if err := r.baseQuery(ctx).Where("status = ?", models.PaymentStatusOverdue).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&overdue).Error; err != nil {
+		return nil, err
+	}
+	// This month received: PAID and paid_at in current month
+	if err := r.baseQuery(ctx).Where("status = ?", models.PaymentStatusPaid).
+		Where("paid_at >= ? AND paid_at < ?", monthStart, monthEnd).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&monthReceived).Error; err != nil {
+		return nil, err
+	}
+
+	return &PaymentSummary{
+		TodayReceivedCents:     todayReceived,
+		PendingCents:           pending,
+		OverdueCents:           overdue,
+		ThisMonthReceivedCents: monthReceived,
+	}, nil
 }
 
 func (r *GormPaymentRepository) List(

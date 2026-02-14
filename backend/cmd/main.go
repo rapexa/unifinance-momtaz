@@ -164,6 +164,7 @@ func main() {
 	payments.Use(middleware.AdminOnly())
 	{
 		payments.GET("", paymentHandler.List)
+		payments.GET("/summary", paymentHandler.Summary)
 		payments.GET("/export", paymentHandler.Export)
 		payments.POST("", paymentHandler.Create)
 		payments.GET("/:id", paymentHandler.Get)
