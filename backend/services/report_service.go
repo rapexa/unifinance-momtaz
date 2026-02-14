@@ -160,13 +160,14 @@ func (s *ReportService) GetSummary(ctx context.Context, from, to time.Time) (Rep
 	startYear, startMonth, _ := from.Date()
 	endYear, endMonth, _ := to.Date()
 
-	// Sum payroll across all months that fall within [from, to) by period_year/month.
+	// Sum only PAID payroll across months in [from, to).
 	if err := s.db.WithContext(ctx).
 		Model(&models.PayrollEntry{}).
 		Where(
-			"(period_year > ? OR (period_year = ? AND period_month >= ?)) AND (period_year < ? OR (period_year = ? AND period_month <= ?))",
+			"(period_year > ? OR (period_year = ? AND period_month >= ?)) AND (period_year < ? OR (period_year = ? AND period_month <= ?)) AND status = ?",
 			startYear, startYear, int(startMonth),
 			endYear, endYear, int(endMonth),
+			models.PayrollStatusPaid,
 		).
 		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&payroll).Error; err != nil {
