@@ -152,6 +152,7 @@ func main() {
 	plans.Use(middleware.AdminOnly())
 	{
 		plans.GET("", planHandler.List)
+		plans.GET("/summary", planHandler.Summary)
 		plans.GET("/:id", planHandler.Get)
 		plans.POST("", planHandler.Create)
 		plans.PUT("/:id", planHandler.Update)

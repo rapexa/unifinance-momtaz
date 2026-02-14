@@ -28,6 +28,14 @@ func NewPlanService(repo repositories.PlanRepository) *PlanService {
 	return &PlanService{repo: repo}
 }
 
+// PlanSummary holds aggregated stats for the plans page.
+type PlanSummary struct {
+	TotalPlans           int64
+	ActivePlans          int64
+	ActiveEnrollments    int64
+	MonthlyRevenueCents  int64
+}
+
 func (s *PlanService) List(ctx context.Context, limit, offset int, search, planType, status string) ([]models.Plan, int64, error) {
 	planType = strings.ToUpper(planType)
 	status = strings.ToLower(status)
@@ -158,5 +166,19 @@ func (s *PlanService) Deactivate(ctx context.Context, id uint) error {
 		return err
 	}
 	return nil
+}
+
+// Summary returns aggregated stats for the plans page.
+func (s *PlanService) Summary(ctx context.Context) (PlanSummary, error) {
+	total, active, enrollments, revenue, err := s.repo.Stats(ctx)
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	return PlanSummary{
+		TotalPlans:          total,
+		ActivePlans:         active,
+		ActiveEnrollments:   enrollments,
+		MonthlyRevenueCents: revenue,
+	}, nil
 }
 

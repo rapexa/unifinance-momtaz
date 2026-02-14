@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
@@ -16,6 +17,7 @@ type PlanRepository interface {
 	Update(ctx context.Context, plan *models.Plan, features []string) error
 	Deactivate(ctx context.Context, id uint) error
 	CountEnrollments(ctx context.Context, id uint) (int64, error)
+	Stats(ctx context.Context) (totalPlans, activePlans, activeEnrollments, monthlyRevenueCents int64, err error)
 }
 
 type GormPlanRepository struct {
@@ -154,5 +156,41 @@ func (r *GormPlanRepository) CountEnrollments(ctx context.Context, id uint) (int
 		return 0, err
 	}
 	return count, nil
+}
+
+// Stats returns aggregate stats for plans: total, active, active enrollments and current month revenue.
+func (r *GormPlanRepository) Stats(ctx context.Context) (totalPlans, activePlans, activeEnrollments, monthlyRevenueCents int64, err error) {
+	db := r.db.WithContext(ctx)
+
+	if err = db.Model(&models.Plan{}).Count(&totalPlans).Error; err != nil {
+		return
+	}
+
+	if err = db.Model(&models.Plan{}).
+		Where("is_active = ?", true).
+		Count(&activePlans).Error; err != nil {
+		return
+	}
+
+	if err = db.Model(&models.Enrollment{}).
+		Where("status = ?", models.EnrollmentStatusActive).
+		Count(&activeEnrollments).Error; err != nil {
+		return
+	}
+
+	now := time.Now()
+	year, month, _ := now.Date()
+	loc := now.Location()
+	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+	firstOfNextMonth := firstOfMonth.AddDate(0, 1, 0)
+
+	if err = db.Model(&models.Payment{}).
+		Where("status = ? AND paid_at >= ? AND paid_at < ?", models.PaymentStatusPaid, firstOfMonth, firstOfNextMonth).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&monthlyRevenueCents).Error; err != nil {
+		return
+	}
+
+	return
 }
 

@@ -34,6 +34,14 @@ type PlanDTO struct {
 	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
 
+// PlanSummaryDTO represents aggregated stats for plans page.
+type PlanSummaryDTO struct {
+	TotalPlans          int64 `json:"total_plans"`
+	ActivePlans         int64 `json:"active_plans"`
+	ActiveEnrollments   int64 `json:"active_enrollments"`
+	MonthlyRevenueCents int64 `json:"monthly_revenue_cents"`
+}
+
 func planError(c *gin.Context, status int, msg string) {
 	c.AbortWithStatusJSON(status, gin.H{
 		"error": msg,
@@ -348,6 +356,32 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Plan deactivated",
 		"code":    http.StatusOK,
+	})
+}
+
+// Summary handles GET /plans/summary
+// @Summary      Plans summary
+// @Description  Summary stats for plans: total, active, active enrollments, monthly revenue
+// @Tags         plans
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  PlanSummaryDTO
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /plans/summary [get]
+func (h *PlanHandler) Summary(c *gin.Context) {
+	summary, err := h.service.Summary(c.Request.Context())
+	if err != nil {
+		planError(c, http.StatusInternalServerError, "failed to load plans summary")
+		return
+	}
+
+	c.JSON(http.StatusOK, PlanSummaryDTO{
+		TotalPlans:          summary.TotalPlans,
+		ActivePlans:         summary.ActivePlans,
+		ActiveEnrollments:   summary.ActiveEnrollments,
+		MonthlyRevenueCents: summary.MonthlyRevenueCents,
 	})
 }
 
