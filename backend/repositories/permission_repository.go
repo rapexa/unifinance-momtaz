@@ -33,9 +33,13 @@ func (r *GormPermissionRepository) ListByUserID(ctx context.Context, userID uint
 	return out, nil
 }
 
+// ReplaceForUser sets the exact set of permissions for a user. It permanently deletes
+// existing rows (Unscoped) so the unique index (user_id, permission) does not conflict
+// when re-inserting; GORM's default soft delete would leave rows with deleted_at set
+// and cause "Duplicate entry" on INSERT.
 func (r *GormPermissionRepository) ReplaceForUser(ctx context.Context, userID uint, permissions []models.Permission) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ?", userID).Delete(&models.UserPermission{}).Error; err != nil {
+		if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&models.UserPermission{}).Error; err != nil {
 			return err
 		}
 		for _, p := range permissions {
