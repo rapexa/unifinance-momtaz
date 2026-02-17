@@ -1,21 +1,29 @@
 ## Overview
 
-This frontend is a **single-page web application** for managing the finances and operations of an educational consulting group (students, plans, payments, payroll, reminders, and reports).
+This frontend is a **single-page web application** for managing the finances and operations of an educational consulting group (students, plans, payments, payroll, reminders, and reports). It communicates with a **Go (Gin) backend API** and uses **JWT authentication** with **role-based access control (RBAC)**.
 
 - **Language**: TypeScript
 - **Framework / UI library**: React 18 (SPA)
 - **Routing**: React Router v6 (`BrowserRouter`)
-- **State / data fetching**: `@tanstack/react-query` (QueryClient, ready for API integration)
+- **State / data fetching**: `@tanstack/react-query` (QueryClient) with **real API integration** via `src/api/*.ts` modules
+- **Auth**: Login at `/` and `/login`; JWT stored in `localStorage`; `useCurrentUser` hook and permission-based sidebar/dashboard redirect
 - **Styling**: Tailwind CSS with a custom RTL, finance‑oriented design system
 - **Component library**: shadcn‑ui (Radix UI) + custom design tokens
 - **Charts**: `recharts`
 - **Build tool**: Vite
 
-The codebase is currently **mock‑data only** (no real API calls), but the structure is ready to be wired to backend services via React Query.
+**Backend (reference):**
+
+- **Stack**: Go, Gin, JWT, RBAC (permission middleware), Swagger at `/swagger/*`
+- **Base path**: `/api/v1`
+- **Auth**: `POST /auth/login`, `POST /auth/refresh`, protected routes via `Authorization: Bearer <token>`
+- **Main resource groups**: `/auth`, `/users`, `/students`, `/plans`, `/payments`, `/dashboard`, `/payroll`, `/reports`, `/settings` (organization, profile, security, notifications, payments)
 
 ---
 
 ## Project Structure
+
+The **frontend** source lives in the repository root under `src/` (no separate `frontend/` folder for the main app).
 
 Top‑level files (frontend‑relevant):
 
@@ -26,17 +34,18 @@ Top‑level files (frontend‑relevant):
 - `eslint.config.js`, `vitest.config.ts`: Linting and testing setup.
 - `package.json`: Scripts and dependencies.
 
-Source tree:
+Source tree (`src/`):
 
-- `src/main.tsx` – React entry point that mounts `<App />` to `#root`.
-- `src/App.tsx` – Global providers (React Query, tooltips, toasts) and all routes.
-- `src/pages/` – **Top‑level pages** mapped to URL paths.
-- `src/components/layout/` – Layout shell (`MainLayout`, `AppSidebar`, `AppHeader`).
-- `src/components/dashboard/` – Dashboard widgets (KPI cards, charts, tables, alerts).
-- `src/components/ui/` – Reusable shadcn‑style primitives (buttons, inputs, tabs, etc.).
-- `src/hooks/` – Shared React hooks (e.g., `use-mobile`, `use-toast`).
-- `src/lib/utils.ts` – Utility helpers (class name merging, etc.).
-- `src/index.css` – Tailwind setup, theme tokens, and app‑wide utility classes.
+- `main.tsx` – React entry point that mounts `<App />` to `#root`.
+- `App.tsx` – Global providers (React Query, tooltips, toasts) and all routes.
+- `pages/` – **Top‑level pages** mapped to URL paths.
+- `components/layout/` – Layout shell (`MainLayout`, `AppSidebar`, `AppHeader`).
+- `components/dashboard/` – Dashboard widgets (KPICard, RevenueChart, RecentPaymentsTable, DebtAlerts, QuickActions).
+- `components/ui/` – Reusable shadcn‑style primitives (buttons, inputs, tabs, etc.).
+- `api/` – **API client modules** (authApi, dashboardApi, usersApi, studentsApi, plansApi, paymentsApi, payrollApi, reportsApi, settingsApi) with shared `getAuthHeaders()` for Bearer token.
+- `hooks/` – Shared hooks (`use-mobile`, `use-toast`, `useCurrentUser`).
+- `lib/utils.ts` – Utility helpers (e.g. `cn`).
+- `index.css` – Tailwind setup, theme tokens, and app‑wide utility classes.
 
 ---
 
@@ -56,7 +65,7 @@ Responsibilities:
 
 ```typescript
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "./App.tsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
@@ -68,9 +77,7 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 - `QueryClientProvider` – global React Query client.
 - `TooltipProvider` – context for UI tooltips.
-- Two toast systems:
-  - `Toaster` – local toast (shadcn UI).
-  - `Sonner` – notification toasts (`sonner` library).
+- Two toast systems: `Toaster` (shadcn) and `Sonner` (sonner).
 - `BrowserRouter` & `Routes` – SPA routing.
 
 Route configuration (React Router v6):
@@ -78,7 +85,9 @@ Route configuration (React Router v6):
 ```tsx
 <BrowserRouter>
   <Routes>
-    <Route path="/" element={<Index />} />
+    <Route path="/" element={<Login />} />
+    <Route path="/login" element={<Login />} />
+    <Route path="/dashboard" element={<Index />} />
     <Route path="/users" element={<Users />} />
     <Route path="/students" element={<Students />} />
     <Route path="/plans" element={<Plans />} />
@@ -87,44 +96,36 @@ Route configuration (React Router v6):
     <Route path="/reminders" element={<Reminders />} />
     <Route path="/reports" element={<Reports />} />
     <Route path="/settings" element={<Settings />} />
-    {/* catch‑all 404 */}
     <Route path="*" element={<NotFound />} />
   </Routes>
 </BrowserRouter>
 ```
 
-There is **no server‑side rendering**; all routing is client‑side via `BrowserRouter`.
+There is **no server‑side rendering**; all routing is client‑side via `BrowserRouter`. **Authentication** is not enforced at the route level in `App.tsx`; the Login page redirects to `/dashboard` when a token exists, and the Dashboard (Index) redirects to the first allowed page when the user lacks the DASHBOARD permission.
 
 ---
 
 ## Route Map (Site Map)
 
-All routes are **static (no dynamic parameters)** and are declared in `App.tsx`.
+| Path        | Page / purpose                                      |
+|------------|------------------------------------------------------|
+| `/`        | Login (same as `/login`)                             |
+| `/login`   | Login                                                |
+| `/dashboard`| Dashboard (Index) – KPIs, chart, recent payments, debt alerts |
+| `/users`   | Users & roles management                             |
+| `/students`| Students list and profiles                           |
+| `/plans`   | Plans & services                                    |
+| `/payments`| Payments list and stats                              |
+| `/payroll` | Payroll & salary structure                           |
+| `/reminders`| Reminder rules and history                          |
+| `/reports` | Analytical reports and charts                        |
+| `/settings`| System & profile settings                            |
+| `*`        | 404 Not Found                                        |
 
-```text
-/                -> Dashboard (Index.tsx)
-/users           -> Users & roles management
-/students        -> Students list and profiles (mocked)
-/plans           -> Plans & services
-/payments        -> Payments list and stats
-/payroll         -> Payroll & salary structure
-/reminders       -> Reminder rules and history
-/reports         -> Analytical reports and charts
-/settings        -> System & profile settings
-* (any other)    -> 404 Not Found page
-```
-
-There are currently:
-
-- **8 main application pages** plus:
-  - **1 dashboard landing page** (`/`).
-  - **1 404 fallback** (`*`).
-- **No dynamic, nested, or admin‑only routes** implemented yet (all permissions are implicit and in the UI text only).
-
-Navigation is driven by:
-
-- `AppSidebar` nav items (links to the same paths).
-- Occasional buttons acting as entry points to flows (e.g., “ثبت پرداخت”, “پلن جدید”) but they do not yet navigate to separate sub‑routes.
+- **Landing**: `/` and `/login` both render the Login page; after login, users are redirected to `/dashboard`.
+- **Dashboard**: Only at `/dashboard` (no longer at `/`).
+- **RBAC**: Sidebar nav items are filtered by the current user’s `permissions` (from `GET /settings/profile`). Users without DASHBOARD are redirected from the dashboard to the first permitted section (e.g. `/students`, `/settings`).
+- Navigation is driven by `AppSidebar` (links to the above paths) and header/user menu (e.g. logout, settings).
 
 ---
 
@@ -132,47 +133,44 @@ Navigation is driven by:
 
 ### `MainLayout`
 
-`MainLayout` wraps all main pages with:
+`MainLayout` wraps all main application pages (Dashboard, Users, Students, etc.) with:
 
-- **Persistent sidebar**: `AppSidebar` (includes main navigation, brand area, and user summary).
-- **Sticky header**: `AppHeader` (page title, breadcrumb‑like subtitle, search, notifications, user menu).
+- **Persistent sidebar**: `AppSidebar` (navigation filtered by permissions, brand area, user summary and dropdown with logout).
+- **Sticky header**: `AppHeader` (page title, subtitle, search, notification count from API, user menu with profile/settings/logout).
 - **Scrollable content area**: a flex container with padding where the page body is rendered.
 
 Data flow:
 
-- The page component (e.g., `Payments`) passes `title` and `subtitle` props to `MainLayout`.
-- `MainLayout` passes those down to `AppHeader`, and renders `children` in the main content area.
+- The page component passes `title` and `subtitle` to `MainLayout`.
+- `MainLayout` passes those to `AppHeader` and renders `children` in the main content area.
 
 ### `AppSidebar`
 
 Responsibilities:
 
-- Top‑level navigation between routes using `react-router-dom`'s `<Link>`.
-- Collapsible behavior:
-  - **Desktop**: collapsible sidebar with icon‑only mode.
-  - **Mobile**: overlay + floating action button to open/close sidebar.
-- Shows a static “system admin” user chip at the bottom.
-
-Key nav items:
-
-- "/" → Dashboard
-- "/users"
-- "/students"
-- "/plans"
-- "/payments"
-- "/payroll"
-- "/reminders"
-- "/reports"
-- "/settings"
+- **Permission-based navigation**: Nav items are filtered with `hasPermission(profile?.permissions, item.permission)`. Items use permission codes from `@/api/settingsApi` (e.g. DASHBOARD, USERS, STUDENTS).
+- **Dashboard link**: Points to `/dashboard` (not `/`).
+- **User block**: Uses `useCurrentUser()` (profile, isLoading, isError, logout). Displays display name and role; dropdown with links to Settings, and **خروج** (logout) which calls `logout()` and `navigate("/login")`.
+- Collapsible behavior: desktop icon‑only mode; mobile overlay + floating button to open/close.
 
 ### `AppHeader`
 
 Responsibilities:
 
 - Display current page `title` and optional `subtitle`.
-- Global search input (currently local; no actual query logic).
-- Notification bell with a static badge count.
-- User chip with name/role (“مدیر سیستم”) and dropdown icon (no menu yet).
+- Global search input (local UI; no backend search wired yet).
+- Notification bell with **live count** from `getNotificationCount()` (React Query, key `notification-count`).
+- User chip and dropdown (profile, settings, logout) using `useCurrentUser()`.
+
+---
+
+## API Integration
+
+- **Base URL**: `http://localhost:8081/api/v1` by default; overridable via `VITE_API_BASE_URL`.
+- **Auth**: After login, `accessToken` (and optionally `refreshToken`) are stored in `localStorage`. API modules use `getAuthHeaders()` which returns `{ Authorization: "Bearer " + accessToken }`.
+- **Modules**: `authApi`, `dashboardApi`, `usersApi`, `studentsApi`, `plansApi`, `paymentsApi`, `payrollApi`, `reportsApi`, `settingsApi`. They expose typed functions that call `fetch` with auth headers and return promises (or throw on non‑OK).
+- **React Query**: Used for current user (`useCurrentUser` → `getProfile`), dashboard data (summary, revenue trend), notification count, and other list/summary endpoints. Queries use stable `queryKey`s and often `staleTime`; mutations or refetches can be added per feature.
+- **Profile & RBAC**: `GET /settings/profile` returns user profile including `permissions` array. Sidebar and dashboard redirect logic use this to show only allowed sections and redirect users without DASHBOARD to their first permitted route.
 
 ---
 
@@ -181,98 +179,45 @@ Responsibilities:
 ### Core Runtime
 
 - **React 18** with functional components and hooks.
-- **TypeScript** for static typing across components and hooks.
+- **TypeScript** for static typing across components, hooks, and API types.
 - **React Router v6** for declarative, component‑based routing.
 - **React Query (@tanstack/react-query)**:
-  - `QueryClient` is instantiated once and provided app‑wide.
-  - No specific queries are declared yet; this is ready for future API integration.
+  - Used for server state (e.g. dashboard summary, revenue trend, profile, notification count).
+  - `useCurrentUser` and logout clear tokens and invalidate `current-user` query.
 
 ### UI & Design System
 
-- **Tailwind CSS**:
-  - Applied via `src/index.css` and `tailwind.config.ts`.
-  - Custom CSS variables for colors, typography, sidebar, charts, and gradients.
-  - RTL layout enforced globally via `html { direction: rtl; }`.
-  - Utility classes:
-    - `status-paid`, `status-pending`, `status-debt`
-    - `card-elevated`, `number-display`, `text-gradient`, etc.
-- **shadcn‑ui style components** under `src/components/ui/`:
-  - Buttons, inputs, tabs, tables, accordions, dialogs, dropdowns, etc.
-  - These components rely on Radix UI primitives under the hood.
-- **Iconography**:
-  - `lucide-react` across all views for consistent icon visuals.
+- **Tailwind CSS**: Applied via `index.css` and `tailwind.config.ts`; custom CSS variables for colors, typography, sidebar, charts, gradients; RTL via `html { direction: rtl; }`; utilities such as `status-paid`, `status-pending`, `status-debt`, `card-elevated`, `number-display`, `text-gradient`.
+- **shadcn‑ui** under `components/ui/`: buttons, inputs, tabs, tables, dialogs, dropdowns, etc., built on Radix UI.
+- **Icons**: `lucide-react` across the app.
 
 ### Feedback & Overlays
 
-- **Toasts**:
-  - `Toaster` (`/components/ui/toaster.tsx`) for shadcn‑style toasts.
-  - `Sonner` (`/components/ui/sonner.tsx`) for rich notifications.
-- **Tooltips**:
-  - `TooltipProvider` wraps the app; tooltip components are available in `ui/tooltip.tsx`.
+- **Toasts**: `Toaster` (shadcn) and `Sonner`.
+- **Tooltips**: `TooltipProvider` wraps the app; tooltip components in `ui/tooltip.tsx`.
 
 ### Charts & Analytics
 
-- `recharts` used in:
-  - `RevenueChart` (dashboard).
-  - `Reports` page (area chart, bar chart, pie chart).
-- All chart data is currently **hardcoded mock data** for demonstration.
-
----
-
-## Dependencies (from `package.json`)
-
-Key runtime dependencies (non‑dev):
-
-- React & router:
-  - `react`, `react-dom`, `react-router-dom`
-- Data & forms:
-  - `@tanstack/react-query`
-  - `react-hook-form`, `@hookform/resolvers`, `zod`
-- UI & styling:
-  - `tailwindcss`, `tailwindcss-animate`, `tailwind-merge`
-  - `@fontsource/vazirmatn` (Persian/Arabic font)
-  - `lucide-react`
-  - shadcn/Radix wrappers (`@radix-ui/react-*`)
-- State & utilities:
-  - `class-variance-authority`, `clsx`
-  - `date-fns`
-  - `sonner`
-  - `embla-carousel-react`
-  - `vaul`
-
-Key dev dependencies:
-
-- `vite`, `@vitejs/plugin-react-swc`
-- `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`
-- `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `jsdom`
-- `tailwindcss`, `@tailwindcss/typography`, `postcss`, `autoprefixer`
+- `recharts` in `RevenueChart` (dashboard) and on the Reports page. Dashboard chart data comes from **API** (`getRevenueTrend`); Reports may use API or local data depending on implementation.
 
 ---
 
 ## High-Level Behavior and Data Flow
 
-- Pages currently use **local component state** plus **static mock data** arrays to render tables, cards, and charts.
-- There are **no network requests** or global stores (Redux, Zustand, etc.) but React Query is ready to be used.
-- Navigation uses declarative routes plus clickable buttons and actions that (for now) are **visual only** and do not change routes or mutate data.
-- All financial values are represented as **formatted Persian strings** (e.g., `"۲,۵۰۰,۰۰۰"`) rather than numeric types.
+- **Auth**: User logs in at `/` or `/login`; tokens are stored; redirect to `/dashboard`. Logout clears tokens and redirects to `/login`. Profile (and permissions) are loaded via `useCurrentUser` for sidebar and header.
+- **Dashboard**: Fetches `getDashboardSummary` and `getRevenueTrend` via React Query; passes API data (and loading state) to KPICard, RevenueChart, DebtAlerts, RecentPaymentsTable. Users without DASHBOARD are redirected to the first permitted page.
+- **Other pages**: May use their respective API modules (students, users, plans, payments, payroll, reports, settings) with React Query or local state; structure supports loading/error states and real data.
+- Financial values are typically represented as **formatted Persian strings** (e.g. via `toLocaleString("fa-IR")`) or as numeric values in API types (e.g. `amount_cents`).
 
 ---
 
 ## Known / Potential Issues (High-Level)
 
-- **No real API integration** yet:
-  - All data is mock; React Query is unused.
-  - No loading/error states are implemented.
-- **404 page uses a raw `<a href="/">` link** instead of React Router’s `<Link>`, causing a full page reload.
-- **Accessibility**:
-  - Icons used without `aria-label` in many buttons (e.g., “More” menu, send icons).
-  - No focus outlines are customized; relies on Tailwind default focus styles.
-  - Tables are visually rich but lack ARIA roles or captions.
-- **Internationalization**:
-  - The app is Farsi‑first and RTL, but some labels are in English (e.g., "Oops! Page not found").
-- **Performance**:
-  - For current scale, performance is fine (mostly static rendering).
-  - With large datasets, tables and charts would benefit from pagination or virtualization.
+- **Protected routes**: There is no global route guard in `App.tsx`; unauthenticated users can open `/dashboard` or other URLs directly. If the backend returns 401, the UI may show errors or empty state; consider a wrapper that redirects to `/login` when there is no token or profile.
+- **404 page**: May still use a raw `<a href="/">` instead of `<Link to="/">`; prefer `<Link>` to stay inside the SPA.
+- **Accessibility**: Icons and buttons may lack `aria-label`; tables may lack ARIA roles or captions.
+- **Internationalization**: App is Farsi‑first and RTL; some labels may be in English (e.g. 404 message).
+- **Reminders**: Backend may not yet expose reminder endpoints (TODO in backend); the Reminders page may be UI‑only or use mocks.
+- **Performance**: For large datasets, tables and charts may need pagination or virtualization.
 
-Subsequent docs (`Pages.md`, `Components.md`, `Styles.md`, `Improvements.md`) go into route‑by‑route, component‑by‑component, and design system details, plus concrete refactoring and enhancement suggestions.
-
+Subsequent docs (`Pages.md`, `Components.md`, `Styles.md`, `login-page.md`) go into route‑by‑route, component‑by‑component, and design system details.

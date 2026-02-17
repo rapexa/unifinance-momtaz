@@ -1,41 +1,41 @@
 ## Login Page – Admin Access Only
 
-This document describes the **Login page** added to the frontend, including its route, layout, styling, and integration with the backend auth API.
+This document describes the **Login page** in the frontend: route, layout, styling, and integration with the backend auth API.
 
 ---
 
 ## Purpose
 
-The Login page is the **entry point for admin users** to access the management dashboard. It:
+The Login page is the **entry point** for authenticated access to the management dashboard. It:
 
-- Collects email and password.
-- Calls the backend `/api/v1/auth/login` endpoint.
-- Enforces the **admin-only** rule (non-admins receive a clear error message).
-- Stores the JWT access/refresh tokens on success and redirects to the main dashboard.
+- Collects **organizational email** and **password**.
+- Calls the backend via **`login()`** from `@/api/authApi` (POST `/api/v1/auth/login`).
+- Enforces **admin-only** access: non-admin users receive a 403 and the message **"دسترسی فقط برای ادمین مجاز است."**
+- On success, stores JWT **access** and **refresh** tokens in `localStorage` and redirects to **`/dashboard`**.
+- If the user already has an `accessToken` in `localStorage`, they are **immediately redirected** to `/dashboard` (no form shown).
 
 ---
 
 ## Route and Navigation
 
-- **Path**: `/login`
+- **Paths**: **`/`** and **`/login`** both render the Login page (same component).
 - **Component file**: `src/pages/Login.tsx`
-- **Route registration**: in `src/App.tsx`:
+- **Route registration** in `src/App.tsx`:
 
 ```tsx
-<BrowserRouter>
-  <Routes>
-    <Route path="/login" element={<Login />} />
-    <Route path="/" element={<Index />} />
-    {/* other routes */}
-    <Route path="*" element={<NotFound />} />
-  </Routes>
-</BrowserRouter>
+<Route path="/" element={<Login />} />
+<Route path="/login" element={<Login />} />
+<Route path="/dashboard" element={<Index />} />
+// ... other routes
 ```
 
 Behavior:
 
-- Visiting `/login` shows the login form.
-- If the user is already logged in (an `accessToken` exists in `localStorage`), the page immediately redirects to `/`.
+- Visiting `/` or `/login` shows the login form **only if** there is no `accessToken` in `localStorage`.
+- If `accessToken` exists, `useEffect` runs and `navigate("/dashboard", { replace: true })`.
+- After a successful login, the code calls `navigate("/dashboard", { replace: true })`.
+
+The **dashboard** is only at **`/dashboard`**; the home path `/` is reserved for Login.
 
 ---
 
@@ -45,11 +45,11 @@ Behavior:
 
 Key points:
 
-- Uses React hooks:
-  - `useState` for `email`, `password`, `loading`, `error`.
-  - `useEffect` + `useNavigate` to redirect if already logged in.
-- Uses `lucide-react` icons (`Lock`, `Mail`) to match the rest of the UI.
-- Does **not** use `MainLayout` (no sidebar/header); instead, it uses a standalone centered card.
+- **State**: `useState` for `email`, `password`, `loading`, `error`.
+- **Redirect when already logged in**: `useEffect` checks `localStorage.getItem("accessToken")` and redirects to `/dashboard` if present.
+- **Submit**: `handleSubmit` calls `login(email, password)` from `@/api/authApi`. On success it redirects to `/dashboard`; on failure it sets `error` with a localized message.
+- **Icons**: `lucide-react` (`Lock`, `Mail`).
+- **Layout**: Standalone centered card; **no** `MainLayout` (no sidebar/header).
 
 High-level JSX:
 
@@ -59,14 +59,13 @@ return (
     <div className="w-full max-w-md">
       <div className="card-elevated p-8">
         {/* Icon + title + subtitle */}
-        {/* Email + password fields */}
-        {/* Error box */}
-        {/* Submit button */}
-        {/* Forgot password link (stub) */}
+        {/* Email + password fields (controlled) */}
+        {/* Error box (conditional) */}
+        {/* Submit button (disabled when loading) */}
+        {/* Forgot password link (placeholder – shows message that feature is not implemented) */}
       </div>
-
       <p className="mt-4 text-center text-xs text-muted-foreground">
-        © ۲۰۲۶ یونی‌فاینانس ممتاز – داشبورد مدیریتی
+        © {new Date().getFullYear()} یونی‌فاینانس ممتاز – داشبورد مدیریتی
       </p>
     </div>
   </div>
@@ -79,166 +78,62 @@ return (
 
 The Login page reuses the **same design system** as the rest of the app:
 
-- Background and text colors from `src/index.css` (`bg-background`, `text-foreground`).
-- Global RTL layout (`html { direction: rtl; }`).
-- **Card** look with:
-  - `card-elevated` utility (rounded corners, subtle shadow, hover transition).
-  - Internal padding (`p-8`).
-- Primary action button:
-  - `bg-primary`, `text-primary-foreground`, rounded, shadowed, with hover/disabled states:
-
-```tsx
-<button
-  className="mt-2 flex w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
->
-  {loading ? "در حال ورود..." : "ورود به سیستم"}
-</button>
-```
-
-- Inputs mimic existing form fields:
-  - Rounded borders, subtle focus ring using `--ring` token.
-
-```tsx
-<div className="flex items-center rounded-lg border bg-card px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
-  <Mail className="mr-2 h-4 w-4 text-muted-foreground" />
-  <input
-    type="email"
-    className="w-full bg-transparent text-sm outline-none"
-    placeholder="admin@example.com"
-  />
-</div>
-```
-
-- Error messages use the same destructive color scheme as status chips:
-
-```tsx
-<div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-  {error}
-</div>
-```
-
-Visually, the page feels consistent with other forms (e.g., settings), but simplified and focused on login.
+- `bg-background`, `text-foreground`, `text-muted-foreground`.
+- **Card**: `card-elevated` (rounded, shadow, hover transition), padding `p-8`.
+- **Primary button**: `bg-primary`, `text-primary-foreground`, rounded, shadow, hover/disabled states. Text shows "در حال ورود..." when `loading`.
+- **Inputs**: Rounded border, `bg-card`, `focus-within:ring-2 focus-within:ring-ring`.
+- **Error box**: `border-destructive/30`, `bg-destructive/10`, `text-destructive`.
+- **Title**: `text-gradient` for "ورود به پنل مدیریت".
+- RTL and spacing follow the global layout.
 
 ---
 
 ## API Integration
 
-### Request
+Login is implemented in **`src/api/authApi.ts`**:
 
-- **Method**: `POST`
-- **URL**: `/api/v1/auth/login`
-- **Body**:
+- **Method**: POST  
+- **URL**: `${API_BASE}/auth/login` (default `http://localhost:8081/api/v1/auth/login`)  
+- **Body**: `{ "email": string, "password": string }`  
+- **Headers**: `Content-Type: application/json` (no Bearer on login).
 
-```json
-{
-  "email": "admin@example.com",
-  "password": "secret123"
-}
-```
+**Success**:
 
-Implementation (simplified):
+- Backend returns a JSON body with `tokens.access_token` (and optionally `tokens.refresh_token`).
+- The client stores them in `localStorage` (`accessToken`, `refreshToken`) and returns `{ success: true, data }`.
+- The Login page then redirects to `/dashboard`.
 
-```tsx
-const res = await fetch("/api/v1/auth/login", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({ email, password }),
-});
+**Errors** (mapped to Farsi in `Login.tsx`):
 
-const data = await res.json().catch(() => null);
-```
+- **Validation**: Empty email/password → "ایمیل و رمز عبور الزامی هستند."
+- **401 (invalid credentials)**: `result.error === "Invalid credentials"` → "ایمیل یا رمز عبور نامعتبر است."
+- **403 (admin only)**: `result.error === "Access denied"` → "دسترسی فقط برای ادمین مجاز است."
+- **Server unreachable**: "Server unreachable. Please try again later." → "خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید."
+- Other errors shown as `result.error` or fallback "خطا در ورود. دوباره تلاش کنید."
 
-> Note: For local development, ensure the backend is reachable from the Vite dev server (via CORS headers on the backend or a Vite proxy).
-
-### Success Handling
-
-Expected backend response (simplified):
-
-```json
-{
-  "user": { "id": 1, "first_name": "مدیر", "last_name": "سیستم", "email": "admin@example.com", "role": "ADMIN" },
-  "tokens": {
-    "access_token": "<JWT_ACCESS>",
-    "refresh_token": "<JWT_REFRESH>"
-  }
-}
-```
-
-On success, the page:
-
-```tsx
-localStorage.setItem("accessToken", data.tokens.access_token);
-if (data.tokens.refresh_token) {
-  localStorage.setItem("refreshToken", data.tokens.refresh_token);
-}
-
-navigate("/", { replace: true });
-```
-
-### Error Handling
-
-The page covers several error cases:
-
-- **Validation (client-side)**:
-  - Empty email or password → `"ایمیل و رمز عبور الزامی هستند."`
-  - HTML5 validation for email format + `minLength={6}` for password.
-
-- **401 Unauthorized (invalid credentials)**:
-
-```tsx
-res.status === 401
-  ? "ایمیل یا رمز عبور نامعتبر است."
-  : "خطا در ورود. دوباره تلاش کنید.";
-```
-
-- **403 Forbidden (admin restriction)**:
-  - The backend returns:
-
-  ```json
-  { "error": "Access denied: Admin only" }
-  ```
-
-  - This is surfaced as-is in the red error box.
-
-- **Network / unexpected errors**:
-  - `"خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید."`
+For local development, the backend must be reachable (CORS allows the frontend dev origin, e.g. port 8080). Base URL can be overridden with `VITE_API_BASE_URL`.
 
 ---
 
 ## User Flow
 
-1. User navigates to `/login`.
-2. If a valid `accessToken` is already present in `localStorage`, they are redirected to `/`.
-3. Otherwise:
-   - The login card is shown.
-   - User enters **organizational email** and **password**.
-   - Clicks **"ورود به سیستم"**.
-4. While the request is in flight:
-   - Button text changes to `"در حال ورود..."`.
-   - Button is disabled to prevent duplicate submissions.
-5. On success:
-   - Access/refresh tokens are stored in `localStorage`.
-   - User is redirected to the dashboard (`/`).
-6. On failure:
-   - A localized error message is shown (credentials, admin-only, or network).
+1. User opens **`/`** or **`/login`**.
+2. If `accessToken` exists → redirect to **`/dashboard`**.
+3. Otherwise the login card is shown.
+4. User enters email and password and clicks **"ورود به سیستم"**.
+5. While the request is in progress: button shows "در حال ورود...", button is disabled.
+6. On success: tokens stored, redirect to **`/dashboard`**.
+7. On failure: one of the above error messages is shown in the red box.
 
 ---
 
 ## Matching Existing Style & Future Extensions
 
-- The page:
-  - Uses the same **color palette**, **rounded radius**, and **typography** as other views.
-  - Respects RTL direction and spacing patterns (padding, gaps).
-  - Uses existing utility classes like `card-elevated`, `text-gradient`, and `text-muted-foreground`.
+The page uses the same **color palette**, **radius**, and **typography** as the rest of the app (e.g. `card-elevated`, `text-gradient`, `text-muted-foreground`) and respects RTL.
 
-Potential future improvements:
+Possible future improvements:
 
-- Use shared UI components (`Button`, `Input`) instead of raw `<button>` / `<input>` for stricter consistency.
-- Implement **global auth context** (React Context + React Query) to:
-  - Attach `Authorization: Bearer <token>` headers automatically.
-  - Handle token refresh / logout flows.
-- Add a dedicated **forgot password flow** (`/forgot-password` route) instead of a stubbed button.
-- Add a **protected route wrapper** that redirects unauthenticated users from main pages to `/login`.
-
+- Use shared UI components (`Button`, `Input`) from `components/ui/` for full consistency.
+- **Protected route wrapper**: Redirect unauthenticated users from `/dashboard` and other main routes to `/login` when there is no token or when the profile request returns 401.
+- **Forgot password**: Implement `/forgot-password` and wire the "فراموشی رمز عبور؟" link (currently shows a placeholder message).
+- **Global auth context**: Optionally wrap the app in a context that provides user and logout, and attach token refresh logic (e.g. using `refreshToken`) in the API layer.

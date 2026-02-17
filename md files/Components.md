@@ -4,10 +4,11 @@ This document covers the **reusable components** and how they are used across pa
 
 At a high level:
 
-- `layout/` components define the **application shell**.
-- `dashboard/` components create composable dashboard widgets.
+- `layout/` components define the **application shell** (with auth-aware sidebar and header).
+- `dashboard/` components are **data-driven widgets** (they accept API data and loading state).
 - `ui/` components implement the **design system primitives** (buttons, inputs, tabs, etc.).
-- `hooks/` and `lib/` provide supporting utilities.
+- `api/` modules provide **typed API clients** used by pages and hooks.
+- `hooks/` (including `useCurrentUser`) and `lib/` provide shared utilities.
 
 ---
 
@@ -16,65 +17,47 @@ At a high level:
 ### `MainLayout`
 
 - **File**: `src/components/layout/MainLayout.tsx`
-- **Purpose**: Shared scaffold for nearly all pages.
+- **Purpose**: Shared scaffold for all main application pages (Dashboard, Users, Students, etc.).
 
 Props:
 
 - `children: ReactNode` – page content.
 - `title: string` – passed to `AppHeader`.
-- `subtitle?: string` – optional subtitle, also shown in the header.
+- `subtitle?: string` – optional subtitle in the header.
 
 Structure:
 
-- Right‑hand (RTL) sidebar: `<AppSidebar />`.
-- Main section:
-  - `<AppHeader title={title} subtitle={subtitle} />`
-  - Scrollable content area with padding and `children`.
+- Sidebar: `<AppSidebar />`.
+- Main section: `<AppHeader title={title} subtitle={subtitle} />` and a scrollable content area with `children`.
 
 Usage:
 
-- Every main route (`Index`, `Users`, `Students`, `Plans`, `Payments`, `Payroll`, `Reminders`, `Reports`, `Settings`) wraps its content in `MainLayout`.
+- Every main route except Login and NotFound wraps its content in `MainLayout`.
 
 ---
 
 ### `AppSidebar`
 
 - **File**: `src/components/layout/AppSidebar.tsx`
-- **Purpose**: Top‑level navigation and user summary.
+- **Purpose**: Top-level navigation (permission-filtered), brand area, and user block with logout.
 
 Key details:
 
-- Defines a static array `navItems`:
-  - `title` (Farsi label).
-  - `href` (route path).
-  - `icon` (Lucide icon component).
-  - Optional `badge` (for counts like number of students or pending payments).
-- Uses `useLocation()` to compute `isActive` for each link based on `location.pathname`.
-- Renders:
-  - A brand header with an icon and organization label.
-  - Navigation list with icons, labels, and badges.
-  - A user section at the bottom (avatar + name/role).
-
-Behavior:
-
-- **Collapsed state**:
-  - Controlled by `collapsed` (`useState(false)`).
-  - On large screens, shows a toggle button that turns the sidebar into a narrow icon bar.
-  - On mobile, uses an overlay and a floating button to open/close.
-- Styles are based on:
-  - `sidebar-*` design tokens from `index.css` (e.g., `bg-sidebar`, `border-sidebar-border`).
-  - `cn` for conditional classes.
+- **Navigation**: Static array `navItems` with `title`, `href`, `icon`, and `permission` (from `@/api/settingsApi` – e.g. `PERMISSIONS.DASHBOARD`, `PERMISSIONS.USERS`). Items are **filtered** with `hasPermission(profile?.permissions, item.permission)` so only allowed sections are shown. Dashboard link is `/dashboard`.
+- **User state**: Uses `useCurrentUser()` – `profile`, `isLoading`, `isError`, `logout`. Display name and role are derived from `profile`; bottom section shows user avatar/name and a **dropdown** with links to Settings and **خروج** (logout). Logout calls `logout()` then `navigate("/login")`.
+- **Collapsed state**: `collapsed` (useState); on desktop the sidebar can shrink to icon-only; on mobile an overlay and floating button open/close the sidebar.
+- Styling: `sidebar-*` tokens, `cn()` for conditional classes. Active route is highlighted (e.g. `bg-sidebar-primary`).
 
 Routing:
 
-- Uses `<Link to={item.href}>` from `react-router-dom`.
+- Uses `<Link to={item.href}>` from `react-router-dom` for nav items.
 
 ---
 
 ### `AppHeader`
 
 - **File**: `src/components/layout/AppHeader.tsx`
-- **Purpose**: Sticky header with page title, search, notifications, and user menu.
+- **Purpose**: Sticky header with page title, search, notification count (from API), and user menu.
 
 Props:
 
@@ -83,23 +66,17 @@ Props:
 
 Features:
 
-- Sticky at top, semi‑transparent background with blur.
-- Title and subtitle section on the left.
-- On the right:
-  - Search input (desktop only).
-  - Notification bell button (`Bell` icon) with a static badge (“۵”).
-  - User menu button:
-    - Avatar circle with initial.
-    - Name and role text.
-    - `ChevronDown` icon.
-
-Interactions:
-
-- No dropdown menu attached yet; all buttons are UI only.
+- Sticky at top, semi-transparent background with blur.
+- Title and subtitle on one side.
+- **Notification count**: `useQuery` with `getNotificationCount` from `@/api/settingsApi` (query key: `notification-count`). Badge shows count (or 99+).
+- **User menu**: Uses `useCurrentUser()` for display name and role; dropdown with **پروفایل**, **تنظیمات** (links to `/settings`), and **خروج** (logout → `logout()` and `navigate("/login")`).
+- Search input is present (local UI; no backend search wired).
 
 ---
 
 ## Dashboard Components
+
+Dashboard widgets are designed to receive **data and loading state** from the parent (typically from React Query in the Dashboard page). They no longer rely on hardcoded mock data inside the component.
 
 ### `KPICard`
 
@@ -109,16 +86,14 @@ Interactions:
 Props:
 
 - `title: string`
-- `value: string` – formatted value (e.g., `"۱۲۵,۴۵۰,۰۰۰"`).
-- `change?`:
-  - `value: string` – e.g., `"+۱۲٪"`.
-  - `trend: "up" | "down"` – determines color and icon.
-- `icon: LucideIcon` – icon for the top‑right.
-- `variant?: "default" | "success" | "warning" | "danger"` – background color of icon container.
+- `value: string` – formatted value (e.g. from API, formatted as Persian).
+- `change?`: `value: string`, `trend: "up" | "down"` – optional.
+- `icon: LucideIcon`
+- `variant?: "default" | "success" | "warning" | "danger"`
 
 Usage:
 
-- Used on the dashboard home page to show revenue, debts, payroll, and active students.
+- Used on the dashboard for revenue, debts, payroll, active students (values from `getDashboardSummary().kpis`).
 
 ---
 
@@ -127,46 +102,31 @@ Usage:
 - **File**: `src/components/dashboard/RevenueChart.tsx`
 - **Purpose**: Area chart comparing monthly revenue vs. expenses.
 
+Props:
+
+- `data?: RevenueTrendPoint[]` – from API (`getRevenueTrend`). Each point: `year`, `month`, `revenue_cents`, `payroll_cents`.
+- `isLoading?: boolean`
+
 Implementation:
 
-- Uses `recharts`:
-  - `AreaChart`, `Area`, `XAxis`, `YAxis`, `CartesianGrid`, `Tooltip`, `ResponsiveContainer`.
-- Data is a static `data` array of `{ month, revenue, expenses }`.
-- Renders in a card (`card-elevated`) with legend and Farsi month labels.
-- Uses `dir="ltr"` on the chart container to keep X‑axis direction intuitive despite RTL UI.
-
-Usage:
-
-- Placed on the dashboard page.
-- Similar patterns are reused in the `Reports` page (with different data).
+- Uses `recharts`: `AreaChart`, `Area`, `XAxis`, `YAxis`, `CartesianGrid`, `Tooltip`, `ResponsiveContainer`. Transforms API data to `month` label and revenue/expenses (tomans). Renders in a `card-elevated` with legend. Shows loading or empty state when no data.
 
 ---
 
 ### `RecentPaymentsTable`
 
 - **File**: `src/components/dashboard/RecentPaymentsTable.tsx`
-- **Purpose**: Compact table of the most recent payments.
+- **Purpose**: Table of recent payments (e.g. last 5 from dashboard summary).
 
-Data:
+Props:
 
-- `mockPayments` array of `{ id, student, amount, date, status, method }`.
+- `payments?: DashboardPaymentItem[]` – from API (`getDashboardSummary().recent_payments`). Items include `id`, `student_name`, `amount_cents`, `status`, `method`, `paid_at`, `created_at`, etc.
+- `isLoading?: boolean`
 
-Status:
+Status and method labels:
 
-- `statusLabels` and `statusStyles` map keys `"paid" | "pending" | "debt"` to:
-  - Display text.
-  - CSS utility classes for styling.
-
-Features:
-
-- Shown inside a `card-elevated`.
-- Table columns:
-  - Student (with avatar circle).
-  - Amount.
-  - Date.
-  - Method.
-  - Status chip.
-- Each row has a slight animation delay for a subtle entrance effect.
+- Status: PAID, PENDING, OVERDUE mapped to Farsi and `status-paid`, `status-pending`, `status-debt`.
+- Method: CARD_TO_CARD, GATEWAY, CASH, etc. mapped to Farsi.
 
 ---
 
@@ -175,44 +135,66 @@ Features:
 - **File**: `src/components/dashboard/DebtAlerts.tsx`
 - **Purpose**: List of overdue debt alerts.
 
-Data:
+Props:
 
-- `mockAlerts` array of `{ id, student, amount, daysOverdue }`.
+- `alerts?: DebtAlertItem[]` – from API (`getDashboardSummary().debt_alerts`). Each: `student_id`, `student_name`, `amount_cents`, `days_overdue`.
+- `isLoading?: boolean`
 
 UI:
 
-- Header bar with:
-  - `AlertTriangle` icon.
-  - Title “هشدار بدهی‌ها”.
-  - Badge for total alerts.
-- For each alert:
-  - Student name and initial.
-  - Days overdue.
-  - Amount and “تومان”.
-- Footer button “مشاهده همه بدهی‌ها” with arrow icon.
-
-Interactions:
-
-- No click handlers; the button is a visual affordance only.
+- Header with icon, title "هشدار بدهی‌ها", and count badge. List of alerts with student name, days overdue, amount. Footer link/button (e.g. "مشاهده همه بدهی‌ها"). Loading and empty states are handled.
 
 ---
 
 ### `QuickActions`
 
 - **File**: `src/components/dashboard/QuickActions.tsx`
-- **Purpose**: Grid of action buttons for common operations.
+- **Purpose**: Grid of action buttons (e.g. ثبت پرداخت, لینک پرداخت, فیش حقوقی, ارسال یادآوری). Buttons may be wired to routes or dialogs as the app evolves.
 
-Actions:
+---
 
-- `ثبت پرداخت`
-- `لینک پرداخت`
-- `فیش حقوقی`
-- `ارسال یادآوری`
+## API Layer (`src/api/`)
 
-Behavior:
+The frontend uses **typed API modules** that call the backend with `getAuthHeaders()` (Bearer token from `localStorage`). Base URL: `http://localhost:8081/api/v1` or `VITE_API_BASE_URL`.
 
-- Each action is a `<Button>` with an icon and label.
-- No handlers are attached yet; these are ready to be wired to routes or dialogs.
+- **authApi.ts**: `login(email, password)` – POST `/auth/login`, stores tokens, returns success/error.
+- **dashboardApi.ts**: `getDashboardSummary(params?)`, `getRevenueTrend(params?)` – dashboard summary and revenue trend.
+- **settingsApi.ts**: Organization, profile (`getProfile`, `updateProfile`), security (password, 2FA), notifications, payment settings. Exports `PERMISSIONS` and `Profile` type used by sidebar and `useCurrentUser`.
+- **usersApi.ts**, **studentsApi.ts**, **plansApi.ts**, **paymentsApi.ts**, **payrollApi.ts**, **reportsApi.ts**: Resource-specific list/get/create/update/delete or summary/export where implemented.
+
+These are used by pages and by hooks such as `useCurrentUser`.
+
+---
+
+## Hooks
+
+### `useCurrentUser`
+
+- **File**: `src/hooks/useCurrentUser.ts`
+- **Purpose**: Current user profile and logout for layout and permission checks.
+
+Implementation:
+
+- `useQuery` with `queryKey: ["current-user"]`, `queryFn: getProfile` (from `@/api/settingsApi`). Retries disabled on 401 or auth-related errors. Returns `profile`, `isLoading`, `isError`, `logout`. `logout()` clears query cache and removes `accessToken` and `refreshToken` from `localStorage`.
+
+Used by:
+
+- `AppSidebar`, `AppHeader` (display name, role, logout, permission filtering in sidebar).
+- Dashboard (Index) for permission-based redirect when user has no DASHBOARD permission.
+
+### `use-mobile`
+
+- **File**: `src/hooks/use-mobile.tsx`
+- Used where behavior differs between mobile and desktop (e.g. sidebar layout).
+
+### `use-toast`
+
+- **File**: `src/hooks/use-toast.ts` and `components/ui/use-toast.ts`
+- Triggers toasts from components.
+
+### `lib/utils.ts`
+
+- **cn**: Class name merging (e.g. for conditional Tailwind classes). Other shared helpers as needed.
 
 ---
 
@@ -221,101 +203,27 @@ Behavior:
 ### `NavLink`
 
 - **File**: `src/components/NavLink.tsx`
-- **Purpose**: Thin wrapper around React Router’s `<NavLink>` providing `activeClassName` / `pendingClassName` props for compatibility with older patterns.
-
-Props:
-
-- Extends `NavLinkProps`, but:
-  - `className?: string`
-  - `activeClassName?: string`
-  - `pendingClassName?: string`
-
-Implementation:
-
-- Forwards ref to the underlying `<RouterNavLink>`.
-- Computes `className` using `cn` and the `isActive` / `isPending` flags from `react-router-dom`.
-
-Usage:
-
-- Not heavily used in current pages (sidebar uses `<Link>` directly), but useful for future nav items that require active styling.
+- Thin wrapper around React Router’s `NavLink` with `activeClassName` / `pendingClassName`. Sidebar currently uses `<Link>` directly; this component is available for nav items that need active styling.
 
 ---
 
 ## UI (Design System) Components
 
-> Note: These are shadcn‑style primitives under `src/components/ui/`. They broadly follow standard shadcn APIs and use Radix UI under the hood. Only their high‑level roles are documented here; refer to individual files for advanced props and patterns.
+Under `src/components/ui/`: shadcn-style primitives (Radix-based). They support the rest of the app with consistent props and tokens. Key groups:
 
-Key primitives:
-
-- **Form controls**:
-  - `button.tsx`, `input.tsx`, `textarea.tsx`, `checkbox.tsx`, `radio-group.tsx`, `switch.tsx`, `select.tsx`, `input-otp.tsx`.
-- **Feedback**:
-  - `alert.tsx`, `toast.tsx`, `toaster.tsx`, `sonner.tsx`, `progress.tsx`, `skeleton.tsx`.
-- **Layout & containers**:
-  - `card.tsx`, `accordion.tsx`, `collapsible.tsx`, `scroll-area.tsx`, `resizable.tsx`, `aspect-ratio.tsx`, `sheet.tsx`, `sidebar.tsx`.
-- **Overlays & menus**:
-  - `dialog.tsx`, `alert-dialog.tsx`, `drawer.tsx`, `dropdown-menu.tsx`, `context-menu.tsx`, `hover-card.tsx`, `popover.tsx`, `tooltip.tsx`, `menubar.tsx`, `navigation-menu.tsx`.
-- **Navigation aids**:
-  - `breadcrumb.tsx`, `pagination.tsx`, `tabs.tsx`, `toggle.tsx`, `toggle-group.tsx`.
-- **Data display**:
-  - `table.tsx`, `badge.tsx`, `avatar.tsx`, `calendar.tsx`, `chart.tsx`, `carousel.tsx`.
-
-Common patterns:
-
-- Each component:
-  - Exposes typed props.
-  - Uses Tailwind classes plus CSS variables from `index.css`.
-  - Follows shadcn naming and composition conventions.
-
----
-
-## Hooks and Utilities
-
-### `use-mobile`
-
-- **File**: `src/hooks/use-mobile.tsx`
-- Likely determines if the current viewport is considered mobile (implementation not fully detailed here, but typically uses `useMediaQuery` or `window.matchMedia`).
-- Used where behavior diverges between mobile and desktop layouts.
-
-### `use-toast`
-
-- **File**: `src/hooks/use-toast.ts` and `components/ui/use-toast.ts`
-- Provides hooks to trigger toasts from any component.
-
-### `lib/utils.ts`
-
-- Contains helper functions such as:
-  - `cn` – class name merging.
-  - Any additional shared utilities added by the project.
+- **Form controls**: button, input, textarea, checkbox, radio-group, switch, select, input-otp.
+- **Feedback**: alert, toast, toaster, sonner, progress, skeleton.
+- **Layout**: card, accordion, collapsible, scroll-area, resizable, aspect-ratio, sheet, sidebar.
+- **Overlays & menus**: dialog, alert-dialog, drawer, dropdown-menu, context-menu, hover-card, popover, tooltip, menubar, navigation-menu.
+- **Navigation**: breadcrumb, pagination, tabs, toggle, toggle-group.
+- **Data display**: table, badge, avatar, calendar, chart, carousel.
 
 ---
 
 ## Component Usage by Page (Summary)
 
-High‑level mapping of **major components** to **pages**:
+- **Login**: No MainLayout; standalone card.
+- **Dashboard (Index)**: MainLayout, KPICard ×4, RevenueChart, QuickActions, DebtAlerts, RecentPaymentsTable (all fed from dashboard API and loading state).
+- **Users, Students, Plans, Payments, Payroll, Reminders, Reports, Settings**: MainLayout plus page-specific content; data may come from corresponding API modules and React Query.
 
-- `Index`:
-  - `MainLayout`, `KPICard`, `RevenueChart`, `QuickActions`, `DebtAlerts`, `RecentPaymentsTable`.
-- `Users`:
-  - `MainLayout`, `Button`, `Input`, avatar & status pills using utilities.
-- `Students`:
-  - `MainLayout`, `Button`, `Input`, list/grid layout, status and number utilities.
-- `Plans`:
-  - `MainLayout`, `Button`, `Input`, `Badge`, feature list with `Check` icons.
-- `Payments`:
-  - `MainLayout`, `Button`, `Input`, `Tabs`, status chips.
-- `Payroll`:
-  - `MainLayout`, `Button`, `Tabs`, table for employees, cards for structures.
-- `Reminders`:
-  - `MainLayout`, `Button`, `Input`, `Switch`, status icons.
-- `Reports`:
-  - `MainLayout`, `Button`, `Tabs`, various `recharts` charts.
-- `Settings`:
-  - `MainLayout`, `Button`, `Input`, `Switch`, `Tabs`.
-
-This architecture promotes **reuse and consistency**:
-
-- Layout is fixed and opinionated via `MainLayout`, `AppSidebar`, `AppHeader`.
-- Page components focus on domain‑specific UI and data (currently mocked).
-- `ui/` primitives ensure visual consistency and rapid iteration across the app.
-
+This architecture keeps layout and auth in one place (sidebar/header + useCurrentUser), dashboard widgets data-driven, and pages focused on domain UI and API wiring.

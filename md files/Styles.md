@@ -162,8 +162,8 @@ Ensures numbers align neatly in tables and cards.
 
 ## Legacy / Unused Styles
 
-- `src/App.css` contains leftover styles from the Vite starter template (logo animation, etc.).
-  - These are **not referenced** by current components and can be safely deleted or cleaned up.
+- `src/App.css` may contain leftover styles from the Vite starter template.
+  - If present and not referenced by components, it can be removed or cleaned up.
 
 ---
 
@@ -208,7 +208,13 @@ Current limitations:
 - Inputs do not use explicit `<label htmlFor="...">` in all places; some use `<label>` with implicit association.
 - No role descriptions or captions on charts; screen readers may not convey chart meaning.
 
-Recommendations are captured in `Improvements.md`.
+Recommendations can be documented in a separate improvements or accessibility doc as needed.
+
+---
+
+## Login and Consistency
+
+The Login page uses the same design system (e.g. `card-elevated`, `text-gradient`, `bg-primary`, `text-destructive`, RTL) so it is visually consistent with the rest of the app.
 
 ---
 
