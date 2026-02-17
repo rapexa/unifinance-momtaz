@@ -21,7 +21,6 @@ import { Switch } from "@/components/ui/switch";
 import {
   Plus,
   Search,
-  MoreHorizontal,
   Shield,
   UserCheck,
   UserX,
@@ -56,12 +55,6 @@ const PERMISSION_LABELS: Record<string, string> = {
   REPORTS: "گزارش‌ها",
   SETTINGS: "تنظیمات",
 };
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -571,30 +564,38 @@ const Users = () => {
                     {user.createdAt}
                   </td>
                   <td className="p-4">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setDetailsUserId(user.id)}>
-                          <Eye className="ml-2 h-4 w-4" />
-                          جزئیات
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditUserId(user.id)}>
-                          <Pencil className="ml-2 h-4 w-4" />
-                          ویرایش
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeleteUser(user)}
-                        >
-                          <Trash2 className="ml-2 h-4 w-4" />
-                          حذف (غیرفعال‌سازی)
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex gap-1 flex-wrap">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setDetailsUserId(user.id)}
+                        title="جزئیات کاربر"
+                      >
+                        <Eye className="h-4 w-4" />
+                        جزئیات
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setEditUserId(user.id)}
+                        title="ویرایش کاربر"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        ویرایش
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteUser(user)}
+                        title="حذف (غیرفعال‌سازی)"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        حذف
+                      </Button>
+                    </div>
                   </td>
                   </tr>
                 ))}

@@ -109,6 +109,20 @@ export interface CreatePaymentPayload {
   currency?: string;
 }
 
+export async function getPayment(id: number): Promise<PaymentApi> {
+  const res = await fetch(`${API_BASE}/payments/${id}`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("پرداخت یافت نشد");
+    const msg = (data && data.error) || "خطا در دریافت پرداخت";
+    throw new Error(msg);
+  }
+  return data as PaymentApi;
+}
+
 export async function createPayment(
   payload: CreatePaymentPayload
 ): Promise<PaymentApi> {
@@ -121,6 +135,46 @@ export async function createPayment(
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = (data && data.error) || "ثبت پرداخت با خطا مواجه شد";
+    throw new Error(msg);
+  }
+  return data as PaymentApi;
+}
+
+export interface UpdatePaymentPayload {
+  amount_cents?: number;
+  method?: string;
+  status?: string;
+  description?: string;
+  reference_number?: string;
+  due_date?: string | null;
+  paid_at?: string | null;
+  enrollment_id?: number | null;
+}
+
+export async function updatePayment(
+  id: number,
+  payload: UpdatePaymentPayload
+): Promise<PaymentApi> {
+  const body: Record<string, unknown> = {};
+  if (payload.amount_cents != null) body.amount_cents = payload.amount_cents;
+  if (payload.method != null) body.method = payload.method;
+  if (payload.status != null) body.status = payload.status;
+  if (payload.description != null) body.description = payload.description;
+  if (payload.reference_number != null) body.reference_number = payload.reference_number;
+  if (payload.due_date !== undefined) body.due_date = payload.due_date || null;
+  if (payload.paid_at !== undefined) body.paid_at = payload.paid_at || null;
+  if (payload.enrollment_id !== undefined) body.enrollment_id = payload.enrollment_id ?? null;
+
+  const res = await fetch(`${API_BASE}/payments/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("پرداخت یافت نشد");
+    const msg = (data && data.error) || "ویرایش پرداخت با خطا مواجه شد";
     throw new Error(msg);
   }
   return data as PaymentApi;

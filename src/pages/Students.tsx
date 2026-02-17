@@ -20,7 +20,6 @@ import {
 import {
   Plus,
   Search,
-  MoreHorizontal,
   User,
   Phone,
   Mail,
@@ -45,12 +44,6 @@ import {
 } from "@/api/studentsApi";
 import { listAdvisors, UserApi } from "@/api/usersApi";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -566,30 +559,38 @@ const Students = () => {
                       </span>
                     </td>
                     <td className="p-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setDetailsStudentId(student.id)}>
-                            <Eye className="ml-2 h-4 w-4" />
-                            جزئیات
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setEditStudentId(student.id)}>
-                            <Pencil className="ml-2 h-4 w-4" />
-                            ویرایش
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteStudent(student)}
-                          >
-                            <Trash2 className="ml-2 h-4 w-4" />
-                            حذف
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <div className="flex gap-1 flex-wrap">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setDetailsStudentId(student.id)}
+                          title="جزئیات دانش‌آموز"
+                        >
+                          <Eye className="h-4 w-4" />
+                          جزئیات
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setEditStudentId(student.id)}
+                          title="ویرایش دانش‌آموز"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          ویرایش
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setDeleteStudent(student)}
+                          title="حذف دانش‌آموز"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          حذف
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

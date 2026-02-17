@@ -33,16 +33,21 @@ import {
   ArrowDownRight,
   Clock,
   Copy,
+  Eye,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   listPayments,
   getPaymentsSummary,
+  getPayment,
   createPayment,
+  updatePayment,
   exportPayments,
   generatePaymentLink,
   type PaymentApi,
   type CreatePaymentPayload,
+  type UpdatePaymentPayload,
 } from "@/api/paymentsApi";
 import { listStudents } from "@/api/studentsApi";
 
@@ -86,6 +91,127 @@ function formatDate(iso: string | null | undefined): string {
   }
 }
 
+function isoDateOnly(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
+}
+
+interface EditPaymentFormProps {
+  payment: PaymentApi;
+  onSave: (payload: UpdatePaymentPayload) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+  formatCentsToToman: (c: number) => string;
+  statusLabels: Record<string, string>;
+  methodLabels: Record<string, string>;
+}
+
+function EditPaymentForm({
+  payment,
+  onSave,
+  onCancel,
+  isSaving,
+  statusLabels,
+  methodLabels,
+}: EditPaymentFormProps) {
+  const [amountTomans, setAmountTomans] = useState(
+    () => String(Math.floor(payment.amount_cents / 10))
+  );
+  const [method, setMethod] = useState(payment.method);
+  const [status, setStatus] = useState(payment.status);
+  const [description, setDescription] = useState(payment.description ?? "");
+  const [dueDate, setDueDate] = useState(isoDateOnly(payment.due_date));
+  const [paidAt, setPaidAt] = useState(isoDateOnly(payment.paid_at));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountCents = parseInt(amountTomans.replace(/\D/g, ""), 10) * 10 || payment.amount_cents;
+    const payload: UpdatePaymentPayload = {
+      amount_cents: amountCents,
+      method: method,
+      status: status,
+      description: description || undefined,
+      due_date: dueDate || undefined,
+      paid_at: paidAt || undefined,
+    };
+    onSave(payload);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+      <p className="text-sm text-muted-foreground">دانش‌آموز: {payment.student_name || "—"}</p>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">مبلغ (تومان)</label>
+        <Input
+          type="text"
+          inputMode="numeric"
+          placeholder="مثال: ۲۵۰۰۰۰۰"
+          value={amountTomans}
+          onChange={(e) => setAmountTomans(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">روش پرداخت</label>
+        <Select value={method} onValueChange={setMethod}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(methodLabels).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">وضعیت</label>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PAID">{statusLabels.PAID}</SelectItem>
+            <SelectItem value="PENDING">{statusLabels.PENDING}</SelectItem>
+            <SelectItem value="OVERDUE">{statusLabels.OVERDUE}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">سررسید</label>
+        <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">تاریخ پرداخت</label>
+        <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">شرح</label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="مثال: شهریه آذر"
+        />
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          انصراف
+        </Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "در حال ذخیره..." : "ذخیره"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
 const Payments = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -101,6 +227,8 @@ const Payments = () => {
     expires_at: string;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [detailPaymentId, setDetailPaymentId] = useState<number | null>(null);
+  const [editPaymentId, setEditPaymentId] = useState<number | null>(null);
 
   // Create form state
   const [createStudentId, setCreateStudentId] = useState("");
@@ -163,6 +291,29 @@ const Payments = () => {
       setCreateStatus("PENDING");
       setCreateDescription("");
       setCreateDueDate("");
+    },
+  });
+
+  const { data: detailPayment, isLoading: isDetailLoading } = useQuery({
+    queryKey: ["payment", detailPaymentId],
+    queryFn: () => getPayment(detailPaymentId!),
+    enabled: detailPaymentId != null,
+  });
+
+  const { data: editPaymentData, isLoading: isEditPaymentLoading } = useQuery({
+    queryKey: ["payment", editPaymentId],
+    queryFn: () => getPayment(editPaymentId!),
+    enabled: editPaymentId != null,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: UpdatePaymentPayload }) =>
+      updatePayment(id, payload),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payment", id] });
+      setEditPaymentId(null);
     },
   });
 
@@ -463,15 +614,38 @@ const Payments = () => {
                           </span>
                         </td>
                         <td className="p-4">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1"
-                            onClick={() => handleOpenLink(payment.id)}
-                          >
-                            <Link2 className="h-4 w-4" />
-                            لینک پرداخت
-                          </Button>
+                          <div className="flex gap-1 flex-wrap">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => setDetailPaymentId(payment.id)}
+                              title="جزئیات پرداخت"
+                            >
+                              <Eye className="h-4 w-4" />
+                              جزئیات
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => setEditPaymentId(payment.id)}
+                              title="ویرایش پرداخت"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              ویرایش
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => handleOpenLink(payment.id)}
+                              title="لینک پرداخت"
+                            >
+                              <Link2 className="h-4 w-4" />
+                              لینک پرداخت
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -482,6 +656,51 @@ const Payments = () => {
           </div>
         </div>
       </Tabs>
+
+      {/* Payment Detail Dialog */}
+      <Dialog open={detailPaymentId != null} onOpenChange={(open) => !open && setDetailPaymentId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>جزئیات پرداخت</DialogTitle>
+          </DialogHeader>
+          {isDetailLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
+          {detailPayment && (
+            <div className="space-y-3 text-sm">
+              <p><span className="text-muted-foreground">دانش‌آموز:</span> {detailPayment.student_name || "—"}</p>
+              <p><span className="text-muted-foreground">مبلغ:</span> {formatCentsToToman(detailPayment.amount_cents)} تومان</p>
+              <p><span className="text-muted-foreground">وضعیت:</span> {statusLabels[detailPayment.status] ?? detailPayment.status}</p>
+              <p><span className="text-muted-foreground">روش:</span> {methodLabels[detailPayment.method] ?? detailPayment.method}</p>
+              <p><span className="text-muted-foreground">سررسید:</span> {formatDate(detailPayment.due_date)}</p>
+              <p><span className="text-muted-foreground">تاریخ پرداخت:</span> {formatDate(detailPayment.paid_at)}</p>
+              <p><span className="text-muted-foreground">شرح:</span> {detailPayment.description || "—"}</p>
+              <p><span className="text-muted-foreground">کد پیگیری:</span> {detailPayment.reference_code || "—"}</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Payment Dialog */}
+      <Dialog open={editPaymentId != null} onOpenChange={(open) => !open && setEditPaymentId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ویرایش پرداخت</DialogTitle>
+          </DialogHeader>
+          {isEditPaymentLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
+          {editPaymentData && (
+            <EditPaymentForm
+              payment={editPaymentData}
+              onSave={(payload) => {
+                if (editPaymentId != null) updateMutation.mutate({ id: editPaymentId, payload });
+              }}
+              onCancel={() => setEditPaymentId(null)}
+              isSaving={updateMutation.isPending}
+              formatCentsToToman={formatCentsToToman}
+              statusLabels={statusLabels}
+              methodLabels={methodLabels}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Register Payment Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
