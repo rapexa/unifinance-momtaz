@@ -145,7 +145,12 @@ Central screen for payments: summary cards, search, tabs by status, and a paymen
 
 ### Description
 
-Salary side: summary cards, tabs (e.g. Employees, Structure, Payslips). Data may come from **API** (`payrollApi`). Uses `MainLayout`.
+Salary side: summary cards (total, fixed, variable, paid) and **two tabs**:
+
+1. **فیش حقوقی** (default) – Table of all payroll entries for the selected period. Columns: employee, role, students count, base salary, variable salary, total, status, **عملیات**. Actions per row: **ویرایش** (edit), **جزئیات** (detail dialog), **PDF** (print payslip). **Edit** opens a dialog with the entry data; user can change base salary, variable salary, students count, and status, then save via **PUT** `/api/v1/payroll/entries/:id` (`updatePayrollEntry`). Creating a new entry is via «ثبت حقوق» and **POST** `/api/v1/payroll/entries`.
+2. **ساختار حقوق** – Cards describing fixed/variable salary structure (from schemes); edit buttons are placeholders.
+
+The separate «فیش‌های حقوقی» tab has been **removed**; the list of payslips lives only in the **فیش حقوقی** tab. Data from **API** (`payrollApi`: summary, list entries, get entry, create, **update**). Uses `MainLayout`, Tabs, Dialog (create, detail, **edit**), Button, Input, Select.
 
 ---
 
@@ -178,7 +183,14 @@ Financial reports and charts (revenue, payroll, debts). May use **API** (`report
 
 ### Description
 
-Configuration: organization, profile, security (password, 2FA), notifications, payment settings. Data and updates typically use **API** (`settingsApi`: organization, profile, security, notifications, payments). Uses `MainLayout`, Tabs, Button, Input, Switch.
+Configuration: organization, **profile** (including **profile image upload**), security (password, 2FA), notifications, payment settings. Data and updates use **API** (`settingsApi`: organization, profile, security, notifications, payments).
+
+### Profile tab
+
+- **Profile image**: User can upload an avatar via a file input (accepts jpeg, png, gif, webp). The frontend calls `uploadProfileAvatar(file)` (POST `/api/v1/settings/profile/avatar`, multipart). The backend saves the file under `uploads/avatars/{userID}.{ext}` and updates the user’s `avatar_url`. The image is displayed via `getUploadsBase()` + `profile.avatar_url` (served at `/uploads/...` on the API origin). If no avatar is set, the first letter of the name is shown in a circle.
+- Other profile fields: first name, last name, email, phone; save via `updateProfile`.
+
+Uses `MainLayout`, Tabs, Button, Input, Switch.
 
 ---
 

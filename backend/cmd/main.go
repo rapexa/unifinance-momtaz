@@ -90,6 +90,9 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// Serve uploaded files (e.g. profile avatars)
+	r.Static("/uploads", "uploads")
+
 	api := r.Group("/api/v1")
 
 	// Public auth routes
@@ -193,6 +196,7 @@ func main() {
 		payroll.GET("/entries", payrollHandler.ListEntries)
 		payroll.POST("/entries", payrollHandler.CreateEntry)
 		payroll.GET("/entries/:id", payrollHandler.GetEntry)
+		payroll.PUT("/entries/:id", payrollHandler.UpdateEntry)
 		payroll.GET("/schemes", payrollHandler.GetSchemes)
 	}
 
@@ -226,6 +230,7 @@ func main() {
 	// Profile, security and notifications for current user
 	settings.GET("/profile", settingsHandler.GetProfile)
 	settings.PUT("/profile", settingsHandler.UpdateProfile)
+	settings.POST("/profile/avatar", settingsHandler.UploadProfileAvatar)
 
 	security := settings.Group("/security")
 	{

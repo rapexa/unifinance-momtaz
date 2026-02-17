@@ -191,3 +191,42 @@ func (s *PayrollService) GetEntryByID(ctx context.Context, id uint) (*models.Pay
 	return &entry, nil
 }
 
+// UpdateEntryParams is the input for updating a payroll entry.
+type UpdateEntryParams struct {
+	BaseSalaryCents     *int64
+	VariableSalaryCents *int64
+	StudentsCount       *int
+	Status              *models.PayrollStatus
+}
+
+// UpdateEntry updates an existing payroll entry. Total is recalculated from base + variable.
+func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntryParams) (*models.PayrollEntry, error) {
+	entry, err := s.GetEntryByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if p.BaseSalaryCents != nil {
+		entry.BaseSalaryCents = *p.BaseSalaryCents
+	}
+	if p.VariableSalaryCents != nil {
+		entry.VariableSalaryCents = *p.VariableSalaryCents
+	}
+	if p.StudentsCount != nil {
+		entry.StudentsCount = *p.StudentsCount
+	}
+	if p.Status != nil {
+		entry.Status = *p.Status
+		if *p.Status == models.PayrollStatusPaid && entry.PaidAt == nil {
+			now := time.Now()
+			entry.PaidAt = &now
+		} else if *p.Status == models.PayrollStatusPending {
+			entry.PaidAt = nil
+		}
+	}
+	entry.TotalSalaryCents = entry.BaseSalaryCents + entry.VariableSalaryCents
+	if err := s.db.WithContext(ctx).Save(entry).Error; err != nil {
+		return nil, err
+	}
+	return s.GetEntryByID(ctx, entry.ID)
+}
+

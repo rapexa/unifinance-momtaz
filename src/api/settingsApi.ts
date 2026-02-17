@@ -89,6 +89,25 @@ export async function updateProfile(payload: Partial<Profile>): Promise<Profile>
   return data as Profile;
 }
 
+/** Base URL for uploaded files (e.g. avatars). Same origin as API but without /api/v1. */
+export function getUploadsBase(): string {
+  const base = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) || "http://localhost:8081/api/v1";
+  return base.replace(/\/api\/v1\/?$/, "") || "http://localhost:8081";
+}
+
+export async function uploadProfileAvatar(file: File): Promise<Profile> {
+  const formData = new FormData();
+  formData.append("avatar", file);
+  const res = await fetch(`${API_BASE}/settings/profile/avatar`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در بارگذاری تصویر");
+  return data as Profile;
+}
+
 // --- Security ---
 export async function changePassword(current_password: string, new_password: string): Promise<void> {
   const res = await fetch(`${API_BASE}/settings/security/password`, {

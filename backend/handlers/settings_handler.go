@@ -3,6 +3,10 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/middleware"
@@ -214,6 +218,57 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 		for _, p := range perms {
 			dto.Permissions = append(dto.Permissions, string(p))
 		}
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
+// UploadProfileAvatar handles POST /settings/profile/avatar (multipart form "avatar").
+// Saves the image to uploads/avatars/{userID}.{ext} and updates the user's avatar_url.
+func (h *SettingsHandler) UploadProfileAvatar(c *gin.Context) {
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		return
+	}
+
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "avatar file is required"})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
+	if !allowed[ext] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid image type; use jpg, png, gif or webp"})
+		return
+	}
+
+	uploadDir := filepath.Join("uploads", "avatars")
+	_ = os.MkdirAll(uploadDir, 0755)
+	savePath := filepath.Join(uploadDir, strconv.FormatUint(uint64(userID), 10)+ext)
+	if err := c.SaveUploadedFile(file, savePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save avatar"})
+		return
+	}
+
+	avatarURL := "/uploads/avatars/" + strconv.FormatUint(uint64(userID), 10) + ext
+	params := services.UpdateProfileParams{AvatarURL: &avatarURL}
+	user, err := h.service.UpdateProfile(c.Request.Context(), userID, params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+		return
+	}
+
+	dto := ProfileDTO{
+		ID:               user.ID,
+		FirstName:        user.FirstName,
+		LastName:         user.LastName,
+		Email:            user.Email,
+		Phone:            user.Phone,
+		Role:             string(user.Role),
+		AvatarURL:        user.AvatarURL,
+		Bio:              user.Bio,
+		TwoFactorEnabled: user.TwoFactorEnabled,
 	}
 	c.JSON(http.StatusOK, dto)
 }

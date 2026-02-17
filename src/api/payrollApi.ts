@@ -138,3 +138,28 @@ export async function createPayrollEntry(
   }
   return data as PayrollEntryApi;
 }
+
+export interface UpdatePayrollEntryPayload {
+  base_salary_cents?: number;
+  variable_salary_cents?: number;
+  students_count?: number;
+  status?: string;
+}
+
+export async function updatePayrollEntry(
+  id: number,
+  payload: UpdatePayrollEntryPayload
+): Promise<PayrollEntryApi> {
+  const res = await fetch(`${API_BASE}/payroll/entries/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data && data.error) || "ویرایش حقوق با خطا مواجه شد";
+    throw new Error(msg);
+  }
+  return data as PayrollEntryApi;
+}

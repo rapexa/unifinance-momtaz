@@ -159,8 +159,8 @@ The frontend uses **typed API modules** that call the backend with `getAuthHeade
 
 - **authApi.ts**: `login(email, password)` – POST `/auth/login`, stores tokens, returns success/error.
 - **dashboardApi.ts**: `getDashboardSummary(params?)`, `getRevenueTrend(params?)` – dashboard summary and revenue trend.
-- **settingsApi.ts**: Organization, profile (`getProfile`, `updateProfile`), security (password, 2FA), notifications, payment settings. Exports `PERMISSIONS` and `Profile` type used by sidebar and `useCurrentUser`.
-- **usersApi.ts**, **studentsApi.ts**, **plansApi.ts**, **paymentsApi.ts**, **payrollApi.ts**, **reportsApi.ts**: Resource-specific list/get/create/update/delete or summary/export where implemented.
+- **settingsApi.ts**: Organization, profile (`getProfile`, `updateProfile`), **`uploadProfileAvatar(file)`** (POST `/settings/profile/avatar`, multipart), **`getUploadsBase()`** (base URL for serving uploaded files, e.g. avatars). Security (password, 2FA), notifications, payment settings. Exports `PERMISSIONS` and `Profile` type used by sidebar and `useCurrentUser`.
+- **usersApi.ts**, **studentsApi.ts**, **plansApi.ts**, **paymentsApi.ts**, **payrollApi.ts** (includes **`updatePayrollEntry(id, payload)`** – PUT `/payroll/entries/:id`), **reportsApi.ts**: Resource-specific list/get/create/update/delete or summary/export where implemented.
 
 These are used by pages and by hooks such as `useCurrentUser`.
 
@@ -224,6 +224,8 @@ Under `src/components/ui/`: shadcn-style primitives (Radix-based). They support 
 
 - **Login**: No MainLayout; standalone card.
 - **Dashboard (Index)**: MainLayout, KPICard ×4, RevenueChart, QuickActions, DebtAlerts, RecentPaymentsTable (all fed from dashboard API and loading state).
-- **Users, Students, Plans, Payments, Payroll, Reminders, Reports, Settings**: MainLayout plus page-specific content; data may come from corresponding API modules and React Query.
+- **Settings**: MainLayout, Tabs (general, **profile** with **avatar upload** via `uploadProfileAvatar` and `getUploadsBase`), security, notifications, payments.
+- **Payroll**: MainLayout, summary cards, Tabs (**فیش حقوقی** – table with **ویرایش** opening edit dialog and `updatePayrollEntry`, جزئیات, PDF – and **ساختار حقوق**). Dialogs: create entry, detail entry, **edit entry** (EditPayrollForm).
+- **Users, Students, Plans, Payments, Reminders, Reports**: MainLayout plus page-specific content; data may come from corresponding API modules and React Query.
 
 This architecture keeps layout and auth in one place (sidebar/header + useCurrentUser), dashboard widgets data-driven, and pages focused on domain UI and API wiring.

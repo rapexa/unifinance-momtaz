@@ -343,3 +343,69 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
 }
 
+// updatePayrollEntryRequest is the body for PUT /payroll/entries/:id.
+type updatePayrollEntryRequest struct {
+	BaseSalaryCents     *int64  `json:"base_salary_cents" binding:"omitempty,min=0"`
+	VariableSalaryCents *int64  `json:"variable_salary_cents" binding:"omitempty,min=0"`
+	StudentsCount       *int    `json:"students_count" binding:"omitempty,min=0"`
+	Status              *string `json:"status" binding:"omitempty,oneof=PAID PENDING"`
+}
+
+// UpdateEntry handles PUT /payroll/entries/:id
+// @Summary      Update payroll entry
+// @Description  Update an existing payslip (admin only)
+// @Tags         payroll
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        id    path      int  true "Entry ID"
+// @Param        body  body      updatePayrollEntryRequest true "Fields to update"
+// @Success      200   {object}  PayrollEntryDTO
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /payroll/entries/{id} [put]
+func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req updatePayrollEntryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	params := services.UpdateEntryParams{}
+	if req.BaseSalaryCents != nil {
+		params.BaseSalaryCents = req.BaseSalaryCents
+	}
+	if req.VariableSalaryCents != nil {
+		params.VariableSalaryCents = req.VariableSalaryCents
+	}
+	if req.StudentsCount != nil {
+		params.StudentsCount = req.StudentsCount
+	}
+	if req.Status != nil {
+		st := models.PayrollStatus(*req.Status)
+		params.Status = &st
+	}
+
+	entry, err := h.service.UpdateEntry(c.Request.Context(), uint(id), params)
+	if err != nil {
+		if err == services.ErrPayrollEntryNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payroll entry"})
+		return
+	}
+
+	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
+}
+

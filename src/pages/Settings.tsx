@@ -18,6 +18,8 @@ import {
   updateOrganization,
   getProfile,
   updateProfile,
+  uploadProfileAvatar,
+  getUploadsBase,
   changePassword,
   toggle2FA,
   getNotifications,
@@ -122,6 +124,13 @@ const Settings = () => {
   });
   const profileMutation = useMutation({
     mutationFn: (p: Partial<Profile>) => updateProfile(p),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings-profile"] });
+      queryClient.invalidateQueries({ queryKey: ["current-user"] });
+    },
+  });
+  const avatarMutation = useMutation({
+    mutationFn: (file: File) => uploadProfileAvatar(file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings-profile"] });
       queryClient.invalidateQueries({ queryKey: ["current-user"] });
@@ -246,10 +255,37 @@ const Settings = () => {
             {profileLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
             <div className="space-y-6 max-w-xl">
               <div className="flex items-center gap-4">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary text-2xl font-bold text-primary-foreground">
-                  {(profFirstName || profLastName || "م").charAt(0)}
+                <div className="relative">
+                  {profile?.avatar_url ? (
+                    <img
+                      src={`${getUploadsBase()}${profile.avatar_url}`}
+                      alt="پروفایل"
+                      className="h-20 w-20 rounded-full object-cover border-2 border-border"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary text-2xl font-bold text-primary-foreground">
+                      {(profFirstName || profLastName || "م").charAt(0)}
+                    </div>
+                  )}
                 </div>
-                <span className="text-sm text-muted-foreground">تغییر تصویر از طریق آدرس تصویر در آینده پشتیبانی می‌شود.</span>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-foreground">تصویر پروفایل</label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="text-sm text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground file:cursor-pointer"
+                    disabled={avatarMutation.isPending}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        avatarMutation.mutate(f);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  {avatarMutation.isPending && <span className="text-xs text-muted-foreground">در حال بارگذاری...</span>}
+                  {avatarMutation.isError && <span className="text-xs text-destructive">{(avatarMutation.error as Error).message}</span>}
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">

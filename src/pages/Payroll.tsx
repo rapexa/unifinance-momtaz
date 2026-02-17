@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,9 @@ import {
 } from "@/components/ui/select";
 import {
   Plus,
-  FileText,
+  Pencil,
   Settings,
-  Calculator,
   Download,
-  Send,
-  MoreHorizontal,
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,9 +30,11 @@ import {
   getPayrollSummary,
   listPayrollEntries,
   createPayrollEntry,
+  updatePayrollEntry,
   getPayrollEntry,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
+  type UpdatePayrollEntryPayload,
 } from "@/api/payrollApi";
 import { listUsers } from "@/api/usersApi";
 
@@ -45,6 +44,95 @@ const roleLabels: Record<string, string> = {
   ADVISOR: "مشاور",
   OPERATOR: "اپراتور",
 };
+
+function EditPayrollForm({
+  entry,
+  onSave,
+  onCancel,
+  isSaving,
+}: {
+  entry: PayrollEntryApi;
+  onSave: (p: UpdatePayrollEntryPayload) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+}) {
+  const [baseTomans, setBaseTomans] = useState(String(Math.floor(entry.base_salary_cents / 10)));
+  const [variableTomans, setVariableTomans] = useState(String(Math.floor(entry.variable_salary_cents / 10)));
+  const [studentsCount, setStudentsCount] = useState(String(entry.students_count));
+  const [status, setStatus] = useState(entry.status);
+
+  useEffect(() => {
+    setBaseTomans(String(Math.floor(entry.base_salary_cents / 10)));
+    setVariableTomans(String(Math.floor(entry.variable_salary_cents / 10)));
+    setStudentsCount(String(entry.students_count));
+    setStatus(entry.status);
+  }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count, entry.status]);
+
+  const handleSubmit = () => {
+    const baseCents = (parseInt(baseTomans.replace(/\D/g, ""), 10) || 0) * 10;
+    const variableCents = (parseInt(variableTomans.replace(/\D/g, ""), 10) || 0) * 10;
+    const count = parseInt(studentsCount.replace(/\D/g, ""), 10) || 0;
+    onSave({
+      base_salary_cents: baseCents,
+      variable_salary_cents: variableCents,
+      students_count: count,
+      status,
+    });
+  };
+
+  return (
+    <div className="space-y-4 py-2">
+      <p className="text-sm text-muted-foreground">
+        {[entry.user_first_name, entry.user_last_name].filter(Boolean).join(" ")} — {monthName(entry.period_month)} {entry.period_year}
+      </p>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">حقوق ثابت (تومان)</label>
+        <Input
+          type="text"
+          inputMode="numeric"
+          value={baseTomans}
+          onChange={(e) => setBaseTomans(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">حقوق متغیر (تومان)</label>
+        <Input
+          type="text"
+          inputMode="numeric"
+          value={variableTomans}
+          onChange={(e) => setVariableTomans(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">تعداد دانش‌آموزان</label>
+        <Input
+          type="text"
+          inputMode="numeric"
+          value={studentsCount}
+          onChange={(e) => setStudentsCount(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-medium">وضعیت</label>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PENDING">در انتظار</SelectItem>
+            <SelectItem value="PAID">پرداخت شده</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>انصراف</Button>
+        <Button onClick={handleSubmit} disabled={isSaving}>
+          {isSaving ? "در حال ذخیره..." : "ذخیره"}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
 
 function formatCentsToToman(cents: number): string {
   const tomans = Math.floor(cents / 10);
@@ -67,6 +155,7 @@ const Payroll = () => {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
+  const [editEntryId, setEditEntryId] = useState<number | null>(null);
 
   // Create form
   const [createUserId, setCreateUserId] = useState("");
@@ -115,6 +204,12 @@ const Payroll = () => {
     enabled: detailEntryId != null,
   });
 
+  const { data: editEntry, isLoading: isEditLoading } = useQuery({
+    queryKey: ["payroll-entry", editEntryId],
+    queryFn: () => getPayrollEntry(editEntryId!),
+    enabled: editEntryId != null,
+  });
+
   const createMutation = useMutation({
     mutationFn: (payload: CreatePayrollEntryPayload) => createPayrollEntry(payload),
     onSuccess: () => {
@@ -122,6 +217,17 @@ const Payroll = () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       setIsCreateOpen(false);
       resetCreateForm();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: UpdatePayrollEntryPayload }) =>
+      updatePayrollEntry(id, payload),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
+      setEditEntryId(null);
     },
   });
 
@@ -235,17 +341,14 @@ const Payroll = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="employees" className="space-y-4">
+      <Tabs defaultValue="payslips" className="space-y-4">
         <div className="flex items-center justify-between">
           <TabsList className="bg-muted/50">
-            <TabsTrigger value="employees" className="data-[state=active]:bg-background">
-              کارکنان
+            <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
+              فیش حقوقی
             </TabsTrigger>
             <TabsTrigger value="structure" className="data-[state=active]:bg-background">
               ساختار حقوق
-            </TabsTrigger>
-            <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
-              فیش‌های حقوقی
             </TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
@@ -256,7 +359,7 @@ const Payroll = () => {
           </div>
         </div>
 
-        <TabsContent value="employees">
+        <TabsContent value="payslips">
           <div className="card-elevated overflow-hidden">
             <div className="overflow-x-auto">
               {isEntriesLoading && (
@@ -337,6 +440,16 @@ const Payroll = () => {
                                   variant="ghost"
                                   size="sm"
                                   className="gap-1"
+                                  onClick={() => setEditEntryId(entry.id)}
+                                  title="ویرایش فیش حقوق"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  ویرایش
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1"
                                   onClick={() => setDetailEntryId(entry.id)}
                                   title="دیدن جزئیات فیش حقوق"
                                 >
@@ -371,7 +484,7 @@ const Payroll = () => {
             <div className="card-elevated p-5">
               <h3 className="font-bold text-foreground mb-4">ساختار حقوق ثابت</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                ساختار بر اساس نقش از تب کارکنان و فیش‌های ثبت‌شده استخراج می‌شود. برای تنظیم به تنظیمات سیستم مراجعه کنید.
+                ساختار بر اساس نقش از تب فیش حقوقی و فیش‌های ثبت‌شده استخراج می‌شود. برای تنظیم به تنظیمات سیستم مراجعه کنید.
               </p>
               <Button variant="outline" className="w-full" disabled>
                 <Settings className="ml-2 h-4 w-4" />
@@ -388,20 +501,6 @@ const Payroll = () => {
                 ویرایش ساختار (از API schemes)
               </Button>
             </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="payslips">
-          <div className="card-elevated p-8 text-center">
-            <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="font-bold text-foreground mb-2">فیش‌های حقوقی</h3>
-            <p className="text-muted-foreground mb-4">
-              فیش‌های حقوقی در تب کارکنان نمایش داده می‌شوند. برای صدور فیش جدید از دکمه «ثبت حقوق» استفاده کنید.
-            </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <Plus className="ml-2 h-4 w-4" />
-              ثبت حقوق (صدور فیش جدید)
-            </Button>
           </div>
         </TabsContent>
       </Tabs>
@@ -532,6 +631,28 @@ const Payroll = () => {
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
               <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Payroll Entry Dialog */}
+      <Dialog open={editEntryId != null} onOpenChange={(open) => !open && setEditEntryId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ویرایش فیش حقوقی</DialogTitle>
+          </DialogHeader>
+          {isEditLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
+          {editEntry && (
+            <EditPayrollForm
+              entry={editEntry}
+              onSave={(payload) => {
+                if (editEntryId != null) {
+                  updateMutation.mutate({ id: editEntryId, payload });
+                }
+              }}
+              onCancel={() => setEditEntryId(null)}
+              isSaving={updateMutation.isPending}
+            />
           )}
         </DialogContent>
       </Dialog>

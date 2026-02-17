@@ -170,7 +170,7 @@ Responsibilities:
 - **Auth**: After login, `accessToken` (and optionally `refreshToken`) are stored in `localStorage`. API modules use `getAuthHeaders()` which returns `{ Authorization: "Bearer " + accessToken }`.
 - **Modules**: `authApi`, `dashboardApi`, `usersApi`, `studentsApi`, `plansApi`, `paymentsApi`, `payrollApi`, `reportsApi`, `settingsApi`. They expose typed functions that call `fetch` with auth headers and return promises (or throw on non‑OK).
 - **React Query**: Used for current user (`useCurrentUser` → `getProfile`), dashboard data (summary, revenue trend), notification count, and other list/summary endpoints. Queries use stable `queryKey`s and often `staleTime`; mutations or refetches can be added per feature.
-- **Profile & RBAC**: `GET /settings/profile` returns user profile including `permissions` array. Sidebar and dashboard redirect logic use this to show only allowed sections and redirect users without DASHBOARD to their first permitted route.
+- **Profile & RBAC**: `GET /settings/profile` returns user profile including `permissions` array and optional `avatar_url`. **Profile image upload**: `POST /settings/profile/avatar` (multipart) saves the file under `/uploads/avatars/` and updates the user’s avatar URL; the app serves uploads from `/uploads` on the API origin. Sidebar and dashboard redirect logic use profile permissions to show only allowed sections.
 
 ---
 
