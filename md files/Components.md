@@ -44,7 +44,7 @@ Usage:
 Key details:
 
 - **Navigation**: Static array `navItems` with `title`, `href`, `icon`, and `permission` (from `@/api/settingsApi` – e.g. `PERMISSIONS.DASHBOARD`, `PERMISSIONS.USERS`). Items are **filtered** with `hasPermission(profile?.permissions, item.permission)` so only allowed sections are shown. Dashboard link is `/dashboard`.
-- **User state**: Uses `useCurrentUser()` – `profile`, `isLoading`, `isError`, `logout`. Display name and role are derived from `profile`; bottom section shows user avatar/name and a **dropdown** with links to Settings and **خروج** (logout). Logout calls `logout()` then `navigate("/login")`.
+- **User state**: Uses `useCurrentUser()` – `profile`, `isLoading`, `isError`, `logout`. Display name and role are derived from `profile`. If **`profile.avatar_url`** is set, the bottom section shows the **uploaded avatar image** (via **`getUploadsBase()` + `profile.avatar_url`**); otherwise the first letter in a circle. Dropdown with links to Settings and **خروج** (logout). Logout calls `logout()` then `navigate("/login")`.
 - **Collapsed state**: `collapsed` (useState); on desktop the sidebar can shrink to icon-only; on mobile an overlay and floating button open/close the sidebar.
 - Styling: `sidebar-*` tokens, `cn()` for conditional classes. Active route is highlighted (e.g. `bg-sidebar-primary`).
 
@@ -69,7 +69,7 @@ Features:
 - Sticky at top, semi-transparent background with blur.
 - Title and subtitle on one side.
 - **Notification count**: `useQuery` with `getNotificationCount` from `@/api/settingsApi` (query key: `notification-count`). Badge shows count (or 99+).
-- **User menu**: Uses `useCurrentUser()` for display name and role; dropdown with **پروفایل**, **تنظیمات** (links to `/settings`), and **خروج** (logout → `logout()` and `navigate("/login")`).
+- **User menu**: Uses `useCurrentUser()` for display name and role. If the user has **`profile.avatar_url`**, an avatar image is shown (from **`getUploadsBase()` + `profile.avatar_url`**); otherwise the first letter of the name in a circle. Dropdown with **پروفایل**, **تنظیمات** (links to `/settings`), and **خروج** (logout → `logout()` and `navigate("/login")`).
 - Search input is present (local UI; no backend search wired).
 
 ---
@@ -195,6 +195,10 @@ Used by:
 ### `lib/utils.ts`
 
 - **cn**: Class name merging (e.g. for conditional Tailwind classes). Other shared helpers as needed.
+
+### `lib/shamsi.ts`
+
+- **Shamsi (Jalali) ↔ Gregorian** conversion for month/year: **`shamsiToGregorianYYYYMM(sYear, sMonth)`**, **`gregorianYYYYMMToShamsi(ym)`**, **`shamsiYearOptions()`**, **`SHAMSI_MONTH_NAMES`**. Used by the Reports page so the user can pick the report range in **شمسی** (year + month name); the app converts to `YYYY-MM` for the API.
 
 ---
 

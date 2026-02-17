@@ -78,25 +78,23 @@ func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 }
 
 // Stats returns aggregate counts for students: total, active, inactive, and debtors (balance < 0).
+// Each count uses a fresh query so Where conditions do not accumulate.
 func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inactive, debtors int64, err error) {
-	db := r.db.WithContext(ctx).Model(&models.Student{})
+	ctxDB := r.db.WithContext(ctx)
+	m := func() *gorm.DB { return ctxDB.Model(&models.Student{}) }
 
-	if err = db.Count(&total).Error; err != nil {
+	if err = m().Count(&total).Error; err != nil {
 		return
 	}
-
-	if err = db.Where("status = ?", models.StudentStatusActive).Count(&active).Error; err != nil {
+	if err = m().Where("status = ?", models.StudentStatusActive).Count(&active).Error; err != nil {
 		return
 	}
-
-	if err = db.Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
+	if err = m().Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
 		return
 	}
-
-	if err = db.Where("balance_cents < 0").Count(&debtors).Error; err != nil {
+	if err = m().Where("balance_cents < 0").Count(&debtors).Error; err != nil {
 		return
 	}
-
 	return
 }
 

@@ -8,7 +8,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Calendar,
   TrendingUp,
@@ -16,6 +22,12 @@ import {
   Wallet,
   AlertCircle,
 } from "lucide-react";
+import {
+  SHAMSI_MONTH_NAMES,
+  shamsiToGregorianYYYYMM,
+  gregorianYYYYMMToShamsi,
+  shamsiYearOptions,
+} from "@/lib/shamsi";
 import {
   AreaChart,
   Area,
@@ -38,10 +50,7 @@ import {
   type ReportFilter,
 } from "@/api/reportsApi";
 
-const MONTH_NAMES: Record<number, string> = {
-  1: "فروردین", 2: "اردیبهشت", 3: "خرداد", 4: "تیر", 5: "مرداد", 6: "شهریور",
-  7: "مهر", 8: "آبان", 9: "آذر", 10: "دی", 11: "بهمن", 12: "اسفند",
-};
+const MONTH_NAMES = SHAMSI_MONTH_NAMES;
 
 function formatCentsToToman(cents: number): string {
   const tomans = Math.floor(cents / 10);
@@ -53,14 +62,17 @@ function getDefaultFilter(): ReportFilter {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth() + 1;
-  const to = `${y}-${String(m).padStart(2, "0")}`;
+  const toGreg = `${y}-${String(m).padStart(2, "0")}`;
   const fromDate = new Date(y, m - 1, 1);
   fromDate.setMonth(fromDate.getMonth() - 2);
   const fromY = fromDate.getFullYear();
   const fromM = fromDate.getMonth() + 1;
-  const from = `${fromY}-${String(fromM).padStart(2, "0")}`;
-  return { from, to };
+  const fromGreg = `${fromY}-${String(fromM).padStart(2, "0")}`;
+  return { from: fromGreg, to: toGreg };
 }
+
+const SHAMSI_YEARS = shamsiYearOptions();
+const MONTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 const COLORS = ["hsl(175 70% 40%)", "hsl(38 92% 50%)", "hsl(0 72% 51%)", "hsl(260 60% 55%)"];
 
@@ -68,10 +80,13 @@ const Reports = () => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filter, setFilter] = useState<ReportFilter>(getDefaultFilter());
 
-  const fromInput = filter.from;
-  const toInput = filter.to;
-  const setFrom = (v: string) => setFilter((f) => ({ ...f, from: v }));
-  const setTo = (v: string) => setFilter((f) => ({ ...f, to: v }));
+  const fromShamsi = useMemo(() => gregorianYYYYMMToShamsi(filter.from), [filter.from]);
+  const toShamsi = useMemo(() => gregorianYYYYMMToShamsi(filter.to), [filter.to]);
+
+  const setFromShamsi = (sYear: number, sMonth: number) =>
+    setFilter((f) => ({ ...f, from: shamsiToGregorianYYYYMM(sYear, sMonth) }));
+  const setToShamsi = (sYear: number, sMonth: number) =>
+    setFilter((f) => ({ ...f, to: shamsiToGregorianYYYYMM(sYear, sMonth) }));
 
   const { data: summary, isLoading: isSummaryLoading } = useQuery({
     queryKey: ["reports-summary", filter.from, filter.to],
@@ -114,7 +129,7 @@ const Reports = () => {
     }));
   }, [debtsByAdvisor]);
 
-  const filterLabel = `${filter.from} تا ${filter.to}`;
+  const filterLabel = `از ${fromShamsi.year}/${SHAMSI_MONTH_NAMES[fromShamsi.month]} تا ${toShamsi.year}/${SHAMSI_MONTH_NAMES[toShamsi.month]}`;
 
   return (
     <MainLayout title="گزارش‌ها" subtitle="گزارش‌های مالی و تحلیلی">
@@ -130,25 +145,69 @@ const Reports = () => {
             </PopoverTrigger>
             <PopoverContent className="w-80" align="start">
               <div className="space-y-3">
-                <p className="text-sm font-medium">بازه ماه (YYYY-MM)</p>
-                <div className="grid gap-2">
+                <p className="text-sm font-medium">بازه ماه (شمسی)</p>
+                <div className="grid gap-3">
                   <div>
                     <label className="text-xs text-muted-foreground">از</label>
-                    <Input
-                      type="month"
-                      value={fromInput}
-                      onChange={(e) => setFrom(e.target.value)}
-                      className="mt-1"
-                    />
+                    <div className="mt-1 flex gap-2">
+                      <Select
+                        value={String(fromShamsi.year)}
+                        onValueChange={(v) => setFromShamsi(Number(v), fromShamsi.month)}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="سال" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SHAMSI_YEARS.map((y) => (
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={String(fromShamsi.month)}
+                        onValueChange={(v) => setFromShamsi(fromShamsi.year, Number(v))}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="ماه" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {MONTH_OPTIONS.map((m) => (
+                            <SelectItem key={m} value={String(m)}>{SHAMSI_MONTH_NAMES[m]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">تا</label>
-                    <Input
-                      type="month"
-                      value={toInput}
-                      onChange={(e) => setTo(e.target.value)}
-                      className="mt-1"
-                    />
+                    <div className="mt-1 flex gap-2">
+                      <Select
+                        value={String(toShamsi.year)}
+                        onValueChange={(v) => setToShamsi(Number(v), toShamsi.month)}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="سال" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SHAMSI_YEARS.map((y) => (
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={String(toShamsi.month)}
+                        onValueChange={(v) => setToShamsi(toShamsi.year, Number(v))}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="ماه" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {MONTH_OPTIONS.map((m) => (
+                            <SelectItem key={m} value={String(m)}>{SHAMSI_MONTH_NAMES[m]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => setFilterOpen(false)}>

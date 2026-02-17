@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { getNotificationCount } from "@/api/settingsApi";
+import { getNotificationCount, getUploadsBase } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "مدیر کل",
@@ -72,9 +72,17 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="gap-2 pr-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                {(displayName || "م").charAt(0)}
-              </div>
+              {profile?.avatar_url ? (
+                <img
+                  src={`${getUploadsBase()}${profile.avatar_url}`}
+                  alt=""
+                  className="h-8 w-8 rounded-full object-cover border border-border"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                  {(displayName || "م").charAt(0)}
+                </div>
+              )}
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">
                   {isLoading ? "..." : isError ? "ورود" : displayName}

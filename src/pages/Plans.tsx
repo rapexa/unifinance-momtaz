@@ -189,7 +189,7 @@ const Plans = () => {
       </div>
 
       {/* Stats */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">کل پلن‌ها</p>
           <p className="text-2xl font-bold text-foreground">
@@ -212,17 +212,6 @@ const Plans = () => {
             {isSummaryLoading || isSummaryError
               ? "—"
               : summary?.active_enrollments ?? 0}
-          </p>
-        </div>
-        <div className="card-elevated p-4">
-          <p className="text-sm text-muted-foreground">درآمد ماهانه</p>
-          <p className="text-2xl font-bold number-display text-primary">
-            {isSummaryLoading || isSummaryError
-              ? "—"
-              : new Intl.NumberFormat("fa-IR").format(
-                  Math.round((summary?.monthly_revenue_cents ?? 0) / 10),
-                )}{" "}
-            تومان
           </p>
         </div>
       </div>

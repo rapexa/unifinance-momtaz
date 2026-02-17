@@ -50,3 +50,5 @@ task.txt
 docs/*.json
 docs/*.yaml
 docs/docs.go
+
+Uploads

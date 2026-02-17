@@ -112,7 +112,7 @@ Manages system users and roles. The UI typically includes search, role summary c
 
 ### Description
 
-Student profiles and financial data. May support grid/list views, summary stats, and search/filters. Data may come from **API** (`studentsApi`). Uses `MainLayout` and shared components.
+Student profiles and financial data. Summary cards show **کل دانش‌آموزان**, **فعال**, **غیرفعال**, and **بدهکار** (debtors: students with `balance_cents < 0`). The debtors count comes from **GET** `/api/v1/students/summary` (backend `Stats` uses a fresh query per count so debtors are correct). Grid/list views, search, and CRUD use **API** (`studentsApi`). Uses `MainLayout` and shared components.
 
 ---
 
@@ -123,7 +123,7 @@ Student profiles and financial data. May support grid/list views, summary stats,
 
 ### Description
 
-Financial plans (monthly, yearly, workshops, etc.). List/cards with search, stats, and plan cards. Data may come from **API** (`plansApi`). Uses `MainLayout`.
+Financial plans (monthly, yearly, workshops, etc.). Summary cards show **کل پلن‌ها**, **پلن‌های فعال**, and **ثبت‌نام فعال** only (the **درآمد کل / درآمد ماهانه** card has been removed from the UI). List/cards with search and plan cards. Data from **API** (`plansApi`). Uses `MainLayout`.
 
 ---
 
@@ -172,7 +172,7 @@ Reminder configuration and history: config cards (pre-due, due-day, overdue), to
 
 ### Description
 
-Financial reports and charts (revenue, payroll, debts). May use **API** (`reportsApi`) for summary and series data. Uses `MainLayout`, Tabs, and `recharts` (area, bar, pie). Chart containers may use `dir="ltr"` for axis orientation.
+Financial reports and charts (revenue, payroll, debts). The **month range filter** is **Shamsi (شمسی)**: user selects «از» and «تا» by **سال** (year) and **ماه** (month name: فروردین … اسفند). The frontend converts Shamsi to Gregorian `YYYY-MM` for the API (`from` / `to` query params). Summary cards and series use **API** (`reportsApi`). Uses `MainLayout`, Tabs, `recharts` (area, bar, pie), and `src/lib/shamsi.ts` for Shamsi ↔ Gregorian conversion. Chart containers may use `dir="ltr"` for axis orientation.
 
 ---
 

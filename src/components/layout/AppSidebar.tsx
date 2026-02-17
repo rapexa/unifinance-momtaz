@@ -26,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
+import { PERMISSIONS, getUploadsBase, type PermissionCode } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "مدیر کل",
@@ -150,9 +150,17 @@ export function AppSidebar() {
                   collapsed && "justify-center px-2"
                 )}
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-bold text-sidebar-accent-foreground shrink-0">
-                  {(displayName || "م").charAt(0)}
-                </div>
+                {profile?.avatar_url ? (
+                  <img
+                    src={`${getUploadsBase()}${profile.avatar_url}`}
+                    alt=""
+                    className="h-9 w-9 shrink-0 rounded-full object-cover border border-sidebar-border"
+                  />
+                ) : (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-bold text-sidebar-accent-foreground shrink-0">
+                    {(displayName || "م").charAt(0)}
+                  </div>
+                )}
                 {!collapsed && (
                   <div className="flex-1 min-w-0 animate-fade-in">
                     <p className="text-sm font-medium text-sidebar-foreground truncate">
