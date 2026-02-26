@@ -1,0 +1,3419 @@
+basePath: /api/v1
+definitions:
+  handlers.AdvisorDebtDTO:
+    properties:
+      advisor_id:
+        type: integer
+      advisor_name:
+        type: string
+      debt_cents:
+        type: integer
+    type: object
+  handlers.AuthResultDoc:
+    properties:
+      tokens:
+        $ref: '#/definitions/handlers.AuthTokensDoc'
+      user:
+        $ref: '#/definitions/handlers.AuthUserDoc'
+    type: object
+  handlers.AuthTokensDoc:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+    type: object
+  handlers.AuthUserDoc:
+    properties:
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      last_name:
+        type: string
+      role:
+        type: string
+    type: object
+  handlers.DashboardKPIsDTO:
+    properties:
+      active_students:
+        type: integer
+      monthly_payroll_cents:
+        type: integer
+      overdue_debt_cents:
+        type: integer
+      pending_debt_cents:
+        type: integer
+      total_revenue_cents:
+        type: integer
+    type: object
+  handlers.DashboardSummaryResponse:
+    properties:
+      debt_alerts:
+        items:
+          $ref: '#/definitions/handlers.DebtAlertDTO'
+        type: array
+      kpis:
+        $ref: '#/definitions/handlers.DashboardKPIsDTO'
+      recent_payments:
+        items:
+          $ref: '#/definitions/handlers.PaymentDTO'
+        type: array
+    type: object
+  handlers.DebtAlertDTO:
+    properties:
+      amount_cents:
+        type: integer
+      days_overdue:
+        type: integer
+      student_id:
+        type: integer
+      student_name:
+        type: string
+    type: object
+  handlers.NotificationSettingDTO:
+    properties:
+      enabled:
+        type: boolean
+      type:
+        type: string
+    type: object
+  handlers.OrganizationSettingsDTO:
+    properties:
+      address:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      phone:
+        type: string
+    type: object
+  handlers.PaymentDTO:
+    properties:
+      amount_cents:
+        type: integer
+      created_at:
+        type: string
+      currency:
+        type: string
+      description:
+        type: string
+      due_date:
+        type: string
+      enrollment_id:
+        type: integer
+      id:
+        type: integer
+      method:
+        type: string
+      paid_at:
+        type: string
+      plan_name:
+        type: string
+      reference_code:
+        type: string
+      status:
+        type: string
+      student_id:
+        type: integer
+      student_name:
+        type: string
+    type: object
+  handlers.PaymentSettingsDTO:
+    properties:
+      card_number:
+        type: string
+      gateway_callback_url:
+        type: string
+      gateway_merchant_id:
+        type: string
+      gateway_provider:
+        type: string
+      iban:
+        type: string
+      is_gateway_connected:
+        type: boolean
+    type: object
+  handlers.PayrollEntryDTO:
+    properties:
+      base_salary_cents:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      paid_at:
+        type: string
+      period_month:
+        type: integer
+      period_year:
+        type: integer
+      status:
+        type: string
+      students_count:
+        type: integer
+      total_salary_cents:
+        type: integer
+      user_first_name:
+        type: string
+      user_id:
+        type: integer
+      user_last_name:
+        type: string
+      user_role:
+        type: string
+      variable_salary_cents:
+        type: integer
+    type: object
+  handlers.PayrollPointDTO:
+    properties:
+      month:
+        type: integer
+      payroll_cents:
+        type: integer
+      year:
+        type: integer
+    type: object
+  handlers.PayrollSchemeDTO:
+    properties:
+      base_salary_cents:
+        type: integer
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      monthly_bonus_cents:
+        type: integer
+      per_student_cents:
+        type: integer
+      revenue_percent:
+        type: number
+      role:
+        type: string
+    type: object
+  handlers.PayrollSummaryDTO:
+    properties:
+      period_month:
+        type: integer
+      period_year:
+        type: integer
+      total_base_cents:
+        type: integer
+      total_paid_cents:
+        type: integer
+      total_pending_cents:
+        type: integer
+      total_variable_cents:
+        type: integer
+    type: object
+  handlers.PlanDTO:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      features:
+        items:
+          type: string
+        type: array
+      id:
+        type: integer
+      interval:
+        type: string
+      is_active:
+        type: boolean
+      max_users:
+        type: integer
+      name:
+        type: string
+      price_cents:
+        type: integer
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handlers.PlanSummaryDTO:
+    properties:
+      active_enrollments:
+        type: integer
+      active_plans:
+        type: integer
+      monthly_revenue_cents:
+        type: integer
+      total_plans:
+        type: integer
+    type: object
+  handlers.ProfileDTO:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      last_name:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+      phone:
+        type: string
+      role:
+        type: string
+      two_factor_enabled:
+        type: boolean
+    type: object
+  handlers.ReportSummaryDTO:
+    properties:
+      net_profit_cents:
+        type: integer
+      total_debt_cents:
+        type: integer
+      total_payroll_cents:
+        type: integer
+      total_revenue_cents:
+        type: integer
+    type: object
+  handlers.RevenuePointDTO:
+    properties:
+      month:
+        type: integer
+      revenue_cents:
+        type: integer
+      year:
+        type: integer
+    type: object
+  handlers.RevenueTrendPointDTO:
+    properties:
+      month:
+        type: integer
+      payroll_cents:
+        type: integer
+      revenue_cents:
+        type: integer
+      year:
+        type: integer
+    type: object
+  handlers.StudentDoc:
+    properties:
+      advisor_id:
+        type: integer
+      advisor_name:
+        type: string
+      balance_cents:
+        type: integer
+      current_plan_id:
+        type: integer
+      current_plan_name:
+        type: string
+      email:
+        type: string
+      father_phone:
+        type: string
+      first_name:
+        type: string
+      home_address:
+        type: string
+      id:
+        type: integer
+      last_name:
+        type: string
+      mother_phone:
+        type: string
+      phone:
+        type: string
+      school_address:
+        type: string
+      school_name:
+        type: string
+      status:
+        type: string
+    type: object
+  handlers.StudentStatsDoc:
+    properties:
+      active:
+        type: integer
+      debtors:
+        type: integer
+      inactive:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handlers.UserDTO:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      last_name:
+        type: string
+      organization_id:
+        type: integer
+      permissions:
+        description: only for GET when caller has USERS permission
+        items:
+          type: string
+        type: array
+      phone:
+        type: string
+      role:
+        type: string
+    type: object
+  handlers.UserRoleStatsDoc:
+    properties:
+      accountants:
+        type: integer
+      admins:
+        type: integer
+      advisors:
+        type: integer
+      operators:
+        type: integer
+    type: object
+  handlers.changePasswordRequest:
+    properties:
+      current_password:
+        minLength: 6
+        type: string
+      new_password:
+        minLength: 6
+        type: string
+    required:
+    - current_password
+    - new_password
+    type: object
+  handlers.createPaymentRequest:
+    properties:
+      amount_cents:
+        type: integer
+      currency:
+        type: string
+      description:
+        maxLength: 500
+        type: string
+      due_date:
+        type: string
+      enrollment_id:
+        type: integer
+      method:
+        type: string
+      paid_at:
+        type: string
+      reference_number:
+        maxLength: 255
+        type: string
+      status:
+        type: string
+      student_id:
+        type: integer
+    required:
+    - amount_cents
+    - method
+    - status
+    - student_id
+    type: object
+  handlers.createPayrollEntryRequest:
+    properties:
+      base_salary_cents:
+        minimum: 0
+        type: integer
+      period_month:
+        maximum: 12
+        minimum: 1
+        type: integer
+      period_year:
+        type: integer
+      status:
+        enum:
+        - PAID
+        - PENDING
+        type: string
+      students_count:
+        minimum: 0
+        type: integer
+      user_id:
+        type: integer
+      variable_salary_cents:
+        minimum: 0
+        type: integer
+    required:
+    - base_salary_cents
+    - period_month
+    - period_year
+    - status
+    - user_id
+    type: object
+  handlers.createPlanRequest:
+    properties:
+      description:
+        maxLength: 1000
+        type: string
+      features:
+        items:
+          type: string
+        type: array
+      interval:
+        enum:
+        - monthly
+        - yearly
+        type: string
+      is_active:
+        type: boolean
+      max_users:
+        type: integer
+      name:
+        maxLength: 255
+        minLength: 2
+        type: string
+      price_cents:
+        type: integer
+      type:
+        maxLength: 50
+        type: string
+    required:
+    - features
+    - interval
+    - name
+    - price_cents
+    type: object
+  handlers.createUserRequest:
+    properties:
+      email:
+        maxLength: 255
+        type: string
+      first_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      is_active:
+        type: boolean
+      last_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      organization_id:
+        type: integer
+      password:
+        minLength: 8
+        type: string
+      phone:
+        maxLength: 20
+        type: string
+      role:
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    - role
+    type: object
+  handlers.forgotPasswordRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  handlers.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        minLength: 6
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  handlers.refreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  handlers.registerRequest:
+    properties:
+      email:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      password:
+        minLength: 6
+        type: string
+      phone:
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    type: object
+  handlers.resetPasswordRequest:
+    properties:
+      new_password:
+        minLength: 6
+        type: string
+      token:
+        type: string
+    required:
+    - new_password
+    - token
+    type: object
+  handlers.toggleTwoFARequest:
+    properties:
+      enabled:
+        type: boolean
+    type: object
+  handlers.updateNotificationsRequest:
+    properties:
+      settings:
+        items:
+          $ref: '#/definitions/handlers.NotificationSettingDTO'
+        type: array
+    required:
+    - settings
+    type: object
+  handlers.updateOrganizationRequest:
+    properties:
+      address:
+        maxLength: 500
+        type: string
+      email:
+        maxLength: 255
+        type: string
+      name:
+        maxLength: 255
+        minLength: 1
+        type: string
+      phone:
+        maxLength: 20
+        type: string
+    type: object
+  handlers.updatePaymentRequest:
+    properties:
+      amount_cents:
+        type: integer
+      description:
+        maxLength: 500
+        type: string
+      due_date:
+        type: string
+      enrollment_id:
+        type: integer
+      method:
+        type: string
+      paid_at:
+        type: string
+      reference_number:
+        maxLength: 255
+        type: string
+      status:
+        type: string
+    type: object
+  handlers.updatePaymentSettingsRequest:
+    properties:
+      card_number:
+        maxLength: 32
+        type: string
+      gateway_callback_url:
+        maxLength: 255
+        type: string
+      gateway_merchant_id:
+        maxLength: 128
+        type: string
+      gateway_provider:
+        maxLength: 50
+        type: string
+      iban:
+        maxLength: 50
+        type: string
+      is_gateway_connected:
+        type: boolean
+    type: object
+  handlers.updatePayrollEntryRequest:
+    properties:
+      base_salary_cents:
+        minimum: 0
+        type: integer
+      status:
+        enum:
+        - PAID
+        - PENDING
+        type: string
+      students_count:
+        minimum: 0
+        type: integer
+      variable_salary_cents:
+        minimum: 0
+        type: integer
+    type: object
+  handlers.updatePlanRequest:
+    properties:
+      description:
+        maxLength: 1000
+        type: string
+      features:
+        items:
+          type: string
+        type: array
+      interval:
+        enum:
+        - monthly
+        - yearly
+        type: string
+      is_active:
+        type: boolean
+      max_users:
+        type: integer
+      name:
+        maxLength: 255
+        minLength: 2
+        type: string
+      price_cents:
+        type: integer
+      type:
+        maxLength: 50
+        type: string
+    required:
+    - features
+    type: object
+  handlers.updateProfileRequest:
+    properties:
+      avatar_url:
+        maxLength: 512
+        type: string
+      bio:
+        type: string
+      email:
+        maxLength: 255
+        type: string
+      first_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      last_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      phone:
+        maxLength: 20
+        type: string
+    type: object
+  handlers.updateUserRequest:
+    properties:
+      email:
+        maxLength: 255
+        type: string
+      first_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      is_active:
+        type: boolean
+      last_name:
+        maxLength: 100
+        minLength: 2
+        type: string
+      organization_id:
+        type: integer
+      password:
+        description: admin can set user password
+        minLength: 8
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+      phone:
+        maxLength: 20
+        type: string
+      role:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Backend API for Unifinance Momtaz dashboard
+  title: Unifinance Momtaz API
+  version: "1.0"
+paths:
+  /auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      description: Request a password reset link (stubbed, no email integration yet)
+      parameters:
+      - description: Forgot password data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.forgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Forgot password
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user with email and password and get access & refresh
+        tokens
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AuthResultDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      description: Logout current user (stateless JWT, client should discard tokens)
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - auth
+  /auth/me:
+    get:
+      description: Returns the authenticated user's profile
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AuthUserDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Use refresh token to get new access & refresh tokens
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.refreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AuthResultDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh tokens
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user and return access & refresh tokens
+      parameters:
+      - description: Register data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.AuthResultDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register new user
+      tags:
+      - auth
+  /auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Reset password using a reset token (currently not implemented)
+      parameters:
+      - description: Reset password data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.resetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Reset password
+      tags:
+      - auth
+  /dashboard/debt-alerts:
+    get:
+      description: List of overdue payment alerts for the dashboard
+      parameters:
+      - default: 5
+        description: Number of alerts to return
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.DebtAlertDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Debt alerts
+      tags:
+      - dashboard
+  /dashboard/recent-payments:
+    get:
+      description: List of the most recent payments for the dashboard table
+      parameters:
+      - default: 5
+        description: Number of recent payments to return
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.PaymentDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Recent payments
+      tags:
+      - dashboard
+  /dashboard/revenue-trend:
+    get:
+      description: Monthly aggregated revenue (payments) and payroll amounts for charts
+      parameters:
+      - default: 6
+        description: How many recent months to include (including current)
+        in: query
+        name: months
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.RevenueTrendPointDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revenue vs payroll trend
+      tags:
+      - dashboard
+  /dashboard/summary:
+    get:
+      description: High-level KPIs, recent payments and debt alerts for the dashboard
+        widgets
+      parameters:
+      - default: 5
+        description: Number of recent payments to include
+        in: query
+        name: recent_limit
+        type: integer
+      - default: 5
+        description: Number of debt alerts to include
+        in: query
+        name: alerts_limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.DashboardSummaryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Dashboard summary
+      tags:
+      - dashboard
+  /payments:
+    get:
+      description: Paginated list of payments with filters (admin only)
+      parameters:
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Search by student name, description, reference
+        in: query
+        name: search
+        type: string
+      - description: Status filter
+        in: query
+        name: status
+        type: string
+      - description: Method filter
+        in: query
+        name: method
+        type: string
+      - description: From date (YYYY-MM-DD)
+        in: query
+        name: from_date
+        type: string
+      - description: To date (YYYY-MM-DD)
+        in: query
+        name: to_date
+        type: string
+      - description: Sort field (e.g. -created_at,amount)
+        in: query
+        name: sort
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payments
+      tags:
+      - payments
+    post:
+      consumes:
+      - application/json
+      description: Manually register a payment (admin only)
+      parameters:
+      - description: Payment data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.PaymentDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create payment
+      tags:
+      - payments
+  /payments/{id}:
+    delete:
+      description: Soft delete / cancel payment (admin only)
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel payment
+      tags:
+      - payments
+    get:
+      description: Get payment by ID (admin only)
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PaymentDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get payment
+      tags:
+      - payments
+    put:
+      consumes:
+      - application/json
+      description: Update payment fields (admin only)
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payment data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updatePaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PaymentDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update payment
+      tags:
+      - payments
+  /payments/{id}/link:
+    post:
+      description: Generate a fake/preview payment link (no real gateway yet)
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate fake payment link
+      tags:
+      - payments
+  /payments/export:
+    get:
+      description: Export filtered payments as CSV (admin only)
+      parameters:
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 100
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Search by student name, description, reference
+        in: query
+        name: search
+        type: string
+      - description: Status filter
+        in: query
+        name: status
+        type: string
+      - description: Method filter
+        in: query
+        name: method
+        type: string
+      - description: From date (YYYY-MM-DD)
+        in: query
+        name: from_date
+        type: string
+      - description: To date (YYYY-MM-DD)
+        in: query
+        name: to_date
+        type: string
+      - description: Sort field
+        in: query
+        name: sort
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Export payments
+      tags:
+      - payments
+  /payments/summary:
+    get:
+      description: 'Aggregated amounts: today received, pending, overdue, this month
+        received (admin only)'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Payment summary
+      tags:
+      - payments
+  /payroll/entries:
+    get:
+      description: Paginated list of payroll entries for a period (admin only)
+      parameters:
+      - description: 'Period year (default: current year)'
+        in: query
+        name: year
+        type: integer
+      - description: 'Period month (1-12, default: current month)'
+        in: query
+        name: month
+        type: integer
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Status filter (PAID or PENDING)
+        in: query
+        name: status
+        type: string
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payroll entries
+      tags:
+      - payroll
+    post:
+      consumes:
+      - application/json
+      description: Register a new payslip for an employee (admin only)
+      parameters:
+      - description: Entry data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createPayrollEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.PayrollEntryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create payroll entry
+      tags:
+      - payroll
+  /payroll/entries/{id}:
+    get:
+      description: Get a single payslip by ID (admin only)
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PayrollEntryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get payroll entry
+      tags:
+      - payroll
+    put:
+      consumes:
+      - application/json
+      description: Update an existing payslip (admin only)
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updatePayrollEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PayrollEntryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update payroll entry
+      tags:
+      - payroll
+  /payroll/schemes:
+    get:
+      description: List active salary schemes per role (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.PayrollSchemeDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payroll schemes
+      tags:
+      - payroll
+  /payroll/summary:
+    get:
+      description: Aggregated payroll metrics (base, variable, paid, pending) for
+        a given period (admin only)
+      parameters:
+      - description: 'Period year (default: current year)'
+        in: query
+        name: year
+        type: integer
+      - description: 'Period month (1-12, default: current month)'
+        in: query
+        name: month
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PayrollSummaryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Payroll monthly summary
+      tags:
+      - payroll
+  /plans:
+    get:
+      description: List plans with pagination and optional search/filters (admin only)
+      parameters:
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Search by name or description
+        in: query
+        name: search
+        type: string
+      - description: Filter by type (e.g. MONTHLY, YEARLY)
+        in: query
+        name: type
+        type: string
+      - description: 'Filter by status: active, inactive, archived'
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List plans
+      tags:
+      - plans
+    post:
+      consumes:
+      - application/json
+      description: Create a new plan (admin only)
+      parameters:
+      - description: Plan data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createPlanRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.PlanDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create plan
+      tags:
+      - plans
+  /plans/{id}:
+    delete:
+      description: Soft deactivate a plan by setting is_active=false (admin only).
+        Optionally prevents deactivation when enrollments exist.
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate plan
+      tags:
+      - plans
+    get:
+      description: Get plan by ID (admin only)
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PlanDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get plan
+      tags:
+      - plans
+    put:
+      consumes:
+      - application/json
+      description: Update an existing plan (admin only)
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Plan data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updatePlanRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PlanDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update plan
+      tags:
+      - plans
+  /plans/summary:
+    get:
+      description: 'Summary stats for plans: total, active, active enrollments, monthly
+        revenue'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PlanSummaryDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Plans summary
+      tags:
+      - plans
+  /reports/debts:
+    get:
+      description: Aggregated student debts per advisor (admin only)
+      parameters:
+      - description: Month (YYYY-MM), currently only used for UI; data is based on
+          current balances
+        in: query
+        name: month
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.AdvisorDebtDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Debts by advisor
+      tags:
+      - reports
+  /reports/payroll:
+    get:
+      description: Monthly payroll series between two months (admin only)
+      parameters:
+      - description: 'Start month (YYYY-MM), default: current month'
+        in: query
+        name: from
+        type: string
+      - description: 'End month (YYYY-MM), default: current month'
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.PayrollPointDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Payroll series
+      tags:
+      - reports
+  /reports/revenue:
+    get:
+      description: Monthly revenue series between two months (admin only)
+      parameters:
+      - description: 'Start month (YYYY-MM), default: current month'
+        in: query
+        name: from
+        type: string
+      - description: 'End month (YYYY-MM), default: current month'
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.RevenuePointDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revenue series
+      tags:
+      - reports
+  /reports/summary:
+    get:
+      description: High-level financial summary (revenue, payroll, debts, net profit)
+        over a month range (admin only)
+      parameters:
+      - description: 'Start month (YYYY-MM), default: current month'
+        in: query
+        name: from
+        type: string
+      - description: 'End month (YYYY-MM), default: current month'
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ReportSummaryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reports summary
+      tags:
+      - reports
+  /settings/notifications:
+    get:
+      description: Get notification preferences for current user (Settings > Notifications)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.NotificationSettingDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get notification settings
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      description: Update notification preferences for current user (Settings > Notifications)
+      parameters:
+      - description: Notifications settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateNotificationsRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update notification settings
+      tags:
+      - settings
+  /settings/notifications/count:
+    get:
+      description: Returns the number of unread notifications for the current user
+        (for header badge)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Unread notification count
+      tags:
+      - settings
+  /settings/organization:
+    get:
+      description: Get general organization settings (admin only, Settings > General)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.OrganizationSettingsDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get organization settings
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      description: Update general organization settings (admin only, Settings > General)
+      parameters:
+      - description: Organization settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateOrganizationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.OrganizationSettingsDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update organization settings
+      tags:
+      - settings
+  /settings/payments:
+    get:
+      description: Get payment configuration for the organization (Settings > Payments,
+        admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PaymentSettingsDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get payment settings
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      description: Update payment configuration for the organization (Settings > Payments,
+        admin only)
+      parameters:
+      - description: Payment settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updatePaymentSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PaymentSettingsDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update payment settings
+      tags:
+      - settings
+  /settings/profile:
+    get:
+      description: Get profile info for the current user (Settings > Profile)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ProfileDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      description: Update profile info for the current user (Settings > Profile)
+      parameters:
+      - description: Profile data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ProfileDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update current user profile
+      tags:
+      - settings
+  /settings/security/2fa:
+    put:
+      consumes:
+      - application/json
+      description: Enable or disable 2FA for current user (Settings > Security)
+      parameters:
+      - description: 2FA toggle
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.toggleTwoFARequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Toggle two-factor authentication
+      tags:
+      - settings
+  /settings/security/password:
+    put:
+      consumes:
+      - application/json
+      description: Change current user's password (Settings > Security)
+      parameters:
+      - description: Password data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.changePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Change password
+      tags:
+      - settings
+  /students:
+    get:
+      description: List students with optional search and pagination
+      parameters:
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Search by name, phone or email
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List students
+      tags:
+      - students
+    post:
+      consumes:
+      - application/json
+      description: Create a new student
+      parameters:
+      - description: Student data
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.StudentDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create student
+      tags:
+      - students
+  /students/{id}:
+    delete:
+      description: Soft delete a student
+      parameters:
+      - description: Student ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete student
+      tags:
+      - students
+    get:
+      description: Get student by ID
+      parameters:
+      - description: Student ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.StudentDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get student
+      tags:
+      - students
+    put:
+      consumes:
+      - application/json
+      description: Update an existing student
+      parameters:
+      - description: Student ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Student data
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.StudentDoc'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update student
+      tags:
+      - students
+  /students/summary:
+    get:
+      description: Summary counts for students (total, active, inactive, debtors)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.StudentStatsDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Students summary
+      tags:
+      - students
+  /users:
+    get:
+      description: List users with pagination and optional search/filters (admin only)
+      parameters:
+      - default: 1
+        description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Search by first name, last name or email
+        in: query
+        name: search
+        type: string
+      - description: Filter by role (e.g. ADMIN, ADVISOR)
+        in: query
+        name: role
+        type: string
+      - description: 'Filter by status: active or inactive'
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Create a new user (admin only)
+      parameters:
+      - description: User data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.UserDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create user
+      tags:
+      - users
+  /users/{id}:
+    delete:
+      description: Soft deactivate user by setting is_active=false (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate user
+      tags:
+      - users
+    get:
+      description: Get user by ID (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get user
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      description: Update an existing user (admin only, password not changeable here)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserDTO'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update user
+      tags:
+      - users
+  /users/export:
+    get:
+      description: Export users as CSV with optional search/filters (admin only)
+      parameters:
+      - description: Search by first name, last name or email
+        in: query
+        name: search
+        type: string
+      - description: Filter by role (e.g. ADMIN, ADVISOR)
+        in: query
+        name: role
+        type: string
+      - description: 'Filter by status: active or inactive'
+        in: query
+        name: status
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Export users
+      tags:
+      - users
+  /users/summary:
+    get:
+      description: Counts of users per role (admin, accountant, advisor, operator)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserRoleStatsDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Users summary
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
