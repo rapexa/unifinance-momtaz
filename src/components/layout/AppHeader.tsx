@@ -14,6 +14,12 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { getNotificationCount, getUploadsBase } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
+  general_manager: "مدیرکل",
+  advisor: "مشاور",
+  secretary: "منشی",
+  support: "پشتیبان",
+  executive_manager: "مدیر اجرایی",
+  advisor_lead: "سرپرست مشاوران",
   ADMIN: "مدیر کل",
   ACCOUNTANT: "حسابدار",
   ADVISOR: "مشاور",
@@ -37,7 +43,9 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "کاربر"
     : "ورود";
-  const roleLabel = profile ? ROLE_LABELS[profile.role] ?? profile.role : "";
+  const roleLabel = profile
+    ? profile.role_name || ROLE_LABELS[profile.role] || profile.role
+    : "";
 
   const handleLogout = () => {
     logout();

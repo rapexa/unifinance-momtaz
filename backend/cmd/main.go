@@ -7,16 +7,16 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	docs "github.com/soheilsshh/unifinance-momtaz/docs"
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/database"
+	docs "github.com/soheilsshh/unifinance-momtaz/docs"
 	"github.com/soheilsshh/unifinance-momtaz/handlers"
 	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"github.com/soheilsshh/unifinance-momtaz/services"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // @title       Unifinance Momtaz API
@@ -39,14 +39,16 @@ func main() {
 	// Repositories (Repository Pattern)
 	userRepo := repositories.NewUserRepository(db)
 	permRepo := repositories.NewPermissionRepository(db)
+	roleRepo := repositories.NewRoleRepository(db)
 	studentRepo := repositories.NewStudentRepository(db)
 	planRepo := repositories.NewPlanRepository(db)
 	paymentRepo := repositories.NewPaymentRepository(db)
 
 	// Services (Service Layer)
-	authService := services.NewAuthService(userRepo, cfg)
-	permService := services.NewPermissionService(permRepo)
+	permService := services.NewPermissionService(permRepo, roleRepo)
+	authService := services.NewAuthService(userRepo, roleRepo, permService, cfg)
 	userService := services.NewUserService(userRepo, permService)
+	roleService := services.NewRoleService(roleRepo)
 	studentService := services.NewStudentService(studentRepo)
 	planService := services.NewPlanService(planRepo)
 	paymentService := services.NewPaymentService(paymentRepo)
@@ -59,6 +61,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService)
 	userHandler := handlers.NewUserHandler(userService, permService)
+	roleHandler := handlers.NewRoleHandler(roleService)
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
@@ -74,9 +77,10 @@ func main() {
 		AllowOrigins: []string{
 			"http://localhost:8080",
 			"http://127.0.0.1:8080",
+			"http://130.185.75.183",
 		},
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}
@@ -113,9 +117,11 @@ func main() {
 	protected.GET("/users/me", func(c *gin.Context) {
 		userIDVal, _ := c.Get(middleware.ContextUserIDKey)
 		roleVal, _ := c.Get(middleware.ContextUserRole)
+		fullVal, _ := c.Get(middleware.ContextUserFullAccess)
 		c.JSON(http.StatusOK, gin.H{
-			"user_id": userIDVal,
-			"role":    roleVal,
+			"user_id":      userIDVal,
+			"role":         roleVal,
+			"full_access":  fullVal,
 		})
 	})
 
@@ -150,6 +156,17 @@ func main() {
 		users.POST("", userHandler.Create)
 		users.PUT("/:id", userHandler.Update)
 		users.DELETE("/:id", userHandler.Deactivate)
+	}
+
+	// Roles & compensation templates (same USERS permission)
+	roles := protected.Group("/roles")
+	roles.Use(middleware.PermissionMiddleware(permService, models.PermUsers))
+	{
+		roles.GET("", roleHandler.List)
+		roles.POST("", roleHandler.Create)
+		roles.GET("/:id", roleHandler.Get)
+		roles.PUT("/:id", roleHandler.Update)
+		roles.DELETE("/:id", roleHandler.Delete)
 	}
 
 	// Plans

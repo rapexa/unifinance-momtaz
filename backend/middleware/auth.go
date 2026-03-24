@@ -13,8 +13,9 @@ import (
 
 // Context keys
 const (
-	ContextUserIDKey = "userID"
-	ContextUserRole  = "userRole"
+	ContextUserIDKey      = "userID"
+	ContextUserRole       = "userRole"       // role code (string)
+	ContextUserFullAccess = "userFullAccess" // bool
 )
 
 // AuthMiddleware is a Gin middleware that validates JWT and injects user info into context.
@@ -43,16 +44,25 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		roleCode := claims.Role
+		fullAccess := claims.FullAccess
+		// Legacy JWTs issued before dynamic roles (enum ADMIN only).
+		if roleCode == "ADMIN" {
+			fullAccess = true
+			roleCode = models.RoleCodeGeneralManager
+		}
+
 		c.Set(ContextUserIDKey, claims.UserID)
-		c.Set(ContextUserRole, claims.Role)
+		c.Set(ContextUserRole, roleCode)
+		c.Set(ContextUserFullAccess, fullAccess)
 
 		c.Next()
 	}
 }
 
-// RoleMiddleware ensures the user has one of the allowed roles.
-func RoleMiddleware(allowed ...models.UserRole) gin.HandlerFunc {
-	allowedSet := make(map[models.UserRole]struct{}, len(allowed))
+// RoleMiddleware ensures the user has one of the allowed role codes.
+func RoleMiddleware(allowed ...string) gin.HandlerFunc {
+	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, r := range allowed {
 		allowedSet[r] = struct{}{}
 	}
@@ -64,7 +74,7 @@ func RoleMiddleware(allowed ...models.UserRole) gin.HandlerFunc {
 			return
 		}
 
-		role, ok := roleVal.(models.UserRole)
+		role, ok := roleVal.(string)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid role type"})
 			return
@@ -79,12 +89,7 @@ func RoleMiddleware(allowed ...models.UserRole) gin.HandlerFunc {
 	}
 }
 
-// AdminOnly is a convenience middleware for admin-only routes.
-func AdminOnly() gin.HandlerFunc {
-	return RoleMiddleware(models.UserRoleAdmin)
-}
-
-// PermissionMiddleware ensures the current user has the required permission (admin has all).
+// PermissionMiddleware ensures the current user has the required permission (full-access roles have all).
 func PermissionMiddleware(permService *services.PermissionService, required models.Permission) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userIDVal, exists := c.Get(ContextUserIDKey)
@@ -97,10 +102,10 @@ func PermissionMiddleware(permService *services.PermissionService, required mode
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid user id type"})
 			return
 		}
-		roleVal, _ := c.Get(ContextUserRole)
-		role, _ := roleVal.(models.UserRole)
+		fullAccessVal, _ := c.Get(ContextUserFullAccess)
+		fullAccess, _ := fullAccessVal.(bool)
 
-		ok, err := permService.HasPermission(c.Request.Context(), userID, role, required)
+		ok, err := permService.HasPermission(c.Request.Context(), userID, fullAccess, required)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to check permission"})
 			return
@@ -112,4 +117,3 @@ func PermissionMiddleware(permService *services.PermissionService, required mode
 		c.Next()
 	}
 }
-

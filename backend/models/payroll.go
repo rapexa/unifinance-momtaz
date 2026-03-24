@@ -32,16 +32,3 @@ type PayrollEntry struct {
 	PaidAt *time.Time    `gorm:"index"`
 }
 
-// PayrollScheme represents "ساختار حقوق ثابت/متغیر" per role.
-type PayrollScheme struct {
-	gorm.Model
-	Role UserRole `gorm:"type:varchar(32);not null;uniqueIndex"`
-
-	BaseSalaryCents   int64   `gorm:"not null;default:0"`
-	PerStudentCents   int64   `gorm:"not null;default:0"`
-	RevenuePercent    float64 `gorm:"not null;default:0"` // e.g. 15.0 = 15%
-	MonthlyBonusCents int64   `gorm:"not null;default:0"`
-
-	IsActive bool `gorm:"not null;default:true"`
-}
-

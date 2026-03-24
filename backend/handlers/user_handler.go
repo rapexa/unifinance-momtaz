@@ -28,7 +28,10 @@ type UserDTO struct {
 	LastName       string    `json:"last_name"`
 	Email          string    `json:"email"`
 	Phone          string    `json:"phone,omitempty"`
-	Role           string    `json:"role"`
+	RoleID         uint      `json:"role_id"`
+	RoleCode       string    `json:"role_code"`
+	RoleName       string    `json:"role_name"`
+	Role           string    `json:"role"` // same as role_code (backward compatible)
 	IsActive       bool      `json:"is_active"`
 	OrganizationID *uint     `json:"organization_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -36,17 +39,23 @@ type UserDTO struct {
 }
 
 func toUserDTO(u *models.User) UserDTO {
-	return UserDTO{
+	dto := UserDTO{
 		ID:             u.ID,
 		FirstName:      u.FirstName,
 		LastName:       u.LastName,
 		Email:          u.Email,
 		Phone:          u.Phone,
-		Role:           string(u.Role),
+		RoleID:         u.RoleID,
 		IsActive:       u.IsActive,
 		OrganizationID: u.OrganizationID,
 		CreatedAt:      u.CreatedAt,
 	}
+	if u.Role != nil {
+		dto.RoleCode = u.Role.Code
+		dto.RoleName = u.Role.Name
+		dto.Role = u.Role.Code
+	}
+	return dto
 }
 
 func toUserDTOSlice(users []models.User) []UserDTO {
@@ -55,14 +64,6 @@ func toUserDTOSlice(users []models.User) []UserDTO {
 		out[i] = toUserDTO(&u)
 	}
 	return out
-}
-
-// UserRoleStatsDoc represents counts of users per role.
-type UserRoleStatsDoc struct {
-	Admins      int64 `json:"admins"`
-	Accountants int64 `json:"accountants"`
-	Advisors    int64 `json:"advisors"`
-	Operators   int64 `json:"operators"`
 }
 
 func userError(c *gin.Context, status int, msg string) {
@@ -77,7 +78,7 @@ type createUserRequest struct {
 	LastName       string `json:"last_name" binding:"required,min=2,max=100"`
 	Email          string `json:"email" binding:"required,email,max=255"`
 	Phone          string `json:"phone" binding:"omitempty,max=20"`
-	Role           string `json:"role" binding:"required"`
+	RoleID         uint   `json:"role_id" binding:"required"`
 	Password       string `json:"password" binding:"required,min=8"`
 	OrganizationID *uint  `json:"organization_id" binding:"omitempty"`
 	IsActive       *bool  `json:"is_active" binding:"omitempty"`
@@ -88,10 +89,10 @@ type updateUserRequest struct {
 	LastName       *string  `json:"last_name" binding:"omitempty,min=2,max=100"`
 	Email          *string  `json:"email" binding:"omitempty,email,max=255"`
 	Phone          *string  `json:"phone" binding:"omitempty,max=20"`
-	Role           *string  `json:"role" binding:"omitempty"`
+	RoleID         *uint    `json:"role_id" binding:"omitempty"`
 	IsActive       *bool    `json:"is_active" binding:"omitempty"`
 	OrganizationID *uint    `json:"organization_id" binding:"omitempty"`
-	Password       *string  `json:"password" binding:"omitempty,min=8"`       // admin can set user password
+	Password       *string  `json:"password" binding:"omitempty,min=8"` // admin can set user password
 	Permissions    []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
@@ -104,7 +105,9 @@ type updateUserRequest struct {
 // @Param        page       query     int     false "Page number (1-based)" default(1)
 // @Param        page_size  query     int     false "Page size" default(20)
 // @Param        search     query     string  false "Search by first name, last name or email"
-// @Param        role       query     string  false "Filter by role (e.g. ADMIN, ADVISOR)"
+// @Param        role       query     string  false "Filter by role_id (number) or role code (slug), or legacy ADMIN/ADVISOR"
+// @Param        role_id    query     int     false "Filter by role id"
+// @Param        role_code  query     string  false "Filter by role code"
 // @Param        status     query     string  false "Filter by status: active or inactive"
 // @Success      200        {object}  map[string]interface{}
 // @Failure      400        {object}  map[string]string
@@ -117,6 +120,12 @@ func (h *UserHandler) List(c *gin.Context) {
 	pageSizeStr := c.DefaultQuery("page_size", "20")
 	search := c.DefaultQuery("search", "")
 	role := c.DefaultQuery("role", "")
+	if rc := c.Query("role_code"); rc != "" {
+		role = rc
+	}
+	if rid := c.Query("role_id"); rid != "" {
+		role = rid
+	}
 	status := c.DefaultQuery("status", "")
 
 	if status != "" && status != "active" && status != "inactive" {
@@ -163,7 +172,7 @@ func (h *UserHandler) List(c *gin.Context) {
 // @Tags         users
 // @Security     BearerAuth
 // @Produce      json
-// @Success      200  {object}  UserRoleStatsDoc
+// @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
@@ -174,14 +183,17 @@ func (h *UserHandler) Summary(c *gin.Context) {
 		userError(c, http.StatusInternalServerError, "failed to load users summary")
 		return
 	}
-
-	resp := UserRoleStatsDoc{
-		Admins:      stats[models.UserRoleAdmin],
-		Accountants: stats[models.UserRoleAccountant],
-		Advisors:    stats[models.UserRoleAdvisor],
-		Operators:   stats[models.UserRoleOperator],
+	type row struct {
+		RoleID uint   `json:"role_id"`
+		Code   string `json:"code"`
+		Name   string `json:"name"`
+		Count  int64  `json:"count"`
 	}
-	c.JSON(http.StatusOK, resp)
+	rows := make([]row, 0, len(stats))
+	for _, s := range stats {
+		rows = append(rows, row{RoleID: s.RoleID, Code: s.Code, Name: s.Name, Count: s.Count})
+	}
+	c.JSON(http.StatusOK, gin.H{"by_role": rows})
 }
 
 // Get handles GET /users/:id
@@ -217,7 +229,8 @@ func (h *UserHandler) Get(c *gin.Context) {
 
 	dto := toUserDTO(u)
 	if h.permSvc != nil {
-		perms, _ := h.permSvc.GetForUser(c.Request.Context(), u.ID, u.Role)
+		full := u.Role != nil && u.Role.FullAccess
+		perms, _ := h.permSvc.GetForUser(c.Request.Context(), u.ID, full)
 		for _, p := range perms {
 			dto.Permissions = append(dto.Permissions, string(p))
 		}
@@ -252,7 +265,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		LastName:       req.LastName,
 		Email:          req.Email,
 		Phone:          req.Phone,
-		Role:           req.Role,
+		RoleID:         req.RoleID,
 		Password:       req.Password,
 		OrganizationID: req.OrganizationID,
 		IsActive:       req.IsActive,
@@ -262,6 +275,10 @@ func (h *UserHandler) Create(c *gin.Context) {
 	if err != nil {
 		if err == services.ErrEmailAlreadyExists {
 			userError(c, http.StatusConflict, "email already exists")
+			return
+		}
+		if err == services.ErrInvalidRoleID {
+			userError(c, http.StatusBadRequest, "invalid role_id")
 			return
 		}
 		userError(c, http.StatusInternalServerError, "failed to create user")
@@ -307,7 +324,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		LastName:       req.LastName,
 		Email:          req.Email,
 		Phone:          req.Phone,
-		Role:           req.Role,
+		RoleID:         req.RoleID,
 		IsActive:       req.IsActive,
 		OrganizationID: req.OrganizationID,
 		Password:       req.Password,
@@ -326,6 +343,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 			userError(c, http.StatusNotFound, "user not found")
 		case services.ErrEmailAlreadyExists:
 			userError(c, http.StatusConflict, "email already exists")
+		case services.ErrInvalidRoleID:
+			userError(c, http.StatusBadRequest, "invalid role_id")
 		default:
 			userError(c, http.StatusInternalServerError, "failed to update user")
 		}
@@ -379,7 +398,9 @@ func (h *UserHandler) Deactivate(c *gin.Context) {
 // @Security     BearerAuth
 // @Produce      text/csv
 // @Param        search     query     string  false "Search by first name, last name or email"
-// @Param        role       query     string  false "Filter by role (e.g. ADMIN, ADVISOR)"
+// @Param        role       query     string  false "Filter by role_id (number) or role code (slug), or legacy ADMIN/ADVISOR"
+// @Param        role_id    query     int     false "Filter by role id"
+// @Param        role_code  query     string  false "Filter by role code"
 // @Param        status     query     string  false "Filter by status: active or inactive"
 // @Success      200        "CSV file"
 // @Failure      400        {object}  map[string]string
@@ -412,16 +433,23 @@ func (h *UserHandler) Export(c *gin.Context) {
 	w := csv.NewWriter(c.Writer)
 	defer w.Flush()
 
-	_ = w.Write([]string{"ID", "FirstName", "LastName", "Email", "Phone", "Role", "IsActive", "CreatedAt"})
+	_ = w.Write([]string{"ID", "FirstName", "LastName", "Email", "Phone", "RoleID", "RoleCode", "RoleName", "IsActive", "CreatedAt"})
 
 	for _, u := range users {
+		rc, rn := "", ""
+		if u.Role != nil {
+			rc = u.Role.Code
+			rn = u.Role.Name
+		}
 		row := []string{
 			strconv.FormatUint(uint64(u.ID), 10),
 			u.FirstName,
 			u.LastName,
 			u.Email,
 			u.Phone,
-			string(u.Role),
+			strconv.FormatUint(uint64(u.RoleID), 10),
+			rc,
+			rn,
 			strconv.FormatBool(u.IsActive),
 			u.CreatedAt.Format(time.RFC3339),
 		}

@@ -107,7 +107,7 @@ func (s *PayrollService) ListEntries(
 	}
 
 	if err := query.
-		Preload("User").
+		Preload("User.Role").
 		Order("user_id ASC").
 		Limit(limit).
 		Offset(offset).
@@ -118,17 +118,16 @@ func (s *PayrollService) ListEntries(
 	return entries, count, nil
 }
 
-// GetSchemes returns all active payroll schemes.
-func (s *PayrollService) GetSchemes(ctx context.Context) ([]models.PayrollScheme, error) {
-	var schemes []models.PayrollScheme
+// GetSchemes returns all roles with compensation rules (حقوق پیش‌فرض نقش).
+func (s *PayrollService) GetSchemes(ctx context.Context) ([]models.Role, error) {
+	var roles []models.Role
 	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollScheme{}).
-		Where("is_active = ?", true).
-		Order("role ASC").
-		Find(&schemes).Error; err != nil {
+		Model(&models.Role{}).
+		Order("name ASC").
+		Find(&roles).Error; err != nil {
 		return nil, err
 	}
-	return schemes, nil
+	return roles, nil
 }
 
 // DefaultPeriod returns current year and month in local time.
@@ -169,7 +168,7 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 		return nil, err
 	}
 	// Reload with User preload for response
-	if err := s.db.WithContext(ctx).Preload("User").First(entry, entry.ID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Preload("User.Role").First(entry, entry.ID).Error; err != nil {
 		return entry, nil // return created even if reload fails
 	}
 	return entry, nil
@@ -181,7 +180,7 @@ var ErrPayrollEntryNotFound = errors.New("payroll entry not found")
 func (s *PayrollService) GetEntryByID(ctx context.Context, id uint) (*models.PayrollEntry, error) {
 	var entry models.PayrollEntry
 	if err := s.db.WithContext(ctx).
-		Preload("User").
+		Preload("User.Role").
 		First(&entry, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPayrollEntryNotFound

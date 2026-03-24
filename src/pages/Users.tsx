@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,6 @@ import {
   Search,
   Shield,
   UserCheck,
-  UserX,
   Filter,
   Download,
   Pencil,
@@ -42,6 +41,14 @@ import {
   UserApi,
   UpdateUserPayload,
 } from "@/api/usersApi";
+import {
+  listRoles,
+  createRole,
+  deleteRole,
+  type RoleApi,
+  type CompensationKind,
+  type CreateRolePayload,
+} from "@/api/rolesApi";
 import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -76,24 +83,25 @@ interface UserRow {
   createdAt: string;
 }
 
-const roleLabelMap: Record<string, string> = {
-  ADMIN: "مدیر کل",
-  ACCOUNTANT: "حسابدار",
-  ADVISOR: "مشاور",
-  OPERATOR: "اپراتور",
-};
+const ROLE_BADGE_STYLES = [
+  "bg-primary text-primary-foreground",
+  "bg-chart-2/20 text-chart-2",
+  "bg-chart-5/20 text-chart-5",
+  "bg-chart-3/20 text-chart-3",
+  "bg-chart-4/20 text-chart-4",
+  "bg-secondary text-secondary-foreground",
+];
 
-const roleColors: Record<string, string> = {
-  ADMIN: "bg-primary text-primary-foreground",
-  ACCOUNTANT: "bg-chart-2/20 text-chart-2",
-  ADVISOR: "bg-chart-5/20 text-chart-5",
-  OPERATOR: "bg-chart-3/20 text-chart-3",
-};
+function roleBadgeClass(code: string): string {
+  let h = 0;
+  for (let i = 0; i < code.length; i++) h = (h + code.charCodeAt(i) * (i + 1)) % 997;
+  return ROLE_BADGE_STYLES[h % ROLE_BADGE_STYLES.length];
+}
 
 function mapUser(u: UserApi): UserRow {
   const name = `${u.first_name} ${u.last_name}`.trim();
-  const roleCode = u.role.toUpperCase();
-  const roleLabel = roleLabelMap[roleCode] || roleCode;
+  const roleCode = (u.role_code || u.role || "").toLowerCase();
+  const roleLabel = u.role_name || roleCode || "—";
   return {
     id: u.id,
     name: name || u.email,
@@ -102,8 +110,14 @@ function mapUser(u: UserApi): UserRow {
     roleCode,
     status: u.is_active ? "active" : "inactive",
     createdAt: new Date((u as any).created_at).toLocaleDateString("fa-IR"),
-  } as any;
+  } as UserRow;
 }
+
+const COMP_KIND_LABELS: Record<CompensationKind, string> = {
+  FIXED: "مبلغ ثابت (پایه)",
+  PERCENT: "درصد از پرداخت‌های دانش‌آموزان",
+  PER_UNIT: "مبلغ به‌ازای هر واحد حجم پرداخت",
+};
 
 const ALL_PERMISSION_CODES: PermissionCode[] = [
   PERMISSIONS.DASHBOARD, PERMISSIONS.STUDENTS, PERMISSIONS.USERS, PERMISSIONS.PLANS,
@@ -112,11 +126,13 @@ const ALL_PERMISSION_CODES: PermissionCode[] = [
 
 function EditUserForm({
   user,
+  roles,
   onCancel,
   onSuccess,
   mutation,
 }: {
   user: UserApi;
+  roles: RoleApi[];
   onCancel: () => void;
   onSuccess: () => void;
   mutation: ReturnType<typeof useMutation<UserApi, Error, { id: number; payload: UpdateUserPayload }>>;
@@ -125,7 +141,7 @@ function EditUserForm({
   const [lastName, setLastName] = useState(user.last_name || "");
   const [email, setEmail] = useState(user.email || "");
   const [phone, setPhone] = useState(user.phone || "");
-  const [role, setRole] = useState((user.role || "").toUpperCase());
+  const [roleId, setRoleId] = useState(String(user.role_id || ""));
   const [isActive, setIsActive] = useState(user.is_active ?? true);
   const [newPassword, setNewPassword] = useState("");
   const [permissions, setPermissions] = useState<string[]>(user.permissions ?? []);
@@ -169,15 +185,16 @@ function EditUserForm({
       </div>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">نقش</span>
-        <Select value={role} onValueChange={setRole}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue />
+        <Select value={roleId} onValueChange={setRoleId}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="انتخاب نقش" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="ADMIN">مدیر کل</SelectItem>
-            <SelectItem value="ACCOUNTANT">حسابدار</SelectItem>
-            <SelectItem value="ADVISOR">مشاور</SelectItem>
-            <SelectItem value="OPERATOR">اپراتور</SelectItem>
+            {roles.map((r) => (
+              <SelectItem key={r.id} value={String(r.id)}>
+                {r.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -210,7 +227,7 @@ function EditUserForm({
               last_name: lastName.trim(),
               email: email.trim(),
               phone: phone.trim() || undefined,
-              role,
+              role_id: parseInt(roleId, 10),
               is_active: isActive,
               permissions,
             };
@@ -246,11 +263,38 @@ const Users = () => {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<string>("ADVISOR");
+  const [createRoleId, setCreateRoleId] = useState<string>("");
   const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState(true);
 
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [newRoleCode, setNewRoleCode] = useState("");
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleDesc, setNewRoleDesc] = useState("");
+  const [newRoleFullAccess, setNewRoleFullAccess] = useState(false);
+  const [newCompKind, setNewCompKind] = useState<CompensationKind>("FIXED");
+  const [newFixedTomans, setNewFixedTomans] = useState("");
+  const [newPercent, setNewPercent] = useState("10");
+  const [newUnitTomans, setNewUnitTomans] = useState("1000000");
+  const [newPerUnitTomans, setNewPerUnitTomans] = useState("50000");
+  const [newRolePerms, setNewRolePerms] = useState<string[]>([PERMISSIONS.STUDENTS]);
+
   const queryClient = useQueryClient();
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ["roles"],
+    queryFn: listRoles,
+  });
+
+  const defaultAdvisorRoleId = useMemo(() => {
+    const adv = roles.find((r) => r.code === "advisor");
+    return adv ? String(adv.id) : roles[0] ? String(roles[0].id) : "";
+  }, [roles]);
+
+  useEffect(() => {
+    if (createRoleId || !defaultAdvisorRoleId) return;
+    setCreateRoleId(defaultAdvisorRoleId);
+  }, [createRoleId, defaultAdvisorRoleId]);
 
   const { data: detailsUserData } = useQuery({
     queryKey: ["user", detailsUserId],
@@ -271,6 +315,25 @@ const Users = () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
       setEditUserId(null);
+    },
+  });
+
+  const createRoleMutation = useMutation({
+    mutationFn: createRole,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      setRoleDialogOpen(false);
+      setNewRoleCode("");
+      setNewRoleName("");
+      setNewRoleDesc("");
+      setNewRoleFullAccess(false);
+      setNewCompKind("FIXED");
+      setNewFixedTomans("");
+      setNewPercent("10");
+      setNewUnitTomans("1000000");
+      setNewPerUnitTomans("50000");
+      setNewRolePerms([PERMISSIONS.STUDENTS]);
     },
   });
 
@@ -302,7 +365,10 @@ const Users = () => {
     queryFn: () =>
       listUsers({
         search: searchQuery || undefined,
-        role: roleFilter || undefined,
+        role_id:
+          roleFilter && roleFilter !== "none"
+            ? parseInt(roleFilter, 10)
+            : undefined,
         status: statusFilter || undefined,
         page: 1,
         page_size: 50,
@@ -319,7 +385,7 @@ const Users = () => {
       setLastName("");
       setEmail("");
       setPhone("");
-      setRole("ADVISOR");
+      setCreateRoleId(defaultAdvisorRoleId);
       setPassword("");
       setIsActive(true);
     },
@@ -331,7 +397,10 @@ const Users = () => {
     try {
       const blob = await exportUsers({
         search: searchQuery || undefined,
-        role: roleFilter || undefined,
+        role_id:
+          roleFilter && roleFilter !== "none"
+            ? parseInt(roleFilter, 10)
+            : undefined,
         status: statusFilter || undefined,
       });
       const url = URL.createObjectURL(blob);
@@ -377,6 +446,10 @@ const Users = () => {
             <Download className="ml-2 h-4 w-4" />
             خروجی
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setRoleDialogOpen(true)}>
+            <Shield className="ml-2 h-4 w-4" />
+            نقش جدید
+          </Button>
           <Button size="sm" onClick={() => setIsCreateOpen(true)}>
             <Plus className="ml-2 h-4 w-4" />
             کاربر جدید
@@ -391,7 +464,7 @@ const Users = () => {
               فیلتر نقش
             </label>
             <Select
-              value={roleFilter}
+              value={roleFilter || "none"}
               onValueChange={(val) => setRoleFilter(val === "none" ? "" : val)}
             >
               <SelectTrigger>
@@ -399,10 +472,11 @@ const Users = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">همه</SelectItem>
-                <SelectItem value="ADMIN">مدیر کل</SelectItem>
-                <SelectItem value="ACCOUNTANT">حسابدار</SelectItem>
-                <SelectItem value="ADVISOR">مشاور</SelectItem>
-                <SelectItem value="OPERATOR">اپراتور</SelectItem>
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -429,51 +503,97 @@ const Users = () => {
         </div>
       )}
 
-      {/* Role cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          {
-            label: "مدیر کل",
-            key: "ADMIN",
-            count: summary?.admins ?? 0,
-            icon: Shield,
-          },
-          {
-            label: "حسابدار",
-            key: "ACCOUNTANT",
-            count: summary?.accountants ?? 0,
-            icon: UserCheck,
-          },
-          {
-            label: "مشاور",
-            key: "ADVISOR",
-            count: summary?.advisors ?? 0,
-            icon: UserCheck,
-          },
-          {
-            label: "اپراتور",
-            key: "OPERATOR",
-            count: summary?.operators ?? 0,
-            icon: UserX,
-          },
-        ].map((item) => (
+      {/* Role summary cards */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {(summary?.by_role ?? []).map((row) => (
           <div
-            key={item.key}
+            key={row.role_id}
             className="card-elevated p-4 cursor-pointer hover:border-primary/50 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <div className={cn("rounded-lg p-2", roleColors[item.key])}>
-                <item.icon className="h-5 w-5" />
+              <div className={cn("rounded-lg p-2", roleBadgeClass(row.code))}>
+                <UserCheck className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-bold text-foreground">{item.label}</p>
+                <p className="font-bold text-foreground">{row.name}</p>
+                <p className="text-xs text-muted-foreground font-mono">{row.code}</p>
                 <p className="text-sm text-muted-foreground">
-                  {isSummaryLoading || isSummaryError ? "—" : item.count} کاربر
+                  {isSummaryLoading || isSummaryError ? "—" : row.count} کاربر
                 </p>
               </div>
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Roles & compensation table */}
+      <div className="mb-6 card-elevated overflow-hidden">
+        <div className="border-b bg-muted/40 px-4 py-3">
+          <h2 className="text-sm font-semibold">نقش‌ها و قوانین حقوق</h2>
+          <p className="text-xs text-muted-foreground">
+            هر نقش یکی از انواع حقوق ثابت، درصدی از پرداخت‌های دانش‌آموزان، یا مبلغ به‌ازای واحد حجم پرداخت دارد.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/30 text-right">
+                <th className="p-3 font-medium">نقش</th>
+                <th className="p-3 font-medium">کد</th>
+                <th className="p-3 font-medium">نوع حقوق</th>
+                <th className="p-3 font-medium">جزئیات</th>
+                <th className="p-3 font-medium w-24">عملیات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roles.map((r) => (
+                <tr key={r.id} className="border-b last:border-0">
+                  <td className="p-3">
+                    {r.name}
+                    {r.is_system && (
+                      <span className="mr-2 text-xs text-muted-foreground">(سیستمی)</span>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono text-xs">{r.code}</td>
+                  <td className="p-3">{COMP_KIND_LABELS[r.compensation_kind] ?? r.compensation_kind}</td>
+                  <td className="p-3 text-muted-foreground text-xs">
+                    {r.compensation_kind === "FIXED" &&
+                      r.fixed_cents != null &&
+                      `${Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR")} تومان پایه`}
+                    {r.compensation_kind === "PERCENT" &&
+                      r.percent_of_student_payments != null &&
+                      `${r.percent_of_student_payments}% از جمع پرداخت‌های دانش‌آموزان`}
+                    {r.compensation_kind === "PER_UNIT" &&
+                      r.revenue_unit_cents != null &&
+                      r.amount_per_unit_cents != null &&
+                      `${Math.floor(r.amount_per_unit_cents / 10).toLocaleString("fa-IR")} تومان به‌ازای هر ${Math.floor(r.revenue_unit_cents / 10).toLocaleString("fa-IR")} تومان حجم`}
+                  </td>
+                  <td className="p-3">
+                    {!r.is_system && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        onClick={async () => {
+                          if (!confirm(`حذف نقش «${r.name}»؟ فقط در صورت نداشتن کاربر امکان‌پذیر است.`)) return;
+                          try {
+                            await deleteRole(r.id);
+                            queryClient.invalidateQueries({ queryKey: ["roles"] });
+                            queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+                          } catch (e) {
+                            alert((e as Error).message);
+                          }
+                        }}
+                      >
+                        حذف
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Users table */}
@@ -543,7 +663,7 @@ const Users = () => {
                     <span
                       className={cn(
                         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                        roleColors[user.roleCode] || "bg-secondary text-secondary-foreground",
+                        roleBadgeClass(user.roleCode),
                       )}
                     >
                       {user.roleLabel}
@@ -661,15 +781,16 @@ const Users = () => {
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   نقش
                 </label>
-                <Select value={role} onValueChange={setRole}>
+                <Select value={createRoleId} onValueChange={setCreateRoleId}>
                   <SelectTrigger>
                     <SelectValue placeholder="انتخاب نقش" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ADMIN">مدیر کل</SelectItem>
-                    <SelectItem value="ACCOUNTANT">حسابدار</SelectItem>
-                    <SelectItem value="ADVISOR">مشاور</SelectItem>
-                    <SelectItem value="OPERATOR">اپراتور</SelectItem>
+                    {roles.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -715,7 +836,7 @@ const Users = () => {
                   last_name: lastName.trim(),
                   email: email.trim(),
                   phone: phone.trim() || undefined,
-                  role,
+                  role_id: parseInt(createRoleId, 10),
                   password,
                   is_active: isActive,
                 })
@@ -725,7 +846,8 @@ const Users = () => {
                 !firstName.trim() ||
                 !lastName.trim() ||
                 !email.trim() ||
-                !password.trim()
+                !password.trim() ||
+                !createRoleId
               }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت کاربر"}
@@ -751,7 +873,7 @@ const Users = () => {
               <p><span className="text-muted-foreground">نام:</span> {detailsUserData.first_name} {detailsUserData.last_name}</p>
               <p><span className="text-muted-foreground">ایمیل:</span> {detailsUserData.email}</p>
               <p><span className="text-muted-foreground">موبایل:</span> {detailsUserData.phone || "—"}</p>
-              <p><span className="text-muted-foreground">نقش:</span> {roleLabelMap[detailsUserData.role?.toUpperCase() || ""] || detailsUserData.role}</p>
+              <p><span className="text-muted-foreground">نقش:</span> {detailsUserData.role_name || detailsUserData.role_code || detailsUserData.role}</p>
               <p><span className="text-muted-foreground">وضعیت:</span> {detailsUserData.is_active ? "فعال" : "غیرفعال"}</p>
               <p><span className="text-muted-foreground">دسترسی‌ها:</span> {(detailsUserData.permissions ?? []).length ? (detailsUserData.permissions ?? []).map((p) => PERMISSION_LABELS[p] ?? p).join("، ") : "—"}</p>
             </div>
@@ -768,10 +890,151 @@ const Users = () => {
           {editUserData && (
             <EditUserForm
               user={editUserData}
+              roles={roles}
               onCancel={() => setEditUserId(null)}
               onSuccess={() => setEditUserId(null)}
               mutation={updateMutation}
             />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create role dialog */}
+      <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>نقش و حقوق جدید</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">کد نقش (انگلیسی، کوچک)</label>
+              <Input
+                dir="ltr"
+                value={newRoleCode}
+                onChange={(e) => setNewRoleCode(e.target.value)}
+                placeholder="e.g. sales_lead"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">نام نمایشی</label>
+              <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="نام فارسی" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">توضیحات</label>
+              <Input value={newRoleDesc} onChange={(e) => setNewRoleDesc(e.target.value)} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">دسترسی کامل (مثل مدیرکل)</span>
+              <Switch checked={newRoleFullAccess} onCheckedChange={setNewRoleFullAccess} />
+            </div>
+            {!newRoleFullAccess && (
+              <div>
+                <label className="mb-2 block text-xs text-muted-foreground">دسترسی‌های پیش‌فرض نقش</label>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_PERMISSION_CODES.map((code) => (
+                    <label key={code} className="flex items-center gap-1 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={newRolePerms.includes(code)}
+                        onChange={() =>
+                          setNewRolePerms((prev) =>
+                            prev.includes(code) ? prev.filter((p) => p !== code) : [...prev, code]
+                          )
+                        }
+                        className="rounded border-input"
+                      />
+                      {PERMISSION_LABELS[code] ?? code}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">نوع حقوق</label>
+              <Select value={newCompKind} onValueChange={(v) => setNewCompKind(v as CompensationKind)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(COMP_KIND_LABELS) as CompensationKind[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {COMP_KIND_LABELS[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {newCompKind === "FIXED" && (
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان)</label>
+                <Input
+                  inputMode="numeric"
+                  value={newFixedTomans}
+                  onChange={(e) => setNewFixedTomans(e.target.value)}
+                />
+              </div>
+            )}
+            {newCompKind === "PERCENT" && (
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">درصد از جمع پرداخت‌های دانش‌آموزان</label>
+                <Input
+                  inputMode="decimal"
+                  value={newPercent}
+                  onChange={(e) => setNewPercent(e.target.value)}
+                />
+              </div>
+            )}
+            {newCompKind === "PER_UNIT" && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">واحد حجم (تومان)</label>
+                  <Input inputMode="numeric" value={newUnitTomans} onChange={(e) => setNewUnitTomans(e.target.value)} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">مبلغ هر واحد (تومان)</label>
+                  <Input inputMode="numeric" value={newPerUnitTomans} onChange={(e) => setNewPerUnitTomans(e.target.value)} />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleDialogOpen(false)} disabled={createRoleMutation.isPending}>
+              انصراف
+            </Button>
+            <Button
+              disabled={
+                createRoleMutation.isPending ||
+                !newRoleCode.trim() ||
+                !newRoleName.trim()
+              }
+              onClick={() => {
+                const tomansToCents = (s: string) => (parseInt(s.replace(/\D/g, ""), 10) || 0) * 10;
+                const payload: CreateRolePayload = {
+                  code: newRoleCode.trim().toLowerCase(),
+                  name: newRoleName.trim(),
+                  description: newRoleDesc.trim() || undefined,
+                  full_access: newRoleFullAccess,
+                  compensation_kind: newRoleFullAccess ? "FIXED" : newCompKind,
+                  permissions: newRoleFullAccess ? [...ALL_PERMISSION_CODES] : newRolePerms,
+                };
+                if (newRoleFullAccess) {
+                  payload.fixed_cents = 0;
+                } else if (newCompKind === "FIXED") {
+                  payload.fixed_cents = tomansToCents(newFixedTomans);
+                } else if (newCompKind === "PERCENT") {
+                  payload.percent_of_student_payments = parseFloat(newPercent.replace(/,/g, ".")) || 0;
+                } else {
+                  payload.revenue_unit_cents = tomansToCents(newUnitTomans);
+                  payload.amount_per_unit_cents = tomansToCents(newPerUnitTomans);
+                }
+                createRoleMutation.mutate(payload);
+              }}
+            >
+              {createRoleMutation.isPending ? "در حال ثبت..." : "ثبت نقش"}
+            </Button>
+          </DialogFooter>
+          {createRoleMutation.isError && (
+            <p className="text-xs text-destructive">{(createRoleMutation.error as Error)?.message}</p>
           )}
         </DialogContent>
       </Dialog>

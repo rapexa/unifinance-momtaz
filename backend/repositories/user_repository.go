@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"strings"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
@@ -14,8 +15,16 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	Create(ctx context.Context, user *models.User) error
 	Update(ctx context.Context, user *models.User) error
-	List(ctx context.Context, limit, offset int, search, role string, isActive *bool) ([]models.User, int64, error)
-	RoleCounts(ctx context.Context) (map[models.UserRole]int64, error)
+	List(ctx context.Context, limit, offset int, search, roleCode string, roleID uint, isActive *bool) ([]models.User, int64, error)
+	RoleStats(ctx context.Context) ([]UserRoleStat, error)
+}
+
+// UserRoleStat is one row for the users summary endpoint.
+type UserRoleStat struct {
+	RoleID uint   `json:"role_id"`
+	Code   string `json:"code"`
+	Name   string `json:"name"`
+	Count  int64  `json:"count"`
 }
 
 type GormUserRepository struct {
@@ -28,7 +37,7 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 
 func (r *GormUserRepository) FindByID(ctx context.Context, id uint) (*models.User, error) {
 	var u models.User
-	if err := r.db.WithContext(ctx).First(&u, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Role").First(&u, id).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -36,7 +45,7 @@ func (r *GormUserRepository) FindByID(ctx context.Context, id uint) (*models.Use
 
 func (r *GormUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
 	var u models.User
-	if err := r.db.WithContext(ctx).Where("email = ?", email).First(&u).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Role").Where("email = ?", email).First(&u).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -51,7 +60,7 @@ func (r *GormUserRepository) Update(ctx context.Context, user *models.User) erro
 }
 
 // List returns a paginated list of users with optional search, role and status filters.
-func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search, role string, isActive *bool) ([]models.User, int64, error) {
+func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search, roleCode string, roleID uint, isActive *bool) ([]models.User, int64, error) {
 	var (
 		users []models.User
 		count int64
@@ -68,20 +77,42 @@ func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search
 		)
 	}
 
-	if role != "" {
-		query = query.Where("role = ?", role)
+	if roleID > 0 {
+		query = query.Where("users.role_id = ?", roleID)
+	} else if roleCode != "" {
+		query = query.Joins("LEFT JOIN roles ON roles.id = users.role_id").
+			Where("roles.code = ?", strings.ToLower(strings.TrimSpace(roleCode)))
 	}
 
 	if isActive != nil {
-		query = query.Where("is_active = ?", *isActive)
+		query = query.Where("users.is_active = ?", *isActive)
 	}
 
 	if err := query.Count(&count).Error; err != nil {
 		return nil, 0, err
 	}
 
-	if err := query.
-		Order("created_at DESC").
+	q2 := r.db.WithContext(ctx).Model(&models.User{}).Preload("Role")
+	if search != "" {
+		like := "%" + search + "%"
+		q2 = q2.Where(
+			r.db.Where("first_name LIKE ?", like).
+				Or("last_name LIKE ?", like).
+				Or("email LIKE ?", like),
+		)
+	}
+	if roleID > 0 {
+		q2 = q2.Where("users.role_id = ?", roleID)
+	} else if roleCode != "" {
+		q2 = q2.Joins("LEFT JOIN roles ON roles.id = users.role_id").
+			Where("roles.code = ?", strings.ToLower(strings.TrimSpace(roleCode)))
+	}
+	if isActive != nil {
+		q2 = q2.Where("users.is_active = ?", *isActive)
+	}
+
+	if err := q2.
+		Order("users.created_at DESC").
 		Limit(limit).
 		Offset(offset).
 		Find(&users).Error; err != nil {
@@ -91,29 +122,13 @@ func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search
 	return users, count, nil
 }
 
-// RoleCounts returns the number of users per role.
-func (r *GormUserRepository) RoleCounts(ctx context.Context) (map[models.UserRole]int64, error) {
-	result := make(map[models.UserRole]int64, 4)
-
-	type row struct {
-		Role  models.UserRole
-		Count int64
-	}
-	var rows []row
-
-	if err := r.db.WithContext(ctx).
-		Model(&models.User{}).
-		Select("role, COUNT(*) as count").
-		Group("role").
-		Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-
-	for _, r2 := range rows {
-		result[r2.Role] = r2.Count
-	}
-
-	return result, nil
+// RoleStats returns user counts grouped by role.
+func (r *GormUserRepository) RoleStats(ctx context.Context) ([]UserRoleStat, error) {
+	var rows []UserRoleStat
+	err := r.db.WithContext(ctx).Model(&models.User{}).
+		Select("users.role_id as role_id, COALESCE(roles.code, '') as code, COALESCE(roles.name, '') as name, COUNT(*) as count").
+		Joins("LEFT JOIN roles ON roles.id = users.role_id").
+		Group("users.role_id, roles.code, roles.name").
+		Scan(&rows).Error
+	return rows, err
 }
-
-

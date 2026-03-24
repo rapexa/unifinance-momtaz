@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
+const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&
@@ -47,6 +47,10 @@ export interface Profile {
   last_name: string;
   email: string;
   phone: string;
+  role_id?: number;
+  role_code?: string;
+  role_name?: string;
+  /** Role code (slug); same as role_code */
   role: string;
   avatar_url: string;
   bio: string;
@@ -91,8 +95,8 @@ export async function updateProfile(payload: Partial<Profile>): Promise<Profile>
 
 /** Base URL for uploaded files (e.g. avatars). Same origin as API but without /api/v1. */
 export function getUploadsBase(): string {
-  const base = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) || "http://localhost:8081/api/v1";
-  return base.replace(/\/api\/v1\/?$/, "") || "http://localhost:8081";
+  const base = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) || "http://130.185.75.183:8081/api/v1";
+  return base.replace(/\/api\/v1\/?$/, "") || "http://130.185.75.183:8081";
 }
 
 export async function uploadProfileAvatar(file: File): Promise<Profile> {

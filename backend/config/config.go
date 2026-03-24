@@ -43,6 +43,9 @@ func LoadConfig() (*Config, error) {
 		viper.SetDefault("APP_ENV", "development")
 		viper.SetDefault("DB_HOST", "127.0.0.1")
 		viper.SetDefault("DB_PORT", "3306")
+		viper.SetDefault("DB_USER", "rapexa")
+		viper.SetDefault("DB_PASS", "mgstudio884")
+		viper.SetDefault("DB_NAME", "momtazuni")
 		viper.SetDefault("DB_CHARSET", "utf8mb4")
 		viper.SetDefault("DB_TIMEZONE", "Local")
 		viper.SetDefault("JWT_SECRET", "dev-secret-change-me")
@@ -72,4 +75,3 @@ func MustLoadConfig() *Config {
 	}
 	return c
 }
-

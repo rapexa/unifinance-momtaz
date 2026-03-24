@@ -47,15 +47,23 @@ type PayrollEntryDTO struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
-// PayrollSchemeDTO represents the salary scheme per role.
+// PayrollSchemeDTO represents the salary scheme per role (from Role model).
 type PayrollSchemeDTO struct {
-	ID                uint   `json:"id"`
-	Role              string `json:"role"`
-	BaseSalaryCents   int64  `json:"base_salary_cents"`
-	PerStudentCents   int64  `json:"per_student_cents"`
+	ID                       uint     `json:"id"`
+	RoleID                   uint     `json:"role_id"`
+	RoleCode                 string   `json:"role_code"`
+	RoleName                 string   `json:"role_name"`
+	CompensationKind         string   `json:"compensation_kind"`
+	FixedCents               *int64   `json:"fixed_cents,omitempty"`
+	PercentOfStudentPayments *float64 `json:"percent_of_student_payments,omitempty"`
+	RevenueUnitCents         *int64   `json:"revenue_unit_cents,omitempty"`
+	AmountPerUnitCents       *int64   `json:"amount_per_unit_cents,omitempty"`
+	// Legacy-shaped fields for existing UI
+	BaseSalaryCents   int64   `json:"base_salary_cents"`
+	PerStudentCents   int64   `json:"per_student_cents"`
 	RevenuePercent    float64 `json:"revenue_percent"`
-	MonthlyBonusCents int64  `json:"monthly_bonus_cents"`
-	IsActive          bool   `json:"is_active"`
+	MonthlyBonusCents int64 `json:"monthly_bonus_cents"`
+	IsActive          bool    `json:"is_active"`
 }
 
 func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
@@ -75,7 +83,9 @@ func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
 	if e.User.ID != 0 {
 		dto.UserFirstName = e.User.FirstName
 		dto.UserLastName = e.User.LastName
-		dto.UserRole = string(e.User.Role)
+		if e.User.Role != nil {
+			dto.UserRole = e.User.Role.Code
+		}
 	}
 	return dto
 }
@@ -88,18 +98,36 @@ func toPayrollEntryDTOSlice(entries []models.PayrollEntry) []PayrollEntryDTO {
 	return out
 }
 
-func toPayrollSchemeDTOSlice(schemes []models.PayrollScheme) []PayrollSchemeDTO {
-	out := make([]PayrollSchemeDTO, len(schemes))
-	for i, s := range schemes {
-		out[i] = PayrollSchemeDTO{
-			ID:                s.ID,
-			Role:              string(s.Role),
-			BaseSalaryCents:   s.BaseSalaryCents,
-			PerStudentCents:   s.PerStudentCents,
-			RevenuePercent:    s.RevenuePercent,
-			MonthlyBonusCents: s.MonthlyBonusCents,
-			IsActive:          s.IsActive,
+func toPayrollSchemeDTOSlice(roles []models.Role) []PayrollSchemeDTO {
+	out := make([]PayrollSchemeDTO, 0, len(roles))
+	for _, r := range roles {
+		dto := PayrollSchemeDTO{
+			ID:               r.ID,
+			RoleID:           r.ID,
+			RoleCode:         r.Code,
+			RoleName:         r.Name,
+			CompensationKind: string(r.CompensationKind),
+			FixedCents:       r.FixedCents,
+			PercentOfStudentPayments: r.PercentOfStudentPayments,
+			RevenueUnitCents:         r.RevenueUnitCents,
+			AmountPerUnitCents:       r.AmountPerUnitCents,
+			IsActive:                 true,
 		}
+		switch r.CompensationKind {
+		case models.CompFixed:
+			if r.FixedCents != nil {
+				dto.BaseSalaryCents = *r.FixedCents
+			}
+		case models.CompPercent:
+			if r.PercentOfStudentPayments != nil {
+				dto.RevenuePercent = *r.PercentOfStudentPayments
+			}
+		case models.CompPerUnit:
+			if r.AmountPerUnitCents != nil {
+				dto.PerStudentCents = *r.AmountPerUnitCents
+			}
+		}
+		out = append(out, dto)
 	}
 	return out
 }

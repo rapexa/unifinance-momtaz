@@ -7,23 +7,16 @@ import (
 	"gorm.io/gorm"
 )
 
-type UserRole string
-
-const (
-	UserRoleAdmin      UserRole = "ADMIN"
-	UserRoleAccountant UserRole = "ACCOUNTANT"
-	UserRoleAdvisor    UserRole = "ADVISOR"
-	UserRoleOperator   UserRole = "OPERATOR"
-)
-
 type User struct {
 	gorm.Model
-	FirstName string   `gorm:"size:100;not null"`
-	LastName  string   `gorm:"size:100;not null"`
-	Email     string   `gorm:"size:255;not null;uniqueIndex"`
-	Phone     string   `gorm:"size:20;index"`
-	Role      UserRole `gorm:"type:varchar(32);not null;default:'ADVISOR';index"`
-	IsActive  bool     `gorm:"not null;default:true;index"`
+	FirstName string `gorm:"size:100;not null"`
+	LastName  string `gorm:"size:100;not null"`
+	Email     string `gorm:"size:255;not null;uniqueIndex"`
+	Phone     string `gorm:"size:20;index"`
+	IsActive  bool   `gorm:"not null;default:true;index"`
+
+	RoleID uint  `gorm:"not null;index;default:0"`
+	Role   *Role `gorm:"constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
 
 	// Auth & security (Settings > Security tab)
 	PasswordHash     string `gorm:"size:255;not null"`
@@ -39,7 +32,6 @@ type User struct {
 	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	// Relationships
-	// A user (typically an advisor) can have many students assigned via AdvisorID on Student.
 	Students []Student `gorm:"foreignKey:AdvisorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	// When a user is deleted, we also delete its payroll entries (they are derived data).
 	PayrollEntries []PayrollEntry `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
@@ -72,4 +64,3 @@ func (u *User) BeforeUpdate(tx *gorm.DB) error {
 	}
 	return nil
 }
-

@@ -40,11 +40,34 @@ type ProfileDTO struct {
 	LastName         string   `json:"last_name"`
 	Email            string   `json:"email"`
 	Phone            string   `json:"phone,omitempty"`
-	Role             string   `json:"role"`
+	RoleID           uint     `json:"role_id"`
+	RoleCode         string   `json:"role_code"`
+	RoleName         string   `json:"role_name"`
+	Role             string   `json:"role"` // same as role_code
 	AvatarURL        string   `json:"avatar_url,omitempty"`
 	Bio              string   `json:"bio,omitempty"`
 	TwoFactorEnabled bool     `json:"two_factor_enabled"`
 	Permissions      []string `json:"permissions,omitempty"`
+}
+
+func profileDTOFromUser(user *models.User) ProfileDTO {
+	dto := ProfileDTO{
+		ID:               user.ID,
+		FirstName:        user.FirstName,
+		LastName:         user.LastName,
+		Email:            user.Email,
+		Phone:            user.Phone,
+		RoleID:           user.RoleID,
+		AvatarURL:        user.AvatarURL,
+		Bio:              user.Bio,
+		TwoFactorEnabled: user.TwoFactorEnabled,
+	}
+	if user.Role != nil {
+		dto.RoleCode = user.Role.Code
+		dto.RoleName = user.Role.Name
+		dto.Role = user.Role.Code
+	}
+	return dto
 }
 
 type NotificationSettingDTO struct {
@@ -202,19 +225,10 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	dto := ProfileDTO{
-		ID:               user.ID,
-		FirstName:        user.FirstName,
-		LastName:         user.LastName,
-		Email:            user.Email,
-		Phone:            user.Phone,
-		Role:             string(user.Role),
-		AvatarURL:        user.AvatarURL,
-		Bio:              user.Bio,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-	}
+	dto := profileDTOFromUser(user)
 	if h.permSvc != nil {
-		perms, _ := h.permSvc.GetForUser(c.Request.Context(), user.ID, user.Role)
+		full := user.Role != nil && user.Role.FullAccess
+		perms, _ := h.permSvc.GetForUser(c.Request.Context(), user.ID, full)
 		for _, p := range perms {
 			dto.Permissions = append(dto.Permissions, string(p))
 		}
@@ -259,18 +273,7 @@ func (h *SettingsHandler) UploadProfileAvatar(c *gin.Context) {
 		return
 	}
 
-	dto := ProfileDTO{
-		ID:               user.ID,
-		FirstName:        user.FirstName,
-		LastName:         user.LastName,
-		Email:            user.Email,
-		Phone:            user.Phone,
-		Role:             string(user.Role),
-		AvatarURL:        user.AvatarURL,
-		Bio:              user.Bio,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-	}
-	c.JSON(http.StatusOK, dto)
+	c.JSON(http.StatusOK, profileDTOFromUser(user))
 }
 
 // UpdateProfile handles PUT /settings/profile
@@ -318,17 +321,7 @@ func (h *SettingsHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ProfileDTO{
-		ID:               user.ID,
-		FirstName:        user.FirstName,
-		LastName:         user.LastName,
-		Email:            user.Email,
-		Phone:            user.Phone,
-		Role:             string(user.Role),
-		AvatarURL:        user.AvatarURL,
-		Bio:              user.Bio,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-	})
+	c.JSON(http.StatusOK, profileDTOFromUser(user))
 }
 
 // --- Security (Settings > Security) ---

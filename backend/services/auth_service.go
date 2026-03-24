@@ -9,6 +9,7 @@ import (
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"github.com/soheilsshh/unifinance-momtaz/utils"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var (
@@ -22,12 +23,16 @@ var (
 // This is the core of the Service Layer for authentication.
 type AuthService struct {
 	userRepo repositories.UserRepository
+	roleRepo repositories.RoleRepository
+	permSvc  *PermissionService
 	cfg      *config.Config
 }
 
-func NewAuthService(userRepo repositories.UserRepository, cfg *config.Config) *AuthService {
+func NewAuthService(userRepo repositories.UserRepository, roleRepo repositories.RoleRepository, permSvc *PermissionService, cfg *config.Config) *AuthService {
 	return &AuthService{
 		userRepo: userRepo,
+		roleRepo: roleRepo,
+		permSvc:  permSvc,
 		cfg:      cfg,
 	}
 }
@@ -46,7 +51,6 @@ type AuthResult struct {
 func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthResult, error) {
 	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
-		// Hide user existence details behind generic error
 		return nil, ErrInvalidCredentials
 	}
 
@@ -57,8 +61,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
 		return nil, ErrInvalidCredentials
 	}
-
-	// RBAC: all roles can login; access is controlled by permissions per route.
 
 	access, err := utils.GenerateAccessToken(user, s.cfg)
 	if err != nil {
@@ -80,9 +82,16 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 
 // Register creates a new user and returns tokens (auto-login).
 func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, password, phone string) (*AuthResult, error) {
-	// Basic validation
 	if len(password) < 6 {
 		return nil, errors.New("password too short")
+	}
+
+	adv, err := s.roleRepo.GetByCode(ctx, models.RoleCodeAdvisor)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("default advisor role is not configured; run migrations")
+		}
+		return nil, err
 	}
 
 	u := &models.User{
@@ -90,7 +99,7 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, 
 		LastName:      lastName,
 		Email:         email,
 		Phone:         phone,
-		Role:          models.UserRoleAdvisor, // default role
+		RoleID:        adv.ID,
 		IsActive:      true,
 		PlainPassword: password,
 	}
@@ -98,18 +107,26 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, 
 	if err := s.userRepo.Create(ctx, u); err != nil {
 		return nil, err
 	}
+	if s.permSvc != nil {
+		_ = s.permSvc.SyncFromRole(ctx, u.ID, u.RoleID)
+	}
 
-	access, err := utils.GenerateAccessToken(u, s.cfg)
+	user, err := s.userRepo.FindByID(ctx, u.ID)
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := utils.GenerateRefreshToken(u, s.cfg)
+
+	access, err := utils.GenerateAccessToken(user, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := utils.GenerateRefreshToken(user, s.cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AuthResult{
-		User: u,
+		User: user,
 		Tokens: AuthTokens{
 			AccessToken:  access,
 			RefreshToken: refresh,
@@ -167,5 +184,3 @@ func (s *AuthService) ForgotPassword(_ context.Context, _ string) error {
 func (s *AuthService) ResetPassword(_ context.Context, _ string, _ string) error {
 	return ErrNotImplemented
 }
-
-

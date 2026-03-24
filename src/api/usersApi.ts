@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
+const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&
@@ -17,6 +17,10 @@ export interface UserApi {
   last_name: string;
   email: string;
   phone?: string;
+  role_id: number;
+  role_code: string;
+  role_name: string;
+  /** Same as role_code */
   role: string;
   is_active: boolean;
   permissions?: string[];
@@ -34,7 +38,7 @@ export interface PaginatedUsersResponse {
 
 export async function listAdvisors(): Promise<UserApi[]> {
   const url = new URL(`${API_BASE}/users`);
-  url.searchParams.set("role", "ADVISOR");
+  url.searchParams.set("role_code", "advisor");
   url.searchParams.set("status", "active");
   url.searchParams.set("page", "1");
   url.searchParams.set("page_size", "100");
@@ -57,16 +61,23 @@ export async function listAdvisors(): Promise<UserApi[]> {
   return typed.data ?? [];
 }
 
+export interface RoleCountRow {
+  role_id: number;
+  code: string;
+  name: string;
+  count: number;
+}
+
 export interface UsersSummary {
-  admins: number;
-  accountants: number;
-  advisors: number;
-  operators: number;
+  by_role: RoleCountRow[];
 }
 
 export interface ListUsersParams {
   search?: string;
+  /** Legacy: numeric role_id or role code */
   role?: string;
+  role_id?: number;
+  role_code?: string;
   status?: string;
   page?: number;
   page_size?: number;
@@ -87,7 +98,8 @@ export async function getUsersSummary(): Promise<UsersSummary> {
     throw new Error(message);
   }
 
-  return data as UsersSummary;
+  const typed = data as UsersSummary & { by_role?: RoleCountRow[] };
+  return { by_role: Array.isArray(typed?.by_role) ? typed.by_role : [] };
 }
 
 export async function listUsers(
@@ -95,7 +107,9 @@ export async function listUsers(
 ): Promise<PaginatedUsersResponse> {
   const url = new URL(`${API_BASE}/users`);
   if (params.search) url.searchParams.set("search", params.search);
-  if (params.role) url.searchParams.set("role", params.role);
+  if (params.role_id != null) url.searchParams.set("role_id", String(params.role_id));
+  else if (params.role_code) url.searchParams.set("role_code", params.role_code);
+  else if (params.role) url.searchParams.set("role", params.role);
   if (params.status) url.searchParams.set("status", params.status);
   url.searchParams.set("page", String(params.page ?? 1));
   url.searchParams.set("page_size", String(params.page_size ?? 50));
@@ -140,7 +154,7 @@ export interface UpdateUserPayload {
   last_name?: string;
   email?: string;
   phone?: string;
-  role?: string;
+  role_id?: number;
   is_active?: boolean;
   password?: string;
   permissions?: string[];
@@ -188,7 +202,7 @@ export interface CreateUserPayload {
   last_name: string;
   email: string;
   phone?: string;
-  role: string;
+  role_id: number;
   password: string;
   is_active?: boolean;
 }
@@ -218,11 +232,15 @@ export async function createUser(
 export async function exportUsers(params: {
   search?: string;
   role?: string;
+  role_id?: number;
+  role_code?: string;
   status?: string;
 }): Promise<Blob> {
   const url = new URL(`${API_BASE}/users/export`);
   if (params.search) url.searchParams.set("search", params.search);
-  if (params.role) url.searchParams.set("role", params.role);
+  if (params.role_id != null) url.searchParams.set("role_id", String(params.role_id));
+  else if (params.role_code) url.searchParams.set("role_code", params.role_code);
+  else if (params.role) url.searchParams.set("role", params.role);
   if (params.status) url.searchParams.set("status", params.status);
 
   const res = await fetch(url.toString(), {

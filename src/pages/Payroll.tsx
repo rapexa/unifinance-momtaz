@@ -39,6 +39,12 @@ import {
 import { listUsers } from "@/api/usersApi";
 
 const roleLabels: Record<string, string> = {
+  general_manager: "مدیرکل",
+  advisor: "مشاور",
+  secretary: "منشی",
+  support: "پشتیبان",
+  executive_manager: "مدیر اجرایی",
+  advisor_lead: "سرپرست مشاوران",
   ADMIN: "مدیر",
   ACCOUNTANT: "حسابدار",
   ADVISOR: "مشاور",
