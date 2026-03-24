@@ -174,6 +174,63 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto)
 }
 
+// PreviewCompensation handles GET /payroll/preview
+// @Summary      Preview payroll from role rules
+// @Description  Computes base/variable/students for a user and period without saving
+// @Tags         payroll
+// @Security     BearerAuth
+// @Produce      json
+// @Param        user_id  query     int  true  "User ID"
+// @Param        year     query     int  false "Period year (default: current)"
+// @Param        month    query     int  false "Period month 1-12 (default: current)"
+// @Success      200      {object}  map[string]interface{}
+// @Router       /payroll/preview [get]
+func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
+	userIDStr := c.Query("user_id")
+	if userIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+	uid64, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+
+	br, err := h.service.ComputeCompensationForUser(c.Request.Context(), uint(uid64), year, month)
+	if err != nil {
+		switch err {
+		case services.ErrPayrollUserNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		case services.ErrPayrollNoRole:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+		case services.ErrPayrollInvalidRoleCompensation:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute compensation"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"base_salary_cents":      br.BaseSalaryCents,
+		"variable_salary_cents":  br.VariableSalaryCents,
+		"students_count":         br.StudentsCount,
+		"compensation_kind":      string(br.CompensationKind),
+		"revenue_volume_cents":   br.RevenueVolumeCents,
+		"period_year":            year,
+		"period_month":           month,
+	})
+}
+
 // ListEntries handles GET /payroll/entries
 // @Summary      List payroll entries
 // @Description  Paginated list of payroll entries for a period (admin only)
@@ -289,9 +346,10 @@ type createPayrollEntryRequest struct {
 	UserID              uint   `json:"user_id" binding:"required"`
 	PeriodYear          int    `json:"period_year" binding:"required"`
 	PeriodMonth         int    `json:"period_month" binding:"required,min=1,max=12"`
-	BaseSalaryCents     int64  `json:"base_salary_cents" binding:"required,min=0"`
-	VariableSalaryCents int64  `json:"variable_salary_cents" binding:"min=0"`
-	StudentsCount       int    `json:"students_count" binding:"min=0"`
+	ApplyRoleRules      bool   `json:"apply_role_rules"`
+	BaseSalaryCents     *int64 `json:"base_salary_cents"`
+	VariableSalaryCents *int64 `json:"variable_salary_cents"`
+	StudentsCount       *int   `json:"students_count"`
 	Status              string `json:"status" binding:"required,oneof=PAID PENDING"`
 }
 
@@ -318,18 +376,41 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 
 	status := models.PayrollStatus(req.Status)
 	params := services.CreateEntryParams{
-		UserID:              req.UserID,
-		PeriodYear:          req.PeriodYear,
-		PeriodMonth:         req.PeriodMonth,
-		BaseSalaryCents:     req.BaseSalaryCents,
-		VariableSalaryCents: req.VariableSalaryCents,
-		StudentsCount:       req.StudentsCount,
-		Status:              status,
+		UserID:         req.UserID,
+		PeriodYear:     req.PeriodYear,
+		PeriodMonth:    req.PeriodMonth,
+		ApplyRoleRules: req.ApplyRoleRules,
+		Status:         status,
+	}
+
+	if req.ApplyRoleRules {
+		// Base / variable / students_count filled in service from Role + payments.
+	} else {
+		if req.BaseSalaryCents == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "base_salary_cents is required when apply_role_rules is false"})
+			return
+		}
+		params.BaseSalaryCents = *req.BaseSalaryCents
+		if req.VariableSalaryCents != nil {
+			params.VariableSalaryCents = *req.VariableSalaryCents
+		}
+		if req.StudentsCount != nil {
+			params.StudentsCount = *req.StudentsCount
+		}
 	}
 
 	entry, err := h.service.CreateEntry(c.Request.Context(), params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payroll entry"})
+		switch err {
+		case services.ErrPayrollUserNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		case services.ErrPayrollNoRole:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+		case services.ErrPayrollInvalidRoleCompensation:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete; fix role settings"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payroll entry"})
+		}
 		return
 	}
 
@@ -373,10 +454,11 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 
 // updatePayrollEntryRequest is the body for PUT /payroll/entries/:id.
 type updatePayrollEntryRequest struct {
-	BaseSalaryCents     *int64  `json:"base_salary_cents" binding:"omitempty,min=0"`
-	VariableSalaryCents *int64  `json:"variable_salary_cents" binding:"omitempty,min=0"`
-	StudentsCount       *int    `json:"students_count" binding:"omitempty,min=0"`
-	Status              *string `json:"status" binding:"omitempty,oneof=PAID PENDING"`
+	RecalculateFromRoleRules bool    `json:"recalculate_from_role_rules"`
+	BaseSalaryCents          *int64  `json:"base_salary_cents" binding:"omitempty,min=0"`
+	VariableSalaryCents      *int64  `json:"variable_salary_cents" binding:"omitempty,min=0"`
+	StudentsCount            *int    `json:"students_count" binding:"omitempty,min=0"`
+	Status                   *string `json:"status" binding:"omitempty,oneof=PAID PENDING"`
 }
 
 // UpdateEntry handles PUT /payroll/entries/:id
@@ -409,7 +491,9 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 		return
 	}
 
-	params := services.UpdateEntryParams{}
+	params := services.UpdateEntryParams{
+		RecalculateFromRoleRules: req.RecalculateFromRoleRules,
+	}
 	if req.BaseSalaryCents != nil {
 		params.BaseSalaryCents = req.BaseSalaryCents
 	}
@@ -430,7 +514,16 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payroll entry"})
+		switch err {
+		case services.ErrPayrollUserNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		case services.ErrPayrollNoRole:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+		case services.ErrPayrollInvalidRoleCompensation:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payroll entry"})
+		}
 		return
 	}
 

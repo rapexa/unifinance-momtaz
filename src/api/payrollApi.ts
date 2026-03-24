@@ -112,13 +112,44 @@ export async function getPayrollEntry(id: number): Promise<PayrollEntryApi> {
   return data as PayrollEntryApi;
 }
 
+export interface PayrollPreview {
+  base_salary_cents: number;
+  variable_salary_cents: number;
+  students_count: number;
+  compensation_kind: string;
+  revenue_volume_cents: number;
+  period_year: number;
+  period_month: number;
+}
+
+export async function getPayrollPreview(params: {
+  user_id: number;
+  year: number;
+  month: number;
+}): Promise<PayrollPreview> {
+  const url = new URL(`${API_BASE}/payroll/preview`);
+  url.searchParams.set("user_id", String(params.user_id));
+  url.searchParams.set("year", String(params.year));
+  url.searchParams.set("month", String(params.month));
+  const res = await fetch(url.toString(), {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در پیش‌نمایش حقوق");
+  }
+  return data as PayrollPreview;
+}
+
 export interface CreatePayrollEntryPayload {
   user_id: number;
   period_year: number;
   period_month: number;
-  base_salary_cents: number;
-  variable_salary_cents: number;
-  students_count: number;
+  /** When true, server fills amounts from role + payments (recommended). */
+  apply_role_rules?: boolean;
+  base_salary_cents?: number;
+  variable_salary_cents?: number;
+  students_count?: number;
   status: string;
 }
 
@@ -140,6 +171,8 @@ export async function createPayrollEntry(
 }
 
 export interface UpdatePayrollEntryPayload {
+  /** Recompute base/variable/students from role rules for this entry's period */
+  recalculate_from_role_rules?: boolean;
   base_salary_cents?: number;
   variable_salary_cents?: number;
   students_count?: number;

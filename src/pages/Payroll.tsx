@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -32,6 +33,7 @@ import {
   createPayrollEntry,
   updatePayrollEntry,
   getPayrollEntry,
+  getPayrollPreview,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
@@ -54,11 +56,13 @@ const roleLabels: Record<string, string> = {
 function EditPayrollForm({
   entry,
   onSave,
+  onRecalculate,
   onCancel,
   isSaving,
 }: {
   entry: PayrollEntryApi;
   onSave: (p: UpdatePayrollEntryPayload) => void;
+  onRecalculate: () => void;
   onCancel: () => void;
   isSaving: boolean;
 }) {
@@ -130,6 +134,20 @@ function EditPayrollForm({
           </SelectContent>
         </Select>
       </div>
+      <div className="flex flex-col gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full"
+          onClick={onRecalculate}
+          disabled={isSaving}
+        >
+          محاسبه مجدد از قوانین نقش و پرداخت‌ها
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          حقوق ثابت/متغیر بر اساس نقش کاربر و پرداخت‌های پرداخت‌شدهٔ دانش‌آموزانش در همین ماه دوباره محاسبه می‌شود.
+        </p>
+      </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>انصراف</Button>
         <Button onClick={handleSubmit} disabled={isSaving}>
@@ -167,6 +185,7 @@ const Payroll = () => {
   const [createUserId, setCreateUserId] = useState("");
   const [createPeriodYear, setCreatePeriodYear] = useState(currentYear);
   const [createPeriodMonth, setCreatePeriodMonth] = useState(currentMonth);
+  const [createAutoFromRole, setCreateAutoFromRole] = useState(true);
   const [createBaseTomans, setCreateBaseTomans] = useState("");
   const [createVariableTomans, setCreateVariableTomans] = useState("");
   const [createStudentsCount, setCreateStudentsCount] = useState("0");
@@ -204,6 +223,22 @@ const Payroll = () => {
     enabled: isCreateOpen,
   });
 
+  const createUserIdNum = parseInt(createUserId, 10);
+  const { data: payrollPreview, isError: isPreviewError, error: previewError } = useQuery({
+    queryKey: ["payroll-preview", createUserIdNum, createPeriodYear, createPeriodMonth],
+    queryFn: () =>
+      getPayrollPreview({
+        user_id: createUserIdNum,
+        year: createPeriodYear,
+        month: createPeriodMonth,
+      }),
+    enabled:
+      isCreateOpen &&
+      createAutoFromRole &&
+      Number.isFinite(createUserIdNum) &&
+      createUserIdNum > 0,
+  });
+
   const { data: detailEntry, isLoading: isDetailLoading } = useQuery({
     queryKey: ["payroll-entry", detailEntryId],
     queryFn: () => getPayrollEntry(detailEntryId!),
@@ -229,16 +264,19 @@ const Payroll = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: UpdatePayrollEntryPayload }) =>
       updatePayrollEntry(id, payload),
-    onSuccess: (_, { id }) => {
+    onSuccess: (_, { id, payload }) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
-      setEditEntryId(null);
+      if (!payload.recalculate_from_role_rules) {
+        setEditEntryId(null);
+      }
     },
   });
 
   function resetCreateForm() {
     setCreateUserId("");
+    setCreateAutoFromRole(true);
     setCreateBaseTomans("");
     setCreateVariableTomans("");
     setCreateStudentsCount("0");
@@ -254,22 +292,27 @@ const Payroll = () => {
 
   const handleCreateSubmit = useCallback(() => {
     const userId = parseInt(createUserId, 10);
-    const baseTomans = parseInt(createBaseTomans.replace(/\D/g, ""), 10) || 0;
-    const variableTomans = parseInt(createVariableTomans.replace(/\D/g, ""), 10) || 0;
-    const studentsCount = parseInt(createStudentsCount.replace(/\D/g, ""), 10) || 0;
-    if (!userId || baseTomans < 0) return;
+    if (!userId) return;
     const payload: CreatePayrollEntryPayload = {
       user_id: userId,
       period_year: createPeriodYear,
       period_month: createPeriodMonth,
-      base_salary_cents: baseTomans * 10,
-      variable_salary_cents: variableTomans * 10,
-      students_count: studentsCount,
       status: createStatus,
     };
+    if (createAutoFromRole) {
+      payload.apply_role_rules = true;
+    } else {
+      const baseTomans = parseInt(createBaseTomans.replace(/\D/g, ""), 10) || 0;
+      const variableTomans = parseInt(createVariableTomans.replace(/\D/g, ""), 10) || 0;
+      const studentsCount = parseInt(createStudentsCount.replace(/\D/g, ""), 10) || 0;
+      payload.base_salary_cents = baseTomans * 10;
+      payload.variable_salary_cents = variableTomans * 10;
+      payload.students_count = studentsCount;
+    }
     createMutation.mutate(payload);
   }, [
     createUserId,
+    createAutoFromRole,
     createBaseTomans,
     createVariableTomans,
     createStudentsCount,
@@ -563,35 +606,79 @@ const Payroll = () => {
                 </Select>
               </div>
             </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">حقوق ثابت (تومان)</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                placeholder="مثال: ۱۵۰۰۰۰۰۰"
-                value={createBaseTomans}
-                onChange={(e) => setCreateBaseTomans(e.target.value)}
-              />
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">محاسبه خودکار از قوانین نقش</p>
+                <p className="text-xs text-muted-foreground">
+                  بر اساس نوع حقوق نقش و پرداخت‌های پرداخت‌شدهٔ دانش‌آموزان همین دوره
+                </p>
+              </div>
+              <Switch checked={createAutoFromRole} onCheckedChange={setCreateAutoFromRole} />
             </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">حقوق متغیر (تومان)</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                placeholder="مثال: ۸۵۰۰۰۰۰"
-                value={createVariableTomans}
-                onChange={(e) => setCreateVariableTomans(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">تعداد دانش‌آموزان</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={createStudentsCount}
-                onChange={(e) => setCreateStudentsCount(e.target.value)}
-              />
-            </div>
+            {createAutoFromRole && (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
+                {!createUserId ? (
+                  <p className="text-muted-foreground">ابتدا کارمند را انتخاب کنید.</p>
+                ) : isPreviewError ? (
+                  <p className="text-destructive">{(previewError as Error)?.message}</p>
+                ) : payrollPreview ? (
+                  <>
+                    <p>
+                      <span className="text-muted-foreground">حقوق ثابت:</span>{" "}
+                      {formatCentsToToman(payrollPreview.base_salary_cents)} تومان
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">حقوق متغیر:</span>{" "}
+                      {formatCentsToToman(payrollPreview.variable_salary_cents)} تومان
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">تعداد (شاخص نقش):</span>{" "}
+                      {payrollPreview.students_count}
+                    </p>
+                    <p className="text-xs text-muted-foreground pt-1">
+                      حجم پرداخت دانش‌آموزان در دوره:{" "}
+                      {formatCentsToToman(payrollPreview.revenue_volume_cents)} تومان — نوع:{" "}
+                      {payrollPreview.compensation_kind}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">در حال محاسبهٔ پیش‌نمایش...</p>
+                )}
+              </div>
+            )}
+            {!createAutoFromRole && (
+              <>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">حقوق ثابت (تومان)</label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="مثال: ۱۵۰۰۰۰۰۰"
+                    value={createBaseTomans}
+                    onChange={(e) => setCreateBaseTomans(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">حقوق متغیر (تومان)</label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="مثال: ۸۵۰۰۰۰۰"
+                    value={createVariableTomans}
+                    onChange={(e) => setCreateVariableTomans(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">تعداد دانش‌آموزان</label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={createStudentsCount}
+                    onChange={(e) => setCreateStudentsCount(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div className="grid gap-2">
               <label className="text-sm font-medium">وضعیت</label>
               <Select value={createStatus} onValueChange={setCreateStatus}>
@@ -611,7 +698,11 @@ const Payroll = () => {
             </Button>
             <Button
               onClick={handleCreateSubmit}
-              disabled={!createUserId || !createBaseTomans || createMutation.isPending}
+              disabled={
+                !createUserId ||
+                createMutation.isPending ||
+                (!createAutoFromRole && !createBaseTomans)
+              }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت"}
             </Button>
@@ -654,6 +745,14 @@ const Payroll = () => {
               onSave={(payload) => {
                 if (editEntryId != null) {
                   updateMutation.mutate({ id: editEntryId, payload });
+                }
+              }}
+              onRecalculate={() => {
+                if (editEntryId != null) {
+                  updateMutation.mutate({
+                    id: editEntryId,
+                    payload: { recalculate_from_role_rules: true },
+                  });
                 }
               }}
               onCancel={() => setEditEntryId(null)}

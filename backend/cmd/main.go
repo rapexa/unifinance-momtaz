@@ -210,6 +210,7 @@ func main() {
 	payroll.Use(middleware.PermissionMiddleware(permService, models.PermPayroll))
 	{
 		payroll.GET("/summary", payrollHandler.GetSummary)
+		payroll.GET("/preview", payrollHandler.PreviewCompensation)
 		payroll.GET("/entries", payrollHandler.ListEntries)
 		payroll.POST("/entries", payrollHandler.CreateEntry)
 		payroll.GET("/entries/:id", payrollHandler.GetEntry)
