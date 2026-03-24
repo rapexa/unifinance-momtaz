@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -52,6 +53,91 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 	for i := range list {
 		list[i].AdvisorShareCents = models.ComputeAdvisorShareCents(&st, list[i].AmountCents)
 		if err := s.db.WithContext(ctx).Save(&list[i]).Error; err != nil {
+			return err
+		}
+		if err := s.rebuildPaymentPayrollShares(ctx, list[i].ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rebuildPaymentPayrollShares replaces split rows for a payment (advisor contract + per-role % of gross).
+func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymentID uint) error {
+	var p models.Payment
+	if err := s.db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
+		return err
+	}
+	if err := s.db.WithContext(ctx).Unscoped().
+		Where("payment_id = ?", paymentID).
+		Delete(&models.PaymentPayrollShare{}).Error; err != nil {
+		return err
+	}
+	if p.Status != models.PaymentStatusPaid {
+		return nil
+	}
+	var st models.Student
+	if err := s.db.WithContext(ctx).First(&st, p.StudentID).Error; err != nil {
+		return err
+	}
+	if st.AdvisorID != nil && p.AdvisorShareCents > 0 {
+		row := models.PaymentPayrollShare{
+			PaymentID:  p.ID,
+			UserID:     *st.AdvisorID,
+			Kind:       models.ShareKindAdvisorContract,
+			ShareCents: p.AdvisorShareCents,
+		}
+		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+			return err
+		}
+	}
+	var roles []models.Role
+	if err := s.db.WithContext(ctx).
+		Where("percent_of_gross_student_payment IS NOT NULL AND percent_of_gross_student_payment > 0").
+		Find(&roles).Error; err != nil {
+		return err
+	}
+	for i := range roles {
+		r := &roles[i]
+		pct := *r.PercentOfGrossStudentPayment
+		if pct <= 0 {
+			continue
+		}
+		share := int64(math.Round(float64(p.AmountCents) * pct / 100.0))
+		if share <= 0 {
+			continue
+		}
+		var userIDs []uint
+		if err := s.db.WithContext(ctx).Model(&models.User{}).
+			Where("role_id = ? AND deleted_at IS NULL", r.ID).
+			Pluck("id", &userIDs).Error; err != nil {
+			return err
+		}
+		for _, uid := range userIDs {
+			row := models.PaymentPayrollShare{
+				PaymentID:  p.ID,
+				UserID:     uid,
+				Kind:       models.ShareKindRoleGross,
+				ShareCents: share,
+			}
+			if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// RebuildAllPaidPaymentPayrollShares recomputes split rows for every PAID payment (e.g. after role gross % change).
+func (s *PaymentService) RebuildAllPaidPaymentPayrollShares(ctx context.Context) error {
+	var ids []uint
+	if err := s.db.WithContext(ctx).Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusPaid).
+		Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.rebuildPaymentPayrollShares(ctx, id); err != nil {
 			return err
 		}
 	}
@@ -147,6 +233,9 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 	if err := s.repo.Create(ctx, payment); err != nil {
 		return nil, err
 	}
+	if err := s.rebuildPaymentPayrollShares(ctx, payment.ID); err != nil {
+		return nil, err
+	}
 	return payment, nil
 }
 
@@ -194,10 +283,14 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	if err := s.repo.Update(ctx, payment); err != nil {
 		return nil, err
 	}
+	if err := s.rebuildPaymentPayrollShares(ctx, payment.ID); err != nil {
+		return nil, err
+	}
 	return payment, nil
 }
 
 func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
+	_ = s.db.WithContext(ctx).Unscoped().Where("payment_id = ?", id).Delete(&models.PaymentPayrollShare{})
 	if err := s.repo.SoftDelete(ctx, id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrPaymentNotFound

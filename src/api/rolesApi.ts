@@ -25,6 +25,8 @@ export interface RoleApi {
   percent_of_student_payments?: number | null;
   revenue_unit_cents?: number | null;
   amount_per_unit_cents?: number | null;
+  /** درصد از مبلغ کل هر پرداخت PAID دانش‌آموز (سهم اضافه برای کاربران این نقش) */
+  percent_of_gross_student_payment?: number | null;
   permissions?: string[];
 }
 
@@ -38,6 +40,7 @@ export interface CreateRolePayload {
   percent_of_student_payments?: number;
   revenue_unit_cents?: number;
   amount_per_unit_cents?: number;
+  percent_of_gross_student_payment?: number;
   permissions?: string[];
 }
 
@@ -50,6 +53,7 @@ export interface UpdateRolePayload {
   percent_of_student_payments?: number | null;
   revenue_unit_cents?: number | null;
   amount_per_unit_cents?: number | null;
+  percent_of_gross_student_payment?: number | null;
   permissions?: string[];
 }
 

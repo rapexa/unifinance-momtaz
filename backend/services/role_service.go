@@ -31,7 +31,9 @@ type CreateRoleParams struct {
 	Percent          *float64
 	RevenueUnitCents *int64
 	AmountPerUnitCents *int64
-	Permissions      []models.Permission
+	// PercentOfGrossStudentPayment: optional 0–100; each user with this role gets this % of every PAID payment gross.
+	GrossPercent *float64
+	Permissions  []models.Permission
 }
 
 type UpdateRoleParams struct {
@@ -43,6 +45,7 @@ type UpdateRoleParams struct {
 	Percent          *float64
 	RevenueUnitCents *int64
 	AmountPerUnitCents *int64
+	GrossPercent     *float64
 	Permissions      []models.Permission
 }
 
@@ -52,6 +55,16 @@ type RoleService struct {
 
 func NewRoleService(repo repositories.RoleRepository) *RoleService {
 	return &RoleService{repo: repo}
+}
+
+func validateGrossPercent(p *float64) error {
+	if p == nil {
+		return nil
+	}
+	if *p < 0 || *p > 100 {
+		return ErrInvalidCompensation
+	}
+	return nil
 }
 
 func validateCompensation(kind models.CompensationKind, fixed *int64, percent *float64, unit, perUnit *int64) error {
@@ -78,6 +91,15 @@ func normalizeRoleCode(code string) string {
 	return strings.ToLower(strings.TrimSpace(code))
 }
 
+// normalizeGrossPtr stores nil when 0 or nil (no allocation rule).
+func normalizeGrossPtr(p *float64) *float64 {
+	if p == nil || *p <= 0 {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // Create adds a new role with compensation and default permissions.
 func (s *RoleService) Create(ctx context.Context, p CreateRoleParams) (*models.Role, error) {
 	code := normalizeRoleCode(p.Code)
@@ -91,6 +113,9 @@ func (s *RoleService) Create(ctx context.Context, p CreateRoleParams) (*models.R
 	}
 
 	if err := validateCompensation(p.CompensationKind, p.FixedCents, p.Percent, p.RevenueUnitCents, p.AmountPerUnitCents); err != nil {
+		return nil, err
+	}
+	if err := validateGrossPercent(p.GrossPercent); err != nil {
 		return nil, err
 	}
 
@@ -109,7 +134,8 @@ func (s *RoleService) Create(ctx context.Context, p CreateRoleParams) (*models.R
 		FixedCents:               p.FixedCents,
 		PercentOfStudentPayments: p.Percent,
 		RevenueUnitCents:         p.RevenueUnitCents,
-		AmountPerUnitCents:       p.AmountPerUnitCents,
+		AmountPerUnitCents:           p.AmountPerUnitCents,
+		PercentOfGrossStudentPayment: normalizeGrossPtr(p.GrossPercent),
 	}
 	if role.Name == "" {
 		return nil, errors.New("name is required")
@@ -170,6 +196,13 @@ func (s *RoleService) Update(ctx context.Context, id uint, p UpdateRoleParams) (
 	if p.AmountPerUnitCents != nil {
 		role.AmountPerUnitCents = p.AmountPerUnitCents
 		perUnit = role.AmountPerUnitCents
+	}
+
+	if p.GrossPercent != nil {
+		if err := validateGrossPercent(p.GrossPercent); err != nil {
+			return nil, err
+		}
+		role.PercentOfGrossStudentPayment = normalizeGrossPtr(p.GrossPercent)
 	}
 
 	if err := validateCompensation(kind, fixed, percent, unit, perUnit); err != nil {

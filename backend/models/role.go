@@ -38,6 +38,9 @@ type Role struct {
 	FixedCents       *int64             `gorm:""` // required when FIXED (can be 0)
 	// PercentOfStudentPayments is 0–100 when CompensationKind is PERCENT.
 	PercentOfStudentPayments *float64 `gorm:""`
+	// PercentOfGrossStudentPayment: each user with this role gets this % of every PAID payment's amount_cents
+	// (حقوق متغیر اضافه؛ جدا از نوع حقوق اصلی نقش). Optional; nil or 0 = disabled.
+	PercentOfGrossStudentPayment *float64 `gorm:""`
 	// RevenueUnitCents: volume step (e.g. 10_000_000 = 100M rials) for PER_UNIT.
 	RevenueUnitCents *int64 `gorm:""`
 	// AmountPerUnitCents: pay this many cents per full revenue unit when PER_UNIT.

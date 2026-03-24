@@ -1,11 +1,14 @@
 package migrations
 
 import (
+	"context"
 	"log"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/database"
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/repositories"
+	"github.com/soheilsshh/unifinance-momtaz/services"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +22,7 @@ func Run() {
 	autoMigrate(db)
 	backfillPaymentAdvisorShares(db)
 	seedRolesAndPermissions(db)
+	backfillPaymentPayrollShares(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
 	seedOrganizationAndAdmin(db)
@@ -38,6 +42,7 @@ func autoMigrate(db *gorm.DB) {
 		&models.Student{},
 		&models.Enrollment{},
 		&models.Payment{},
+		&models.PaymentPayrollShare{},
 		&models.PayrollEntry{},
 		&models.ReminderRule{},
 		&models.PaymentReminder{},
@@ -76,6 +81,17 @@ func backfillPaymentAdvisorShares(db *gorm.DB) {
 	if len(ids) > 0 {
 		log.Printf("migrations: backfill advisor_share_cents checked %d paid payments", len(ids))
 	}
+}
+
+// backfillPaymentPayrollShares rebuilds payment split rows (advisor + role % of gross) for all PAID payments.
+func backfillPaymentPayrollShares(db *gorm.DB) {
+	repo := repositories.NewPaymentRepository(db)
+	ps := services.NewPaymentService(repo, db)
+	if err := ps.RebuildAllPaidPaymentPayrollShares(context.Background()); err != nil {
+		log.Printf("migrations: backfill payment payroll shares: %v", err)
+		return
+	}
+	log.Println("migrations: payment payroll shares backfill finished")
 }
 
 func ptrI64(v int64) *int64  { return &v }
@@ -139,12 +155,13 @@ func seedRolesAndPermissions(db *gorm.DB) {
 		},
 		{
 			role: models.Role{
-				Code:             models.RoleCodeExecutiveManager,
-				Name:             "مدیر اجرایی",
-				IsSystem:         true,
-				FullAccess:       false,
-				CompensationKind: models.CompFixed,
-				FixedCents:       ptrI64(80_000_000),
+				Code:                         models.RoleCodeExecutiveManager,
+				Name:                         "مدیر اجرایی",
+				IsSystem:                     true,
+				FullAccess:                   false,
+				CompensationKind:             models.CompFixed,
+				FixedCents:                   ptrI64(80_000_000),
+				PercentOfGrossStudentPayment: ptrF64(2), // ۲٪ از هر پرداخت دانش‌آموز (قابل تغییر در نقش‌ها)
 			},
 			perms: []models.Permission{models.PermDashboard, models.PermPayments, models.PermPayroll, models.PermPlans, models.PermReports},
 		},
@@ -188,6 +205,7 @@ func ensureRole(db *gorm.DB, r *models.Role, perms []models.Permission) {
 		existing.PercentOfStudentPayments = r.PercentOfStudentPayments
 		existing.RevenueUnitCents = r.RevenueUnitCents
 		existing.AmountPerUnitCents = r.AmountPerUnitCents
+		existing.PercentOfGrossStudentPayment = r.PercentOfGrossStudentPayment
 		if err := db.Save(&existing).Error; err != nil {
 			log.Fatalf("migrations: update role %s: %v", r.Code, err)
 		}

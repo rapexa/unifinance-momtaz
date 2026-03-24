@@ -114,7 +114,9 @@ function EditPayrollForm({
         />
       </div>
       <div className="grid gap-2">
-        <label className="text-sm font-medium">تعداد دانش‌آموزان</label>
+        <label className="text-sm font-medium">
+          تعداد دانش‌آموزان (یکتا با پرداخت در این ماه، کل سازمان)
+        </label>
         <Input
           type="text"
           inputMode="numeric"
@@ -145,7 +147,7 @@ function EditPayrollForm({
           محاسبه مجدد از قوانین نقش و پرداخت‌ها
         </Button>
         <p className="text-xs text-muted-foreground">
-          حقوق ثابت/متغیر بر اساس نقش کاربر و پرداخت‌های پرداخت‌شدهٔ دانش‌آموزانش در همین ماه دوباره محاسبه می‌شود.
+          حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود. شمارش دانش‌آموزان برای همه نقش‌ها یکسان است: تعداد یکتای دانش‌آموزانی که در این ماه حداقل یک پرداخت پرداخت‌شده داشته‌اند.
         </p>
       </div>
       <DialogFooter>
@@ -338,7 +340,7 @@ const Payroll = () => {
         <hr/>
         <p><strong>حقوق ثابت:</strong> ${formatCentsToToman(entry.base_salary_cents)} تومان</p>
         <p><strong>حقوق متغیر:</strong> ${formatCentsToToman(entry.variable_salary_cents)} تومان</p>
-        <p><strong>تعداد دانش‌آموزان:</strong> ${entry.students_count}</p>
+        <p><strong>دانش‌آموزان یکتا (کل سازمان، این ماه):</strong> ${entry.students_count}</p>
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(entry.total_salary_cents)} تومان</p>
         <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
@@ -427,7 +429,9 @@ const Payroll = () => {
                     <tr className="border-b bg-muted/50">
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">سمت</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
+                        دانش‌آموزان (کل ماه)
+                      </th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">جمع کل</th>
@@ -610,7 +614,7 @@ const Payroll = () => {
               <div>
                 <p className="text-sm font-medium">محاسبه خودکار از قوانین نقش</p>
                 <p className="text-xs text-muted-foreground">
-                  بر اساس نوع حقوق نقش و پرداخت‌های پرداخت‌شدهٔ دانش‌آموزان همین دوره
+                  بر اساس نوع حقوق نقش، پرداخت‌های پرداخت‌شدهٔ همین دوره و در صورت تعریف، سهم درصد از مبلغ کل هر پرداخت
                 </p>
               </div>
               <Switch checked={createAutoFromRole} onCheckedChange={setCreateAutoFromRole} />
@@ -632,9 +636,16 @@ const Payroll = () => {
                       {formatCentsToToman(payrollPreview.variable_salary_cents)} تومان
                     </p>
                     <p>
-                      <span className="text-muted-foreground">تعداد (شاخص نقش):</span>{" "}
+                      <span className="text-muted-foreground">دانش‌آموزان یکتا (کل سازمان، با پرداخت در این ماه):</span>{" "}
                       {payrollPreview.students_count}
                     </p>
+                    {payrollPreview.role_gross_share_cents != null &&
+                      payrollPreview.role_gross_share_cents > 0 && (
+                        <p>
+                          <span className="text-muted-foreground">جمع سهم «درصد از مبلغ کل پرداخت» در این ماه:</span>{" "}
+                          {formatCentsToToman(payrollPreview.role_gross_share_cents)} تومان
+                        </p>
+                      )}
                     <p className="text-xs text-muted-foreground pt-1">
                       حجم پرداخت دانش‌آموزان در دوره:{" "}
                       {formatCentsToToman(payrollPreview.revenue_volume_cents)} تومان — نوع:{" "}
@@ -669,7 +680,9 @@ const Payroll = () => {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <label className="text-sm font-medium">تعداد دانش‌آموزان</label>
+                  <label className="text-sm font-medium">
+                    تعداد دانش‌آموزان (یکتا با پرداخت در این ماه، کل سازمان)
+                  </label>
                   <Input
                     type="text"
                     inputMode="numeric"
@@ -724,7 +737,7 @@ const Payroll = () => {
               <p><strong>سمت:</strong> {roleLabels[detailEntry.user_role] ?? detailEntry.user_role}</p>
               <p><strong>حقوق ثابت:</strong> {formatCentsToToman(detailEntry.base_salary_cents)} تومان</p>
               <p><strong>حقوق متغیر:</strong> {formatCentsToToman(detailEntry.variable_salary_cents)} تومان</p>
-              <p><strong>تعداد دانش‌آموزان:</strong> {detailEntry.students_count}</p>
+              <p><strong>دانش‌آموزان یکتا (کل سازمان، این ماه):</strong> {detailEntry.students_count}</p>
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
               <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
             </div>

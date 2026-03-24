@@ -61,7 +61,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService, paymentService)
 	userHandler := handlers.NewUserHandler(userService, permService)
-	roleHandler := handlers.NewRoleHandler(roleService)
+	roleHandler := handlers.NewRoleHandler(roleService, paymentService)
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)

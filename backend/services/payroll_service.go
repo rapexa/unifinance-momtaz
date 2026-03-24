@@ -23,6 +23,8 @@ type PayrollCompensationBreakdown struct {
 	StudentsCount       int
 	CompensationKind    models.CompensationKind
 	RevenueVolumeCents  int64 // sum of advisor_share_cents on PAID payments for advisor's students in period (PERCENT/PER_UNIT on role)
+	// RoleGrossShareCents sums payment_payroll_shares (ROLE_GROSS) for this user in the period.
+	RoleGrossShareCents int64
 }
 
 // PayrollSummary holds aggregated payroll metrics for a given period.
@@ -199,14 +201,41 @@ WHERE students.advisor_id = ?
 	return volume, int(cnt), nil
 }
 
-func (s *PayrollService) countAdvisorActiveStudents(ctx context.Context, advisorID uint) (int, error) {
-	var n int64
-	if err := s.db.WithContext(ctx).Model(&models.Student{}).
-		Where("advisor_id = ? AND status = ?", advisorID, models.StudentStatusActive).
-		Count(&n).Error; err != nil {
+// countDistinctStudentsWithPaidInPeriod counts unique students who had at least one PAID payment in the month (org-wide).
+func (s *PayrollService) countDistinctStudentsWithPaidInPeriod(ctx context.Context, year, month int) (int, error) {
+	start, endEx := payrollPeriodBounds(year, month)
+	var cnt int64
+	if err := s.db.WithContext(ctx).Raw(`
+SELECT COUNT(DISTINCT payments.student_id)
+FROM payments
+INNER JOIN students ON students.id = payments.student_id AND students.deleted_at IS NULL
+WHERE payments.status = ?
+  AND payments.paid_at IS NOT NULL
+  AND payments.paid_at >= ? AND payments.paid_at < ?
+  AND payments.deleted_at IS NULL
+`, models.PaymentStatusPaid, start, endEx).Scan(&cnt).Error; err != nil {
 		return 0, err
 	}
-	return int(n), nil
+	return int(cnt), nil
+}
+
+func (s *PayrollService) sumUserRoleGrossSharesInPeriod(ctx context.Context, userID uint, year, month int) (int64, error) {
+	start, endEx := payrollPeriodBounds(year, month)
+	var sum int64
+	if err := s.db.WithContext(ctx).Raw(`
+SELECT COALESCE(SUM(pps.share_cents), 0)
+FROM payment_payroll_shares pps
+INNER JOIN payments ON payments.id = pps.payment_id AND payments.deleted_at IS NULL
+WHERE pps.deleted_at IS NULL
+  AND pps.user_id = ?
+  AND pps.kind = ?
+  AND payments.status = ?
+  AND payments.paid_at IS NOT NULL
+  AND payments.paid_at >= ? AND payments.paid_at < ?
+`, userID, models.ShareKindRoleGross, models.PaymentStatusPaid, start, endEx).Scan(&sum).Error; err != nil {
+		return 0, err
+	}
+	return sum, nil
 }
 
 // ComputeCompensationForUser derives base / variable / students_count from the user's role and payment data.
@@ -223,33 +252,38 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	}
 	r := u.Role
 
-	volume, payers, err := s.advisorPaidVolumeAndStudentPayers(ctx, userID, year, month)
+	volume, _, err := s.advisorPaidVolumeAndStudentPayers(ctx, userID, year, month)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
-	activeStudents, err := s.countAdvisorActiveStudents(ctx, userID)
+	totalStudentsInPeriod, err := s.countDistinctStudentsWithPaidInPeriod(ctx, year, month)
+	if err != nil {
+		return PayrollCompensationBreakdown{}, err
+	}
+
+	roleGross, err := s.sumUserRoleGrossSharesInPeriod(ctx, userID, year, month)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
 
 	out := PayrollCompensationBreakdown{
-		CompensationKind:   r.CompensationKind,
-		RevenueVolumeCents: volume,
+		CompensationKind:    r.CompensationKind,
+		RevenueVolumeCents:  volume,
+		RoleGrossShareCents: roleGross,
+		StudentsCount:       totalStudentsInPeriod,
 	}
 
 	switch r.CompensationKind {
 	case models.CompFixed:
 		out.BaseSalaryCents = derefInt64(r.FixedCents)
-		out.VariableSalaryCents = 0
-		out.StudentsCount = activeStudents
+		out.VariableSalaryCents = roleGross
 	case models.CompPercent:
 		if r.PercentOfStudentPayments == nil {
 			return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
 		}
 		p := *r.PercentOfStudentPayments
 		out.BaseSalaryCents = 0
-		out.VariableSalaryCents = int64(math.Round(float64(volume) * p / 100.0))
-		out.StudentsCount = payers
+		out.VariableSalaryCents = int64(math.Round(float64(volume)*p/100.0)) + roleGross
 	case models.CompPerUnit:
 		if r.RevenueUnitCents == nil || *r.RevenueUnitCents <= 0 || r.AmountPerUnitCents == nil {
 			return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
@@ -257,8 +291,7 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		unit := *r.RevenueUnitCents
 		per := derefInt64(r.AmountPerUnitCents)
 		out.BaseSalaryCents = 0
-		out.VariableSalaryCents = (volume / unit) * per
-		out.StudentsCount = payers
+		out.VariableSalaryCents = (volume/unit)*per + roleGross
 	default:
 		return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
 	}

@@ -277,6 +277,8 @@ const Users = () => {
   const [newPercent, setNewPercent] = useState("10");
   const [newUnitTomans, setNewUnitTomans] = useState("1000000");
   const [newPerUnitTomans, setNewPerUnitTomans] = useState("50000");
+  /** درصد از مبلغ کل هر پرداخت دانش‌آموز (اختیاری، مثلاً برای مدیر اجرایی) */
+  const [newGrossPercent, setNewGrossPercent] = useState("");
   const [newRolePerms, setNewRolePerms] = useState<string[]>([PERMISSIONS.STUDENTS]);
 
   const queryClient = useQueryClient();
@@ -333,6 +335,7 @@ const Users = () => {
       setNewPercent("10");
       setNewUnitTomans("1000000");
       setNewPerUnitTomans("50000");
+      setNewGrossPercent("");
       setNewRolePerms([PERMISSIONS.STUDENTS]);
     },
   });
@@ -531,7 +534,7 @@ const Users = () => {
         <div className="border-b bg-muted/40 px-4 py-3">
           <h2 className="text-sm font-semibold">نقش‌ها و قوانین حقوق</h2>
           <p className="text-xs text-muted-foreground">
-            هر نقش یکی از انواع حقوق ثابت، درصدی از پرداخت‌های دانش‌آموزان، یا مبلغ به‌ازای واحد حجم پرداخت دارد.
+            هر نقش یکی از انواع حقوق ثابت، درصدی از پرداخت‌های دانش‌آموزان، یا مبلغ به‌ازای واحد حجم پرداخت دارد؛ علاوه بر آن می‌توان درصد جدا از مبلغ کل هر پرداخت دانش‌آموز تعریف کرد.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -567,6 +570,12 @@ const Users = () => {
                       r.revenue_unit_cents != null &&
                       r.amount_per_unit_cents != null &&
                       `${Math.floor(r.amount_per_unit_cents / 10).toLocaleString("fa-IR")} تومان به‌ازای هر ${Math.floor(r.revenue_unit_cents / 10).toLocaleString("fa-IR")} تومان حجم`}
+                    {r.percent_of_gross_student_payment != null &&
+                      r.percent_of_gross_student_payment > 0 && (
+                        <span className="mt-1 block text-primary">
+                          +{r.percent_of_gross_student_payment}% از مبلغ کل هر پرداخت دانش‌آموز
+                        </span>
+                      )}
                   </td>
                   <td className="p-3">
                     {!r.is_system && (
@@ -996,6 +1005,23 @@ const Users = () => {
                 </div>
               </div>
             )}
+            {!newRoleFullAccess && (
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  درصد از مبلغ کل هر پرداخت دانش‌آموز (اختیاری)
+                </label>
+                <Input
+                  inputMode="decimal"
+                  dir="ltr"
+                  placeholder="مثال: 2 برای ۲٪ از هر پرداخت PAID"
+                  value={newGrossPercent}
+                  onChange={(e) => setNewGrossPercent(e.target.value)}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  جدا از فرمول بالا؛ برای هر کاربر با این نقش از مبلغ کل پرداخت‌های پرداخت‌شدهٔ دانش‌آموزان در همان ماه سهم محاسبه می‌شود.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRoleDialogOpen(false)} disabled={createRoleMutation.isPending}>
@@ -1026,6 +1052,12 @@ const Users = () => {
                 } else {
                   payload.revenue_unit_cents = tomansToCents(newUnitTomans);
                   payload.amount_per_unit_cents = tomansToCents(newPerUnitTomans);
+                }
+                if (!newRoleFullAccess && newGrossPercent.trim() !== "") {
+                  const g = parseFloat(newGrossPercent.replace(/,/g, "."));
+                  if (Number.isFinite(g)) {
+                    payload.percent_of_gross_student_payment = g;
+                  }
                 }
                 createRoleMutation.mutate(payload);
               }}

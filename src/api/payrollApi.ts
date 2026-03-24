@@ -116,6 +116,8 @@ export interface PayrollPreview {
   base_salary_cents: number;
   variable_salary_cents: number;
   students_count: number;
+  /** جمع سهم «درصد از مبلغ کل پرداخت» برای این کاربر در این ماه */
+  role_gross_share_cents?: number;
   compensation_kind: string;
   revenue_volume_cents: number;
   period_year: number;
