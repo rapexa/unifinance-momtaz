@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -11,11 +13,12 @@ import (
 
 // StudentHandler exposes student-related endpoints.
 type StudentHandler struct {
-	service *services.StudentService
+	service  *services.StudentService
+	payments *services.PaymentService
 }
 
-func NewStudentHandler(service *services.StudentService) *StudentHandler {
-	return &StudentHandler{service: service}
+func NewStudentHandler(service *services.StudentService, payments *services.PaymentService) *StudentHandler {
+	return &StudentHandler{service: service, payments: payments}
 }
 
 // StudentDoc is a simplified representation of Student for Swagger docs and API responses.
@@ -28,11 +31,17 @@ type StudentDoc struct {
 	Status          string `json:"status"`
 	FatherPhone     string `json:"father_phone,omitempty"`
 	MotherPhone     string `json:"mother_phone,omitempty"`
+	FatherJob       string `json:"father_job,omitempty"`
+	MotherJob       string `json:"mother_job,omitempty"`
 	SchoolName      string `json:"school_name,omitempty"`
 	SchoolAddress   string `json:"school_address,omitempty"`
 	HomeAddress     string `json:"home_address,omitempty"`
 	AdvisorName     string `json:"advisor_name,omitempty"`
 	AdvisorID       *uint  `json:"advisor_id,omitempty"`
+	// Per paid payment: how the assigned advisor is compensated (see models.StudentAdvisorCommissionKind).
+	AdvisorCommissionKind         string   `json:"advisor_commission_kind,omitempty"`
+	AdvisorCommissionPercent      *float64 `json:"advisor_commission_percent,omitempty"`
+	AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents,omitempty"`
 	CurrentPlanName string `json:"current_plan_name,omitempty"`
 	CurrentPlanID   *uint  `json:"current_plan_id,omitempty"`
 	BalanceCents    int64  `json:"balance_cents"`
@@ -49,12 +58,17 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		Status:        string(s.Status),
 		FatherPhone:   s.FatherPhone,
 		MotherPhone:   s.MotherPhone,
+		FatherJob:     s.FatherJob,
+		MotherJob:     s.MotherJob,
 		SchoolName:    s.SchoolName,
 		SchoolAddress: s.SchoolAddress,
 		HomeAddress:   s.HomeAddress,
 		BalanceCents:  s.BalanceCents,
-		AdvisorID:     s.AdvisorID,
-		CurrentPlanID: s.CurrentPlanID,
+		AdvisorID:                   s.AdvisorID,
+		AdvisorCommissionKind:       string(s.AdvisorCommissionKind),
+		AdvisorCommissionPercent:    s.AdvisorCommissionPercent,
+		AdvisorCommissionFixedCents: s.AdvisorCommissionFixedCents,
+		CurrentPlanID:               s.CurrentPlanID,
 	}
 	if s.Advisor != nil {
 		doc.AdvisorName = s.Advisor.FirstName + " " + s.Advisor.LastName
@@ -203,18 +217,23 @@ func (h *StudentHandler) Get(c *gin.Context) {
 // @Router       /students [post]
 func (h *StudentHandler) Create(c *gin.Context) {
 	var payload struct {
-		FirstName     string `json:"first_name" binding:"required,min=2,max=100"`
-		LastName      string `json:"last_name" binding:"required,min=2,max=100"`
-		Email         string `json:"email" binding:"omitempty,email,max=255"`
-		Phone         string `json:"phone" binding:"omitempty,max=20"`
-		FatherPhone   string `json:"father_phone" binding:"omitempty,max=20"`
-		MotherPhone   string `json:"mother_phone" binding:"omitempty,max=20"`
-		SchoolName    string `json:"school_name" binding:"omitempty,max=200"`
-		SchoolAddress string `json:"school_address" binding:"omitempty,max=500"`
-		HomeAddress   string `json:"home_address" binding:"omitempty,max=500"`
-		AdvisorID     *uint  `json:"advisor_id" binding:"omitempty"`
-		CurrentPlanID *uint  `json:"current_plan_id" binding:"omitempty"`
-		BalanceCents  *int64 `json:"balance_cents" binding:"omitempty"`
+		FirstName                   string   `json:"first_name" binding:"required,min=2,max=100"`
+		LastName                    string   `json:"last_name" binding:"required,min=2,max=100"`
+		Email                       string   `json:"email" binding:"omitempty,email,max=255"`
+		Phone                       string   `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone                 string   `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone                 string   `json:"mother_phone" binding:"omitempty,max=20"`
+		FatherJob                   string   `json:"father_job" binding:"omitempty,max=120"`
+		MotherJob                   string   `json:"mother_job" binding:"omitempty,max=120"`
+		SchoolName                  string   `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress               string   `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress                 string   `json:"home_address" binding:"omitempty,max=500"`
+		AdvisorID                   *uint    `json:"advisor_id" binding:"omitempty"`
+		AdvisorCommissionKind       string   `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent" binding:"omitempty"`
+		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -229,6 +248,8 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		Phone:         payload.Phone,
 		FatherPhone:   payload.FatherPhone,
 		MotherPhone:   payload.MotherPhone,
+		FatherJob:     payload.FatherJob,
+		MotherJob:     payload.MotherJob,
 		SchoolName:    payload.SchoolName,
 		SchoolAddress: payload.SchoolAddress,
 		HomeAddress:   payload.HomeAddress,
@@ -241,6 +262,12 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	}
 	if payload.BalanceCents != nil {
 		student.BalanceCents = *payload.BalanceCents
+	}
+	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
+
+	if err := normalizeStudentAdvisorCommission(student); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	if err := h.service.Create(c.Request.Context(), student); err != nil {
@@ -276,19 +303,24 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	}
 
 	var payload struct {
-		FirstName     string `json:"first_name" binding:"required,min=2,max=100"`
-		LastName      string `json:"last_name" binding:"required,min=2,max=100"`
-		Email         string `json:"email" binding:"omitempty,email,max=255"`
-		Phone         string `json:"phone" binding:"omitempty,max=20"`
-		FatherPhone   string `json:"father_phone" binding:"omitempty,max=20"`
-		MotherPhone   string `json:"mother_phone" binding:"omitempty,max=20"`
-		SchoolName    string `json:"school_name" binding:"omitempty,max=200"`
-		SchoolAddress string `json:"school_address" binding:"omitempty,max=500"`
-		HomeAddress   string `json:"home_address" binding:"omitempty,max=500"`
-		Status        string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE"`
-		AdvisorID     *uint  `json:"advisor_id" binding:"omitempty"`
-		CurrentPlanID *uint  `json:"current_plan_id" binding:"omitempty"`
-		BalanceCents  *int64 `json:"balance_cents" binding:"omitempty"`
+		FirstName                   string   `json:"first_name" binding:"required,min=2,max=100"`
+		LastName                    string   `json:"last_name" binding:"required,min=2,max=100"`
+		Email                       string   `json:"email" binding:"omitempty,email,max=255"`
+		Phone                       string   `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone                 string   `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone                 string   `json:"mother_phone" binding:"omitempty,max=20"`
+		FatherJob                   string   `json:"father_job" binding:"omitempty,max=120"`
+		MotherJob                   string   `json:"mother_job" binding:"omitempty,max=120"`
+		SchoolName                  string   `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress               string   `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress                 string   `json:"home_address" binding:"omitempty,max=500"`
+		Status                      string   `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE"`
+		AdvisorID                   *uint    `json:"advisor_id" binding:"omitempty"`
+		AdvisorCommissionKind       string   `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent" binding:"omitempty"`
+		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -302,12 +334,16 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	beforeSnap := snapshotStudentCommission(student)
+
 	student.FirstName = payload.FirstName
 	student.LastName = payload.LastName
 	student.Email = payload.Email
 	student.Phone = payload.Phone
 	student.FatherPhone = payload.FatherPhone
 	student.MotherPhone = payload.MotherPhone
+	student.FatherJob = payload.FatherJob
+	student.MotherJob = payload.MotherJob
 	student.SchoolName = payload.SchoolName
 	student.SchoolAddress = payload.SchoolAddress
 	student.HomeAddress = payload.HomeAddress
@@ -327,10 +363,20 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	if payload.BalanceCents != nil {
 		student.BalanceCents = *payload.BalanceCents
 	}
+	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, false)
+
+	if err := normalizeStudentAdvisorCommission(student); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.service.Update(c.Request.Context(), student); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update student"})
 		return
+	}
+
+	if h.payments != nil && !beforeSnap.equals(student) {
+		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), uint(id))
 	}
 
 	updated, _ := h.service.GetByID(c.Request.Context(), uint(id))
@@ -367,5 +413,125 @@ func (h *StudentHandler) Delete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func applyAdvisorCommissionPayload(st *models.Student, kind string, pct *float64, fix *int64, isCreate bool) {
+	if st.AdvisorID == nil {
+		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
+		st.AdvisorCommissionPercent = nil
+		st.AdvisorCommissionFixedCents = nil
+		return
+	}
+	if kind != "" {
+		st.AdvisorCommissionKind = models.StudentAdvisorCommissionKind(strings.ToUpper(strings.TrimSpace(kind)))
+	} else if isCreate {
+		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
+	}
+	if pct != nil {
+		st.AdvisorCommissionPercent = pct
+	}
+	if fix != nil {
+		st.AdvisorCommissionFixedCents = fix
+	}
+}
+
+func normalizeStudentAdvisorCommission(st *models.Student) error {
+	if st.AdvisorID == nil {
+		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
+		st.AdvisorCommissionPercent = nil
+		st.AdvisorCommissionFixedCents = nil
+		return nil
+	}
+	if st.AdvisorCommissionKind == "" {
+		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
+	}
+	switch st.AdvisorCommissionKind {
+	case models.StudentAdvisorCommNone:
+		st.AdvisorCommissionPercent = nil
+		st.AdvisorCommissionFixedCents = nil
+		return nil
+	case models.StudentAdvisorCommPercent:
+		if st.AdvisorCommissionPercent == nil || *st.AdvisorCommissionPercent <= 0 || *st.AdvisorCommissionPercent > 100 {
+			return fmt.Errorf("درصد سهم مشاور باید بین ۰ و ۱۰۰ باشد")
+		}
+		st.AdvisorCommissionFixedCents = nil
+		return nil
+	case models.StudentAdvisorCommFixed:
+		if st.AdvisorCommissionFixedCents == nil || *st.AdvisorCommissionFixedCents < 0 {
+			return fmt.Errorf("مبلغ ثابت سهم مشاور برای هر پرداخت نامعتبر است")
+		}
+		st.AdvisorCommissionPercent = nil
+		return nil
+	default:
+		return fmt.Errorf("نوع سهم مشاور نامعتبر است")
+	}
+}
+
+type studentCommissionSnap struct {
+	advisorID *uint
+	kind      models.StudentAdvisorCommissionKind
+	pct       *float64
+	fix       *int64
+}
+
+func snapshotStudentCommission(st *models.Student) studentCommissionSnap {
+	var aid *uint
+	if st.AdvisorID != nil {
+		v := *st.AdvisorID
+		aid = &v
+	}
+	var pct *float64
+	if st.AdvisorCommissionPercent != nil {
+		v := *st.AdvisorCommissionPercent
+		pct = &v
+	}
+	var fix *int64
+	if st.AdvisorCommissionFixedCents != nil {
+		v := *st.AdvisorCommissionFixedCents
+		fix = &v
+	}
+	return studentCommissionSnap{
+		advisorID: aid,
+		kind:      st.AdvisorCommissionKind,
+		pct:       pct,
+		fix:       fix,
+	}
+}
+
+func (s studentCommissionSnap) equals(st *models.Student) bool {
+	return uintPtrEqual(s.advisorID, st.AdvisorID) &&
+		s.kind == st.AdvisorCommissionKind &&
+		floatPtrEqual(s.pct, st.AdvisorCommissionPercent) &&
+		int64PtrEqual(s.fix, st.AdvisorCommissionFixedCents)
+}
+
+func uintPtrEqual(a, b *uint) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func floatPtrEqual(a, b *float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func int64PtrEqual(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 

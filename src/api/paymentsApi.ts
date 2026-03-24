@@ -18,6 +18,7 @@ export interface PaymentApi {
   enrollment_id?: number;
   plan_name?: string;
   amount_cents: number;
+  advisor_share_cents?: number;
   currency: string;
   status: string;
   method: string;

@@ -38,7 +38,7 @@ import {
   getStudentsSummary,
   getStudent,
   updateStudent,
-  deleteStudent,
+  deleteStudent as deleteStudentApi,
   StudentApi,
   UpdateStudentPayload,
 } from "@/api/studentsApi";
@@ -54,6 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Separator } from "@/components/ui/separator";
 
 interface StudentRow {
   id: number;
@@ -70,6 +71,13 @@ function formatBalance(cents: number | undefined): string {
   const n = cents ?? 0;
   const s = Math.abs(n).toLocaleString("fa-IR");
   return n < 0 ? `-${s}` : s;
+}
+
+type AdvisorCommKind = "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+
+function parseCommKind(raw: string | undefined): AdvisorCommKind {
+  if (raw === "PERCENT" || raw === "FIXED_PER_PAYMENT") return raw;
+  return "NONE";
 }
 
 function mapStudent(api: StudentApi): StudentRow {
@@ -107,6 +115,8 @@ function EditStudentForm({
   const [phone, setPhone] = useState(student.phone || "");
   const [fatherPhone, setFatherPhone] = useState(student.father_phone || "");
   const [motherPhone, setMotherPhone] = useState(student.mother_phone || "");
+  const [fatherJob, setFatherJob] = useState(student.father_job || "");
+  const [motherJob, setMotherJob] = useState(student.mother_job || "");
   const [schoolName, setSchoolName] = useState(student.school_name || "");
   const [schoolAddress, setSchoolAddress] = useState(student.school_address || "");
   const [homeAddress, setHomeAddress] = useState(student.home_address || "");
@@ -114,85 +124,182 @@ function EditStudentForm({
   const [advisorId, setAdvisorId] = useState(student.advisor_id != null ? String(student.advisor_id) : "none");
   const [planId, setPlanId] = useState(student.current_plan_id != null ? String(student.current_plan_id) : "none");
   const [balance, setBalance] = useState(student.balance_cents != null ? String(student.balance_cents) : "0");
+  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>(
+    parseCommKind(student.advisor_commission_kind)
+  );
+  const [commPercent, setCommPercent] = useState(
+    student.advisor_commission_percent != null ? String(student.advisor_commission_percent) : ""
+  );
+  const [commFixed, setCommFixed] = useState(
+    student.advisor_commission_fixed_cents != null ? String(student.advisor_commission_fixed_cents) : ""
+  );
+
+  const advisorSelected = advisorId !== "none";
+  const commissionInvalid =
+    advisorSelected &&
+    ((advisorCommKind === "PERCENT" &&
+      (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+      (advisorCommKind === "FIXED_PER_PAYMENT" &&
+        (!commFixed.trim() || Number(commFixed) < 0)));
 
   return (
-    <div className="space-y-4 py-2">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام</label>
-          <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="نام" />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">نام خانوادگی</label>
-          <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="نام خانوادگی" />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">ایمیل</label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
-          <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره مادر</label>
-          <Input value={motherPhone} onChange={(e) => setMotherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
-        </div>
-      </div>
+    <div className="space-y-6 py-2">
       <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
-        <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
+        <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات اولیه دانش‌آموز</h3>
+        <Separator className="mb-3" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نام</label>
+            <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="نام" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نام خانوادگی</label>
+            <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="نام خانوادگی" />
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">ایمیل</label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+          </div>
+        </div>
       </div>
+
       <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
-        <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
-      </div>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
-        <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
-          <Select value={advisorId} onValueChange={setAdvisorId}>
-            <SelectTrigger>
-              <SelectValue placeholder="انتخاب مشاور" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">بدون مشاور</SelectItem>
-              {advisors.map((a) => (
-                <SelectItem key={a.id} value={String(a.id)}>{a.first_name} {a.last_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثانویه دانش‌آموز</h3>
+        <Separator className="mb-3" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
+            <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره مادر</label>
+            <Input value={motherPhone} onChange={(e) => setMotherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+          </div>
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن</label>
-          <Select value={planId} onValueChange={setPlanId}>
-            <SelectTrigger>
-              <SelectValue placeholder="انتخاب پلن" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">بدون پلن</SelectItem>
-              {plans.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">شغل پدر</label>
+            <Input value={fatherJob} onChange={(e) => setFatherJob(e.target.value)} placeholder="شغل پدر" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">شغل مادر</label>
+            <Input value={motherJob} onChange={(e) => setMotherJob(e.target.value)} placeholder="شغل مادر" />
+          </div>
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب (ریال)</label>
-          <Input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} dir="ltr" />
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
+          <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
         </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
+          <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
+          <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+            <Select
+              value={advisorId}
+              onValueChange={(v) => {
+                setAdvisorId(v);
+                if (v === "none") {
+                  setAdvisorCommKind("NONE");
+                  setCommPercent("");
+                  setCommFixed("");
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="انتخاب مشاور" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">بدون مشاور</SelectItem>
+                {advisors.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.first_name} {a.last_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن</label>
+            <Select value={planId} onValueChange={setPlanId}>
+              <SelectTrigger>
+                <SelectValue placeholder="انتخاب پلن" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">بدون پلن</SelectItem>
+                {plans.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب (ریال)</label>
+            <Input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} dir="ltr" />
+          </div>
+        </div>
+        {advisorSelected && (
+          <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              سهم مشاور از هر پرداخت ثبت‌شده با وضعیت «پرداخت شده» (به‌صورت خودکار محاسبه می‌شود)
+            </p>
+            <Select
+              value={advisorCommKind}
+              onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">بدون سهم</SelectItem>
+                <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
+              </SelectContent>
+            </Select>
+            {advisorCommKind === "PERCENT" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
+                <Input
+                  value={commPercent}
+                  onChange={(e) => setCommPercent(e.target.value)}
+                  placeholder="مثلاً ۱۰"
+                  inputMode="decimal"
+                  dir="ltr"
+                />
+              </div>
+            )}
+            {advisorCommKind === "FIXED_PER_PAYMENT" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  مبلغ ثابت (ریال، به ازای هر پرداخت)
+                </label>
+                <Input
+                  value={commFixed}
+                  onChange={(e) => setCommFixed(e.target.value)}
+                  placeholder="مبلغ به ریال"
+                  inputMode="numeric"
+                  dir="ltr"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">وضعیت</span>
         <Select value={status} onValueChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE")}>
@@ -206,7 +313,9 @@ function EditStudentForm({
         </Select>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
+        <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>
+          انصراف
+        </Button>
         <Button
           onClick={() => {
             const payload: UpdateStudentPayload = {
@@ -216,6 +325,8 @@ function EditStudentForm({
               phone: phone.trim() || undefined,
               father_phone: fatherPhone.trim() || undefined,
               mother_phone: motherPhone.trim() || undefined,
+              father_job: fatherJob.trim() || undefined,
+              mother_job: motherJob.trim() || undefined,
               school_name: schoolName.trim() || undefined,
               school_address: schoolAddress.trim() || undefined,
               home_address: homeAddress.trim() || undefined,
@@ -224,9 +335,18 @@ function EditStudentForm({
               current_plan_id: planId === "none" ? null : Number(planId),
               balance_cents: Number(balance) || 0,
             };
+            if (advisorSelected) {
+              payload.advisor_commission_kind = advisorCommKind;
+              if (advisorCommKind === "PERCENT") {
+                payload.advisor_commission_percent = Number(commPercent);
+              }
+              if (advisorCommKind === "FIXED_PER_PAYMENT") {
+                payload.advisor_commission_fixed_cents = Number(commFixed);
+              }
+            }
             mutation.mutate({ id: student.id, payload }, { onSuccess });
           }}
-          disabled={mutation.isPending || !firstName.trim() || !lastName.trim()}
+          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || commissionInvalid}
         >
           {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
         </Button>
@@ -254,9 +374,14 @@ const Students = () => {
   const [balance, setBalance] = useState("");
   const [fatherPhone, setFatherPhone] = useState("");
   const [motherPhone, setMotherPhone] = useState("");
+  const [fatherJob, setFatherJob] = useState("");
+  const [motherJob, setMotherJob] = useState("");
   const [schoolName, setSchoolName] = useState("");
   const [schoolAddress, setSchoolAddress] = useState("");
   const [homeAddress, setHomeAddress] = useState("");
+  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>("NONE");
+  const [commPercent, setCommPercent] = useState("");
+  const [commFixed, setCommFixed] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -278,12 +403,13 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
       setEditStudentId(null);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteStudent,
+    mutationFn: deleteStudentApi,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
@@ -329,7 +455,8 @@ const Students = () => {
     mutationFn: createStudent,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
-       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
       setIsCreateOpen(false);
       setFirstName("");
       setLastName("");
@@ -340,9 +467,14 @@ const Students = () => {
       setBalance("");
       setFatherPhone("");
       setMotherPhone("");
+      setFatherJob("");
+      setMotherJob("");
       setSchoolName("");
       setSchoolAddress("");
       setHomeAddress("");
+      setAdvisorCommKind("NONE");
+      setCommPercent("");
+      setCommFixed("");
     },
   });
 
@@ -613,10 +745,24 @@ const Students = () => {
               <p><span className="text-muted-foreground">موبایل:</span> {detailsStudentData.phone ? <span dir="ltr">{detailsStudentData.phone}</span> : "—"}</p>
               <p><span className="text-muted-foreground">شماره پدر:</span> {detailsStudentData.father_phone ? <span dir="ltr">{detailsStudentData.father_phone}</span> : "—"}</p>
               <p><span className="text-muted-foreground">شماره مادر:</span> {detailsStudentData.mother_phone ? <span dir="ltr">{detailsStudentData.mother_phone}</span> : "—"}</p>
+              <p><span className="text-muted-foreground">شغل پدر:</span> {detailsStudentData.father_job || "—"}</p>
+              <p><span className="text-muted-foreground">شغل مادر:</span> {detailsStudentData.mother_job || "—"}</p>
               <p><span className="text-muted-foreground">اسم مدرسه:</span> {detailsStudentData.school_name || "—"}</p>
               <p><span className="text-muted-foreground">آدرس مدرسه:</span> {detailsStudentData.school_address || "—"}</p>
               <p><span className="text-muted-foreground">آدرس خانه:</span> {detailsStudentData.home_address || "—"}</p>
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
+              {detailsStudentData.advisor_id != null && (
+                <p>
+                  <span className="text-muted-foreground">سهم مشاور (هر پرداخت پرداخت‌شده):</span>{" "}
+                  {detailsStudentData.advisor_commission_kind === "PERCENT" &&
+                  detailsStudentData.advisor_commission_percent != null
+                    ? `${detailsStudentData.advisor_commission_percent}٪ از مبلغ`
+                    : detailsStudentData.advisor_commission_kind === "FIXED_PER_PAYMENT" &&
+                        detailsStudentData.advisor_commission_fixed_cents != null
+                      ? `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} ریال ثابت`
+                      : "بدون سهم"}
+                </p>
+              )}
               <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
               <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
               <p><span className="text-muted-foreground">وضعیت:</span> {detailsStudentData.status === "INACTIVE" ? "غیرفعال" : "فعال"}</p>
@@ -633,6 +779,7 @@ const Students = () => {
           </DialogHeader>
           {editStudentData && (
             <EditStudentForm
+              key={editStudentData.id}
               student={editStudentData}
               advisors={advisors || []}
               plans={plans || []}
@@ -667,164 +814,179 @@ const Students = () => {
 
       {/* Create student dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>دانش‌آموز جدید</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  نام
-                </label>
-                <Input
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="نام"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  نام خانوادگی
-                </label>
-                <Input
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="نام خانوادگی"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  ایمیل
-                </label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="example@email.com"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  موبایل
-                </label>
-                <Input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="۰۹۱۲..."
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  شماره پدر
-                </label>
-                <Input
-                  value={fatherPhone}
-                  onChange={(e) => setFatherPhone(e.target.value)}
-                  placeholder="۰۹۱۲..."
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  شماره مادر
-                </label>
-                <Input
-                  value={motherPhone}
-                  onChange={(e) => setMotherPhone(e.target.value)}
-                  placeholder="۰۹۱۲..."
-                />
-              </div>
-            </div>
+          <div className="space-y-6 py-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                اسم مدرسه
-              </label>
-              <Input
-                value={schoolName}
-                onChange={(e) => setSchoolName(e.target.value)}
-                placeholder="نام مدرسه"
-              />
+              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات اولیه دانش‌آموز</h3>
+              <Separator className="mb-3" />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نام</label>
+                  <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="نام" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نام خانوادگی</label>
+                  <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="نام خانوادگی" />
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">ایمیل</label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="example@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
+                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+                </div>
+              </div>
             </div>
+
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                آدرس مدرسه
-              </label>
-              <Input
-                value={schoolAddress}
-                onChange={(e) => setSchoolAddress(e.target.value)}
-                placeholder="آدرس مدرسه"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                آدرس خانه
-              </label>
-              <Input
-                value={homeAddress}
-                onChange={(e) => setHomeAddress(e.target.value)}
-                placeholder="آدرس منزل"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  مشاور (اختیاری)
-                </label>
-                <Select
-                  value={advisorId}
-                  onValueChange={(val) =>
-                    setAdvisorId(val === "none" ? "" : val)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="انتخاب مشاور" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">بدون مشاور</SelectItem>
-                    {(advisors || []).map((advisor: UserApi) => (
-                      <SelectItem key={advisor.id} value={String(advisor.id)}>
-                        {advisor.first_name} {advisor.last_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثانویه دانش‌آموز</h3>
+              <Separator className="mb-3" />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
+                  <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره مادر</label>
+                  <Input value={motherPhone} onChange={(e) => setMotherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  پلن خریداری‌شده (اختیاری)
-                </label>
-                <Select
-                  value={planId}
-                  onValueChange={(val) => setPlanId(val === "none" ? "" : val)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="انتخاب پلن" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">بدون پلن</SelectItem>
-                    {(plans || []).map((plan: PlanApi) => (
-                      <SelectItem key={plan.id} value={String(plan.id)}>
-                        {plan.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">شغل پدر</label>
+                  <Input value={fatherJob} onChange={(e) => setFatherJob(e.target.value)} placeholder="شغل پدر" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">شغل مادر</label>
+                  <Input value={motherJob} onChange={(e) => setMotherJob(e.target.value)} placeholder="شغل مادر" />
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  مانده حساب اولیه (ریال)
-                </label>
-                <Input
-                  value={balance}
-                  onChange={(e) => setBalance(e.target.value)}
-                  placeholder="مثلاً -2500000"
-                  inputMode="numeric"
-                />
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
+                <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
               </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
+                <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
+                <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
+                  <Select
+                    value={advisorId || "none"}
+                    onValueChange={(val) => {
+                      setAdvisorId(val === "none" ? "" : val);
+                      if (val === "none") {
+                        setAdvisorCommKind("NONE");
+                        setCommPercent("");
+                        setCommFixed("");
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="انتخاب مشاور" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">بدون مشاور</SelectItem>
+                      {(advisors || []).map((advisor: UserApi) => (
+                        <SelectItem key={advisor.id} value={String(advisor.id)}>
+                          {advisor.first_name} {advisor.last_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن (اختیاری)</label>
+                  <Select
+                    value={planId || "none"}
+                    onValueChange={(val) => setPlanId(val === "none" ? "" : val)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="انتخاب پلن" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">بدون پلن</SelectItem>
+                      {(plans || []).map((plan: PlanApi) => (
+                        <SelectItem key={plan.id} value={String(plan.id)}>
+                          {plan.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب اولیه (ریال)</label>
+                  <Input
+                    value={balance}
+                    onChange={(e) => setBalance(e.target.value)}
+                    placeholder="مثلاً -2500000"
+                    inputMode="numeric"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+              {!!advisorId && (
+                <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    سهم مشاور از هر پرداخت ثبت‌شده با وضعیت «پرداخت شده» (به‌صورت خودکار محاسبه می‌شود)
+                  </p>
+                  <Select
+                    value={advisorCommKind}
+                    onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NONE">بدون سهم</SelectItem>
+                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {advisorCommKind === "PERCENT" && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
+                      <Input
+                        value={commPercent}
+                        onChange={(e) => setCommPercent(e.target.value)}
+                        placeholder="مثلاً ۱۰"
+                        inputMode="decimal"
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+                  {advisorCommKind === "FIXED_PER_PAYMENT" && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        مبلغ ثابت (ریال، به ازای هر پرداخت)
+                      </label>
+                      <Input
+                        value={commFixed}
+                        onChange={(e) => setCommFixed(e.target.value)}
+                        placeholder="مبلغ به ریال"
+                        inputMode="numeric"
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -836,7 +998,15 @@ const Students = () => {
               انصراف
             </Button>
             <Button
-              onClick={() =>
+              onClick={() => {
+                const createAdvisorSelected = !!advisorId;
+                const createCommissionInvalid =
+                  createAdvisorSelected &&
+                  ((advisorCommKind === "PERCENT" &&
+                    (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+                    (advisorCommKind === "FIXED_PER_PAYMENT" &&
+                      (!commFixed.trim() || Number(commFixed) < 0)));
+                if (createCommissionInvalid) return;
                 createMutation.mutate({
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
@@ -844,18 +1014,36 @@ const Students = () => {
                   phone: phone.trim() || undefined,
                   father_phone: fatherPhone.trim() || undefined,
                   mother_phone: motherPhone.trim() || undefined,
+                  father_job: fatherJob.trim() || undefined,
+                  mother_job: motherJob.trim() || undefined,
                   school_name: schoolName.trim() || undefined,
                   school_address: schoolAddress.trim() || undefined,
                   home_address: homeAddress.trim() || undefined,
                   advisor_id: advisorId ? Number(advisorId) : undefined,
+                  ...(createAdvisorSelected
+                    ? {
+                        advisor_commission_kind: advisorCommKind,
+                        ...(advisorCommKind === "PERCENT"
+                          ? { advisor_commission_percent: Number(commPercent) }
+                          : {}),
+                        ...(advisorCommKind === "FIXED_PER_PAYMENT"
+                          ? { advisor_commission_fixed_cents: Number(commFixed) }
+                          : {}),
+                      }
+                    : {}),
                   current_plan_id: planId ? Number(planId) : undefined,
                   balance_cents: balance ? Number(balance) : undefined,
-                })
-              }
+                });
+              }}
               disabled={
                 createMutation.isPending ||
                 !firstName.trim() ||
-                !lastName.trim()
+                !lastName.trim() ||
+                (!!advisorId &&
+                  ((advisorCommKind === "PERCENT" &&
+                    (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+                    (advisorCommKind === "FIXED_PER_PAYMENT" &&
+                      (!commFixed.trim() || Number(commFixed) < 0))))
               }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}

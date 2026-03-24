@@ -51,7 +51,7 @@ func main() {
 	roleService := services.NewRoleService(roleRepo)
 	studentService := services.NewStudentService(studentRepo)
 	planService := services.NewPlanService(planRepo)
-	paymentService := services.NewPaymentService(paymentRepo)
+	paymentService := services.NewPaymentService(paymentRepo, db)
 	dashboardService := services.NewDashboardService(db, paymentRepo)
 	payrollService := services.NewPayrollService(db)
 	reportService := services.NewReportService(db)
@@ -59,7 +59,7 @@ func main() {
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
-	studentHandler := handlers.NewStudentHandler(studentService)
+	studentHandler := handlers.NewStudentHandler(studentService, paymentService)
 	userHandler := handlers.NewUserHandler(userService, permService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	planHandler := handlers.NewPlanHandler(planService)

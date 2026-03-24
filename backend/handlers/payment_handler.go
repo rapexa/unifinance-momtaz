@@ -27,7 +27,8 @@ type PaymentDTO struct {
 	StudentName   string     `json:"student_name"`
 	EnrollmentID  *uint      `json:"enrollment_id,omitempty"`
 	PlanName      *string    `json:"plan_name,omitempty"`
-	AmountCents   int64      `json:"amount_cents"`
+	AmountCents       int64 `json:"amount_cents"`
+	AdvisorShareCents int64 `json:"advisor_share_cents"`
 	Currency      string     `json:"currency"`
 	Status        string     `json:"status"`
 	Method        string     `json:"method"`
@@ -40,10 +41,11 @@ type PaymentDTO struct {
 
 func toPaymentDTO(p *models.Payment) PaymentDTO {
 	dto := PaymentDTO{
-		ID:            p.ID,
-		StudentID:     p.StudentID,
-		AmountCents:   p.AmountCents,
-		Currency:      p.Currency,
+		ID:                p.ID,
+		StudentID:         p.StudentID,
+		AmountCents:       p.AmountCents,
+		AdvisorShareCents: p.AdvisorShareCents,
+		Currency:          p.Currency,
 		Status:        string(p.Status),
 		Method:        string(p.Method),
 		DueDate:       p.DueDate,

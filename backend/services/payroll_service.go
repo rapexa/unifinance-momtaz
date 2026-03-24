@@ -22,7 +22,7 @@ type PayrollCompensationBreakdown struct {
 	VariableSalaryCents int64
 	StudentsCount       int
 	CompensationKind    models.CompensationKind
-	RevenueVolumeCents  int64 // paid amounts from advisor's students in period (for PERCENT/PER_UNIT)
+	RevenueVolumeCents  int64 // sum of advisor_share_cents on PAID payments for advisor's students in period (PERCENT/PER_UNIT on role)
 }
 
 // PayrollSummary holds aggregated payroll metrics for a given period.
@@ -166,14 +166,14 @@ func derefInt64(p *int64) int64 {
 	return *p
 }
 
-// advisorPaidVolumeAndStudentPayers sums PAID payments in the period for students assigned to advisorID,
+// advisorPaidVolumeAndStudentPayers sums advisor_share_cents on PAID payments in the period for students assigned to advisorID,
 // and counts distinct students who had such payments.
 func (s *PayrollService) advisorPaidVolumeAndStudentPayers(ctx context.Context, advisorID uint, year, month int) (volume int64, distinctStudents int, err error) {
 	start, endEx := payrollPeriodBounds(year, month)
 
 	if err = s.db.WithContext(ctx).
 		Table("payments").
-		Select("COALESCE(SUM(payments.amount_cents), 0)").
+		Select("COALESCE(SUM(payments.advisor_share_cents), 0)").
 		Joins("INNER JOIN students ON students.id = payments.student_id AND students.deleted_at IS NULL").
 		Where("students.advisor_id = ?", advisorID).
 		Where("payments.status = ?", models.PaymentStatusPaid).

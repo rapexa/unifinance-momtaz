@@ -17,10 +17,45 @@ var (
 
 type PaymentService struct {
 	repo repositories.PaymentRepository
+	db   *gorm.DB
 }
 
-func NewPaymentService(repo repositories.PaymentRepository) *PaymentService {
-	return &PaymentService{repo: repo}
+func NewPaymentService(repo repositories.PaymentRepository, db *gorm.DB) *PaymentService {
+	return &PaymentService{repo: repo, db: db}
+}
+
+func (s *PaymentService) syncAdvisorShare(ctx context.Context, payment *models.Payment) error {
+	var st models.Student
+	if err := s.db.WithContext(ctx).First(&st, payment.StudentID).Error; err != nil {
+		return err
+	}
+	if payment.Status == models.PaymentStatusPaid {
+		payment.AdvisorShareCents = models.ComputeAdvisorShareCents(&st, payment.AmountCents)
+	} else {
+		payment.AdvisorShareCents = 0
+	}
+	return nil
+}
+
+// RecalculatePaidSharesForStudent refreshes advisor_share_cents on all PAID payments for a student (e.g. after contract change).
+func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, studentID uint) error {
+	var st models.Student
+	if err := s.db.WithContext(ctx).First(&st, studentID).Error; err != nil {
+		return err
+	}
+	var list []models.Payment
+	if err := s.db.WithContext(ctx).
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Find(&list).Error; err != nil {
+		return err
+	}
+	for i := range list {
+		list[i].AdvisorShareCents = models.ComputeAdvisorShareCents(&st, list[i].AmountCents)
+		if err := s.db.WithContext(ctx).Save(&list[i]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *PaymentService) Summary(ctx context.Context) (*repositories.PaymentSummary, error) {
@@ -105,6 +140,10 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		payment.PaidAt = p.PaidAt
 	}
 
+	if err := s.syncAdvisorShare(ctx, payment); err != nil {
+		return nil, err
+	}
+
 	if err := s.repo.Create(ctx, payment); err != nil {
 		return nil, err
 	}
@@ -146,6 +185,10 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	}
 	if p.PaidAt != nil {
 		payment.PaidAt = p.PaidAt
+	}
+
+	if err := s.syncAdvisorShare(ctx, payment); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.Update(ctx, payment); err != nil {

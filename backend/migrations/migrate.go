@@ -17,6 +17,7 @@ func Run() {
 
 	db := database.MustGetDB()
 	autoMigrate(db)
+	backfillPaymentAdvisorShares(db)
 	seedRolesAndPermissions(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
@@ -44,6 +45,37 @@ func autoMigrate(db *gorm.DB) {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}
 	log.Println("migrations: AutoMigrate finished successfully")
+}
+
+// backfillPaymentAdvisorShares sets advisor_share_cents on existing PAID rows from current student commission rules.
+func backfillPaymentAdvisorShares(db *gorm.DB) {
+	var ids []uint
+	if err := db.Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusPaid).
+		Pluck("id", &ids).Error; err != nil {
+		log.Printf("migrations: backfill advisor shares: list ids: %v", err)
+		return
+	}
+	for _, id := range ids {
+		var p models.Payment
+		if err := db.First(&p, id).Error; err != nil {
+			continue
+		}
+		var st models.Student
+		if err := db.First(&st, p.StudentID).Error; err != nil {
+			continue
+		}
+		share := models.ComputeAdvisorShareCents(&st, p.AmountCents)
+		if p.AdvisorShareCents == share {
+			continue
+		}
+		if err := db.Model(&models.Payment{}).Where("id = ?", id).Update("advisor_share_cents", share).Error; err != nil {
+			log.Printf("migrations: backfill payment %d: %v", id, err)
+		}
+	}
+	if len(ids) > 0 {
+		log.Printf("migrations: backfill advisor_share_cents checked %d paid payments", len(ids))
+	}
 }
 
 func ptrI64(v int64) *int64  { return &v }

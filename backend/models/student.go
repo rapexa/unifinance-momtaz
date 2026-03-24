@@ -1,6 +1,7 @@
 package models
 
 import (
+	"math"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,6 +13,44 @@ const (
 	StudentStatusActive   StudentStatus = "ACTIVE"
 	StudentStatusInactive StudentStatus = "INACTIVE"
 )
+
+// StudentAdvisorCommissionKind defines how advisor earnings are computed per paid payment.
+type StudentAdvisorCommissionKind string
+
+const (
+	StudentAdvisorCommNone    StudentAdvisorCommissionKind = "NONE"
+	StudentAdvisorCommPercent StudentAdvisorCommissionKind = "PERCENT"
+	StudentAdvisorCommFixed   StudentAdvisorCommissionKind = "FIXED_PER_PAYMENT"
+)
+
+// ComputeAdvisorShareCents returns the advisor's share for one payment amount from student contract rules.
+func ComputeAdvisorShareCents(st *Student, amountCents int64) int64 {
+	if st == nil || st.AdvisorID == nil || amountCents <= 0 {
+		return 0
+	}
+	switch st.AdvisorCommissionKind {
+	case StudentAdvisorCommPercent:
+		if st.AdvisorCommissionPercent == nil {
+			return 0
+		}
+		p := *st.AdvisorCommissionPercent
+		if p <= 0 {
+			return 0
+		}
+		return int64(math.Round(float64(amountCents) * p / 100.0))
+	case StudentAdvisorCommFixed:
+		if st.AdvisorCommissionFixedCents == nil {
+			return 0
+		}
+		v := *st.AdvisorCommissionFixedCents
+		if v < 0 {
+			return 0
+		}
+		return v
+	default:
+		return 0
+	}
+}
 
 // Student represents a student/client in the consulting group.
 // Used by /students, /payments, /reminders, reports, etc.
@@ -27,6 +66,13 @@ type Student struct {
 	// Parent contacts
 	FatherPhone string `gorm:"size:20"`
 	MotherPhone string `gorm:"size:20"`
+	FatherJob   string `gorm:"size:120"`
+	MotherJob   string `gorm:"size:120"`
+
+	// Per-payment advisor commission (when AdvisorID is set)
+	AdvisorCommissionKind         StudentAdvisorCommissionKind `gorm:"type:varchar(32);not null;default:'NONE'"`
+	AdvisorCommissionPercent    *float64                       `gorm:""` // 0–100 when kind = PERCENT
+	AdvisorCommissionFixedCents *int64                         `gorm:""` // per PAID payment when kind = FIXED_PER_PAYMENT
 
 	// School info
 	SchoolName    string `gorm:"size:200"`

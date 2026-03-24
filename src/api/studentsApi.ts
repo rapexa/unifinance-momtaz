@@ -20,11 +20,16 @@ export interface StudentApi {
   status: string;
   father_phone?: string;
   mother_phone?: string;
+  father_job?: string;
+  mother_job?: string;
   school_name?: string;
   school_address?: string;
   home_address?: string;
   advisor_id?: number;
   advisor_name?: string;
+  advisor_commission_kind?: string;
+  advisor_commission_percent?: number;
+  advisor_commission_fixed_cents?: number;
   current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
@@ -93,10 +98,15 @@ export interface CreateStudentPayload {
   phone?: string;
   father_phone?: string;
   mother_phone?: string;
+  father_job?: string;
+  mother_job?: string;
   school_name?: string;
   school_address?: string;
   home_address?: string;
   advisor_id?: number;
+  advisor_commission_kind?: "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+  advisor_commission_percent?: number;
+  advisor_commission_fixed_cents?: number;
   current_plan_id?: number;
   balance_cents?: number;
 }
@@ -166,11 +176,16 @@ export interface UpdateStudentPayload {
   phone?: string;
   father_phone?: string;
   mother_phone?: string;
+  father_job?: string;
+  mother_job?: string;
   school_name?: string;
   school_address?: string;
   home_address?: string;
   status?: "ACTIVE" | "INACTIVE";
   advisor_id?: number | null;
+  advisor_commission_kind?: "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+  advisor_commission_percent?: number;
+  advisor_commission_fixed_cents?: number;
   current_plan_id?: number | null;
   balance_cents?: number;
 }

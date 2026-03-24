@@ -44,6 +44,9 @@ type Payment struct {
 	DueDate *time.Time `gorm:"index"`
 	PaidAt  *time.Time `gorm:"index"`
 
+	// AdvisorShareCents is set when status = PAID from the student's advisor commission rules.
+	AdvisorShareCents int64 `gorm:"not null;default:0;index"`
+
 	// For reconciliation with gateway or offline references
 	ReferenceCode string `gorm:"size:255;index"`
 }
