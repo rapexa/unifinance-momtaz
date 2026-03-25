@@ -47,6 +47,11 @@ import {
   getRevenueSeries,
   getPayrollSeries,
   getDebtsByAdvisor,
+  getReportPaidPayments,
+  getReportRevenueByStudent,
+  getReportPayrollLines,
+  getReportPayrollByUser,
+  getReportStudentDebts,
   type ReportFilter,
 } from "@/api/reportsApi";
 
@@ -75,6 +80,33 @@ const SHAMSI_YEARS = shamsiYearOptions();
 const MONTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 const COLORS = ["hsl(175 70% 40%)", "hsl(38 92% 50%)", "hsl(0 72% 51%)", "hsl(260 60% 55%)"];
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CARD_TO_CARD: "کارت به کارت",
+  GATEWAY: "درگاه",
+  CASH: "نقدی",
+  INSTALLMENT: "اقساط",
+  OTHER: "سایر",
+};
+
+function formatPaidAt(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("fa-IR", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatGregorianMonth(year: number, month: number): string {
+  return `${MONTH_NAMES[month] ?? month} ${year}`;
+}
 
 const Reports = () => {
   const [filterOpen, setFilterOpen] = useState(false);
@@ -106,6 +138,31 @@ const Reports = () => {
   const { data: debtsByAdvisor = [], isLoading: isDebtsLoading } = useQuery({
     queryKey: ["reports-debts", filter.to],
     queryFn: () => getDebtsByAdvisor({ month: filter.to }),
+  });
+
+  const { data: paidPayments = [], isLoading: isPaidPaymentsLoading } = useQuery({
+    queryKey: ["reports-revenue-payments", filter.from, filter.to],
+    queryFn: () => getReportPaidPayments(filter),
+  });
+
+  const { data: revenueByStudent = [], isLoading: isRevByStudentLoading } = useQuery({
+    queryKey: ["reports-revenue-by-student", filter.from, filter.to],
+    queryFn: () => getReportRevenueByStudent(filter),
+  });
+
+  const { data: payrollLines = [], isLoading: isPayrollLinesLoading } = useQuery({
+    queryKey: ["reports-payroll-lines", filter.from, filter.to],
+    queryFn: () => getReportPayrollLines(filter),
+  });
+
+  const { data: payrollByUser = [], isLoading: isPayrollByUserLoading } = useQuery({
+    queryKey: ["reports-payroll-by-user", filter.from, filter.to],
+    queryFn: () => getReportPayrollByUser(filter),
+  });
+
+  const { data: studentDebts = [], isLoading: isStudentDebtsLoading } = useQuery({
+    queryKey: ["reports-student-debts"],
+    queryFn: () => getReportStudentDebts(),
   });
 
   const revenueChartData = useMemo(() => {
@@ -322,6 +379,87 @@ const Reports = () => {
               </div>
             )}
           </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="card-elevated p-5">
+              <h3 className="font-bold text-foreground mb-3">دریافتی به تفکیک دانش‌آموز</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                جمع مبالغ پرداخت‌شده (وضعیت پرداخت شده) در بازهٔ انتخاب‌شده — هر نفر چقدر پرداخت کرده است.
+              </p>
+              {isRevByStudentLoading && (
+                <p className="text-sm text-muted-foreground py-6 text-center">در حال بارگذاری...</p>
+              )}
+              {!isRevByStudentLoading && revenueByStudent.length === 0 && (
+                <p className="text-sm text-muted-foreground py-6 text-center">رکوردی نیست.</p>
+              )}
+              {!isRevByStudentLoading && revenueByStudent.length > 0 && (
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="border-b text-right">
+                        <th className="p-2 font-medium">دانش‌آموز</th>
+                        <th className="p-2 font-medium">مشاور</th>
+                        <th className="p-2 font-medium">تعداد</th>
+                        <th className="p-2 font-medium">جمع (تومان)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {revenueByStudent.map((r) => (
+                        <tr key={r.student_id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="p-2">{r.student_name}</td>
+                          <td className="p-2 text-muted-foreground text-xs">{r.advisor_name || "—"}</td>
+                          <td className="p-2 number-display">{r.payment_count.toLocaleString("fa-IR")}</td>
+                          <td className="p-2 font-medium number-display">{formatCentsToToman(r.total_cents)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="card-elevated p-5">
+              <h3 className="font-bold text-foreground mb-3">جزئیات پرداخت‌های دریافت‌شده</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                هر تراکنش پرداخت‌شده در بازه (تاریخ پرداخت).
+              </p>
+              {isPaidPaymentsLoading && (
+                <p className="text-sm text-muted-foreground py-6 text-center">در حال بارگذاری...</p>
+              )}
+              {!isPaidPaymentsLoading && paidPayments.length === 0 && (
+                <p className="text-sm text-muted-foreground py-6 text-center">رکوردی نیست.</p>
+              )}
+              {!isPaidPaymentsLoading && paidPayments.length > 0 && (
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="border-b text-right">
+                        <th className="p-2 font-medium">تاریخ پرداخت</th>
+                        <th className="p-2 font-medium">دانش‌آموز</th>
+                        <th className="p-2 font-medium">مبلغ</th>
+                        <th className="p-2 font-medium">روش</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paidPayments.map((p) => (
+                        <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="p-2 whitespace-nowrap text-xs">{formatPaidAt(p.paid_at)}</td>
+                          <td className="p-2">
+                            <span className="block">{p.student_name}</span>
+                            {p.advisor_name ? (
+                              <span className="text-xs text-muted-foreground">مشاور: {p.advisor_name}</span>
+                            ) : null}
+                          </td>
+                          <td className="p-2 font-medium number-display">{formatCentsToToman(p.amount_cents)}</td>
+                          <td className="p-2 text-xs">{PAYMENT_METHOD_LABELS[p.method] ?? p.method}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="payroll">
@@ -350,6 +488,96 @@ const Reports = () => {
                 </ResponsiveContainer>
               </div>
             )}
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="card-elevated p-5">
+              <h3 className="font-bold text-foreground mb-3">جمع حقوق به تفکیک کارمند</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                در بازهٔ ماه‌های انتخاب‌شده؛ ستون «پرداخت‌شده» فقط فیش‌های با وضعیت پرداخت شده.
+              </p>
+              {isPayrollByUserLoading && (
+                <p className="text-sm text-muted-foreground py-6 text-center">در حال بارگذاری...</p>
+              )}
+              {!isPayrollByUserLoading && payrollByUser.length === 0 && (
+                <p className="text-sm text-muted-foreground py-6 text-center">رکوردی نیست.</p>
+              )}
+              {!isPayrollByUserLoading && payrollByUser.length > 0 && (
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="border-b text-right">
+                        <th className="p-2 font-medium">کارمند</th>
+                        <th className="p-2 font-medium">نقش</th>
+                        <th className="p-2 font-medium">جمع</th>
+                        <th className="p-2 font-medium">پرداخت‌شده</th>
+                        <th className="p-2 font-medium">در انتظار</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollByUser.map((r) => (
+                        <tr key={r.user_id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="p-2">{r.user_name}</td>
+                          <td className="p-2 text-muted-foreground text-xs">{r.role_code || "—"}</td>
+                          <td className="p-2 number-display">{formatCentsToToman(r.total_cents)}</td>
+                          <td className="p-2 number-display text-success">{formatCentsToToman(r.paid_cents)}</td>
+                          <td className="p-2 number-display text-warning">{formatCentsToToman(r.pending_cents)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="card-elevated p-5">
+              <h3 className="font-bold text-foreground mb-3">جزئیات فیش‌های حقوقی</h3>
+              <p className="text-xs text-muted-foreground mb-3">هر ردیف یک فیش برای یک ماه و یک کارمند.</p>
+              {isPayrollLinesLoading && (
+                <p className="text-sm text-muted-foreground py-6 text-center">در حال بارگذاری...</p>
+              )}
+              {!isPayrollLinesLoading && payrollLines.length === 0 && (
+                <p className="text-sm text-muted-foreground py-6 text-center">رکوردی نیست.</p>
+              )}
+              {!isPayrollLinesLoading && payrollLines.length > 0 && (
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="border-b text-right">
+                        <th className="p-2 font-medium">دوره</th>
+                        <th className="p-2 font-medium">کارمند</th>
+                        <th className="p-2 font-medium">ثابت</th>
+                        <th className="p-2 font-medium">متغیر</th>
+                        <th className="p-2 font-medium">جمع</th>
+                        <th className="p-2 font-medium">وضعیت</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollLines.map((row) => (
+                        <tr
+                          key={`${row.user_id}-${row.period_year}-${row.period_month}`}
+                          className="border-b last:border-0 hover:bg-muted/30"
+                        >
+                          <td className="p-2 whitespace-nowrap text-xs">
+                            {formatGregorianMonth(row.period_year, row.period_month)}
+                          </td>
+                          <td className="p-2">
+                            <span className="block">{row.user_name}</span>
+                            <span className="text-xs text-muted-foreground">{row.role_code || ""}</span>
+                          </td>
+                          <td className="p-2 number-display">{formatCentsToToman(row.base_salary_cents)}</td>
+                          <td className="p-2 number-display">{formatCentsToToman(row.variable_salary_cents)}</td>
+                          <td className="p-2 font-medium number-display">{formatCentsToToman(row.total_salary_cents)}</td>
+                          <td className="p-2 text-xs">
+                            {row.status === "PAID" ? "پرداخت شده" : "در انتظار"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </TabsContent>
 
@@ -425,6 +653,43 @@ const Reports = () => {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="mt-6 card-elevated p-5">
+            <h3 className="font-bold text-foreground mb-3">بدهکاران (جزئیات دانش‌آموز)</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              ماندهٔ منفی فعلی هر دانش‌آموز؛ مشخص است چه کسی چقدر بدهکار است.
+            </p>
+            {isStudentDebtsLoading && (
+              <p className="text-sm text-muted-foreground py-6 text-center">در حال بارگذاری...</p>
+            )}
+            {!isStudentDebtsLoading && studentDebts.length === 0 && (
+              <p className="text-sm text-muted-foreground py-6 text-center">دانش‌آموز بدهکاری نیست.</p>
+            )}
+            {!isStudentDebtsLoading && studentDebts.length > 0 && (
+              <div className="max-h-96 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                    <tr className="border-b text-right">
+                      <th className="p-2 font-medium">دانش‌آموز</th>
+                      <th className="p-2 font-medium">مشاور</th>
+                      <th className="p-2 font-medium">بدهی (تومان)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentDebts.map((s) => (
+                      <tr key={s.student_id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="p-2">{s.student_name}</td>
+                        <td className="p-2 text-muted-foreground text-xs">{s.advisor_name || "—"}</td>
+                        <td className="p-2 font-bold number-display text-destructive">
+                          {formatCentsToToman(-s.balance_cents)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

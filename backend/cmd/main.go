@@ -224,8 +224,13 @@ func main() {
 	{
 		reports.GET("/summary", reportHandler.GetSummary)
 		reports.GET("/revenue", reportHandler.GetRevenueSeries)
+		reports.GET("/revenue/payments", reportHandler.GetPaidPaymentsDetail)
+		reports.GET("/revenue/by-student", reportHandler.GetRevenueByStudent)
 		reports.GET("/payroll", reportHandler.GetPayrollSeries)
+		reports.GET("/payroll/lines", reportHandler.GetPayrollLines)
+		reports.GET("/payroll/by-user", reportHandler.GetPayrollByUser)
 		reports.GET("/debts", reportHandler.GetDebtsByAdvisor)
+		reports.GET("/debts/students", reportHandler.GetStudentDebts)
 	}
 
 	// Settings

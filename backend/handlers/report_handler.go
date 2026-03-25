@@ -156,6 +156,77 @@ func (h *ReportHandler) GetPayrollSeries(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// GetPaidPaymentsDetail handles GET /reports/revenue/payments
+// @Router /reports/revenue/payments [get]
+func (h *ReportHandler) GetPaidPaymentsDetail(c *gin.Context) {
+	from, to, ok := parseMonthRangeOrDefault(c)
+	if !ok {
+		return
+	}
+	rows, err := h.service.GetPaidPaymentsDetail(c.Request.Context(), from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payment details"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
+// GetRevenueByStudent handles GET /reports/revenue/by-student
+// @Router /reports/revenue/by-student [get]
+func (h *ReportHandler) GetRevenueByStudent(c *gin.Context) {
+	from, to, ok := parseMonthRangeOrDefault(c)
+	if !ok {
+		return
+	}
+	rows, err := h.service.GetRevenueByStudent(c.Request.Context(), from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load revenue by student"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
+// GetPayrollLines handles GET /reports/payroll/lines
+// @Router /reports/payroll/lines [get]
+func (h *ReportHandler) GetPayrollLines(c *gin.Context) {
+	from, to, ok := parseMonthRangeOrDefault(c)
+	if !ok {
+		return
+	}
+	rows, err := h.service.GetPayrollLinesInRange(c.Request.Context(), from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll lines"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
+// GetPayrollByUser handles GET /reports/payroll/by-user
+// @Router /reports/payroll/by-user [get]
+func (h *ReportHandler) GetPayrollByUser(c *gin.Context) {
+	from, to, ok := parseMonthRangeOrDefault(c)
+	if !ok {
+		return
+	}
+	rows, err := h.service.GetPayrollByUser(c.Request.Context(), from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll by user"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
+// GetStudentDebts handles GET /reports/debts/students
+// @Router /reports/debts/students [get]
+func (h *ReportHandler) GetStudentDebts(c *gin.Context) {
+	rows, err := h.service.GetStudentDebtsDetail(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load student debts"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
 // GetDebtsByAdvisor handles GET /reports/debts
 // @Summary      Debts by advisor
 // @Description  Aggregated student debts per advisor (admin only)
