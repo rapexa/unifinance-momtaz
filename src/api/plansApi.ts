@@ -17,6 +17,10 @@ export interface PlanApi {
   price_cents: number;
   type?: string;
   is_active: boolean;
+  /** درصد تخفیف از قیمت پلن (۱۰ = ده درصد) */
+  discount_percent?: number | null;
+  /** اگر true باشد، مبلغ ثبت‌نام/ثبت enrollment با تخفیف محاسبه می‌شود */
+  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
@@ -121,6 +125,8 @@ export interface CreatePlanPayload {
   type?: string;
   is_active?: boolean;
   max_users?: number;
+  discount_percent?: number;
+  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
@@ -141,6 +147,8 @@ export async function createPlan(
       type: payload.type,
       is_active: payload.is_active,
       max_users: payload.max_users,
+      discount_percent: payload.discount_percent,
+      discount_apply_on_enrollment: payload.discount_apply_on_enrollment,
       features: payload.features ?? [],
     }),
   });
@@ -162,6 +170,8 @@ export interface UpdatePlanPayload {
   type?: string;
   is_active?: boolean;
   max_users?: number;
+  discount_percent?: number | null;
+  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
@@ -182,6 +192,8 @@ export async function updatePlan(
       type: payload.type,
       is_active: payload.is_active,
       max_users: payload.max_users,
+      discount_percent: payload.discount_percent,
+      discount_apply_on_enrollment: payload.discount_apply_on_enrollment,
       features: payload.features,
     }),
   });

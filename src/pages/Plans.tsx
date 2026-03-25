@@ -4,6 +4,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -41,6 +42,9 @@ interface PlanRow {
   priceDisplay: string;
   features: string[];
   isActive: boolean;
+  discountApplyOnEnrollment: boolean;
+  discountPercent: number | null;
+  enrollmentPriceDisplay: string;
 }
 
 const typeLabels: Record<string, string> = {
@@ -62,9 +66,25 @@ function formatPrice(cents: number): string {
   return new Intl.NumberFormat("fa-IR").format(amount);
 }
 
+function effectiveEnrollmentPriceCents(
+  priceCents: number,
+  pct: number | null | undefined,
+  apply: boolean,
+): number {
+  if (!apply || pct == null || pct <= 0) return priceCents;
+  if (pct >= 100) return 0;
+  return Math.round((priceCents * (100 - pct)) / 100);
+}
+
 function mapPlan(api: PlanApi): PlanRow {
   const typeCode = api.type?.toUpperCase();
   const typeLabel = typeCode ? typeLabels[typeCode] ?? typeCode : "سایر";
+  const applyDisc = api.discount_apply_on_enrollment ?? false;
+  const discPct =
+    api.discount_percent != null && !Number.isNaN(api.discount_percent)
+      ? api.discount_percent
+      : null;
+  const enrollCents = effectiveEnrollmentPriceCents(api.price_cents, discPct, applyDisc);
   return {
     id: api.id,
     name: api.name,
@@ -74,6 +94,9 @@ function mapPlan(api: PlanApi): PlanRow {
     priceDisplay: formatPrice(api.price_cents),
     features: api.features ?? [],
     isActive: api.is_active,
+    discountApplyOnEnrollment: applyDisc,
+    discountPercent: discPct,
+    enrollmentPriceDisplay: formatPrice(enrollCents),
   };
 }
 
@@ -89,6 +112,8 @@ const Plans = () => {
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [typeCode, setTypeCode] = useState<string>("MONTHLY");
   const [featuresText, setFeaturesText] = useState("");
+  const [discountApplyOnEnrollment, setDiscountApplyOnEnrollment] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -130,6 +155,8 @@ const Plans = () => {
       setInterval("monthly");
       setTypeCode("MONTHLY");
       setFeaturesText("");
+      setDiscountApplyOnEnrollment(false);
+      setDiscountPercent("");
     },
   });
 
@@ -159,6 +186,10 @@ const Plans = () => {
     setInterval("monthly"); // ذخیره جدا نداریم؛ برای UI
     setTypeCode(plan.typeCode || "MONTHLY");
     setFeaturesText(plan.features.join("\n"));
+    setDiscountApplyOnEnrollment(plan.discountApplyOnEnrollment);
+    setDiscountPercent(
+      plan.discountPercent != null ? String(plan.discountPercent) : "",
+    );
     setIsEditOpen(true);
   };
 
@@ -298,6 +329,12 @@ const Plans = () => {
                 </Badge>
               )}
             </div>
+            {plan.discountApplyOnEnrollment && plan.discountPercent != null && plan.discountPercent > 0 && (
+              <p className="text-xs text-primary mb-3">
+                ثبت‌نام با تخفیف {plan.discountPercent}٪:{" "}
+                <span className="font-semibold number-display">{plan.enrollmentPriceDisplay}</span> تومان
+              </p>
+            )}
 
             <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
               <div className="flex items-center gap-1">
@@ -431,6 +468,34 @@ const Plans = () => {
                 placeholder="مثلاً:&#10;۴ جلسه مشاوره&#10;پشتیبانی تلگرام"
               />
             </div>
+            <div className="rounded-lg border border-border p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">اعمال تخفیف در ثبت‌نام</p>
+                  <p className="text-xs text-muted-foreground">
+                    در صورت فعال بودن، مبلغ ثبت‌نام دانش‌آموز با این پلن از قیمت پس از تخفیف محاسبه می‌شود.
+                  </p>
+                </div>
+                <Switch
+                  checked={discountApplyOnEnrollment}
+                  onCheckedChange={setDiscountApplyOnEnrollment}
+                />
+              </div>
+              {discountApplyOnEnrollment && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    درصد تخفیف (۱ تا ۱۰۰)
+                  </label>
+                  <Input
+                    value={discountPercent}
+                    onChange={(e) => setDiscountPercent(e.target.value)}
+                    placeholder="مثلاً ۱۰"
+                    inputMode="decimal"
+                    dir="ltr"
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -441,24 +506,38 @@ const Plans = () => {
               انصراف
             </Button>
             <Button
-              onClick={() =>
+              onClick={() => {
+                const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                const discInvalid =
+                  discountApplyOnEnrollment &&
+                  (!Number.isFinite(pct) || pct <= 0 || pct > 100);
+                if (discInvalid) return;
                 createMutation.mutate({
                   name: name.trim(),
                   price_cents: Number(price) * 10,
                   interval,
                   type: typeCode,
                   is_active: true,
+                  discount_apply_on_enrollment: discountApplyOnEnrollment,
+                  ...(discountApplyOnEnrollment && Number.isFinite(pct)
+                    ? { discount_percent: pct }
+                    : {}),
                   features: featuresText
                     .split("\n")
                     .map((f) => f.trim())
                     .filter(Boolean),
-                })
-              }
+                });
+              }}
               disabled={
                 createMutation.isPending ||
                 !name.trim() ||
                 !price.trim() ||
-                isNaN(Number(price))
+                isNaN(Number(price)) ||
+                (discountApplyOnEnrollment &&
+                  (() => {
+                    const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                    return !Number.isFinite(pct) || pct <= 0 || pct > 100;
+                  })())
               }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت پلن"}
@@ -537,6 +616,33 @@ const Plans = () => {
                 onChange={(e) => setFeaturesText(e.target.value)}
               />
             </div>
+            <div className="rounded-lg border border-border p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">اعمال تخفیف در ثبت‌نام</p>
+                  <p className="text-xs text-muted-foreground">
+                    مبلغ ثبت‌نام (enrollment) برای دانش‌آموزان با این پلن بر این اساس به‌روز می‌شود.
+                  </p>
+                </div>
+                <Switch
+                  checked={discountApplyOnEnrollment}
+                  onCheckedChange={setDiscountApplyOnEnrollment}
+                />
+              </div>
+              {discountApplyOnEnrollment && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    درصد تخفیف (۱ تا ۱۰۰)
+                  </label>
+                  <Input
+                    value={discountPercent}
+                    onChange={(e) => setDiscountPercent(e.target.value)}
+                    inputMode="decimal"
+                    dir="ltr"
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -547,8 +653,13 @@ const Plans = () => {
               انصراف
             </Button>
             <Button
-              onClick={() =>
-                selectedPlan &&
+              onClick={() => {
+                if (!selectedPlan) return;
+                const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                const discInvalid =
+                  discountApplyOnEnrollment &&
+                  (!Number.isFinite(pct) || pct <= 0 || pct > 100);
+                if (discInvalid) return;
                 updateMutation.mutate({
                   id: selectedPlan.id,
                   data: {
@@ -556,19 +667,28 @@ const Plans = () => {
                     price_cents: price ? Number(price) * 10 : undefined,
                     interval,
                     type: typeCode,
+                    discount_apply_on_enrollment: discountApplyOnEnrollment,
+                    ...(discountApplyOnEnrollment && Number.isFinite(pct)
+                      ? { discount_percent: pct }
+                      : {}),
                     features: featuresText
                       .split("\n")
                       .map((f) => f.trim())
                       .filter(Boolean),
                   },
-                })
-              }
+                });
+              }}
               disabled={
                 updateMutation.isPending ||
                 !selectedPlan ||
                 !name.trim() ||
                 !price.trim() ||
-                isNaN(Number(price))
+                isNaN(Number(price)) ||
+                (discountApplyOnEnrollment &&
+                  (() => {
+                    const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                    return !Number.isFinite(pct) || pct <= 0 || pct > 100;
+                  })())
               }
             >
               {updateMutation.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}
@@ -595,6 +715,22 @@ const Plans = () => {
                   {viewPlan.priceDisplay} تومان
                 </span>
               </div>
+              {viewPlan.discountApplyOnEnrollment &&
+                viewPlan.discountPercent != null &&
+                viewPlan.discountPercent > 0 && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">تخفیف ثبت‌نام</span>
+                      <span>{viewPlan.discountPercent}٪</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">مبلغ ثبت‌نام پس از تخفیف</span>
+                      <span className="number-display">
+                        {viewPlan.enrollmentPriceDisplay} تومان
+                      </span>
+                    </div>
+                  </>
+                )}
               <div className="pt-2 border-t">
                 <p className="text-xs font-medium text-muted-foreground mb-2">
                   امکانات

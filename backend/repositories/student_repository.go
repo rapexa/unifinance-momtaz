@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
@@ -15,6 +16,8 @@ type StudentRepository interface {
 	Update(ctx context.Context, student *models.Student) error
 	Delete(ctx context.Context, id uint) error
 	Stats(ctx context.Context) (total, active, inactive, debtors int64, err error)
+	// ReplaceActiveEnrollment cancels active enrollments for the student; if planID is non-nil, creates a new ACTIVE row.
+	ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error
 }
 
 type GormStudentRepository struct {
@@ -98,4 +101,25 @@ func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inact
 	return
 }
 
+func (r *GormStudentRepository) ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Enrollment{}).
+			Where("student_id = ? AND status = ?", studentID, models.EnrollmentStatusActive).
+			Update("status", models.EnrollmentStatusCancelled).Error; err != nil {
+			return err
+		}
+		if planID == nil {
+			return nil
+		}
+		e := models.Enrollment{
+			StudentID:  studentID,
+			PlanID:     *planID,
+			StartDate:  time.Now(),
+			EndDate:    nil,
+			Status:     models.EnrollmentStatusActive,
+			PriceCents: priceCents,
+		}
+		return tx.Create(&e).Error
+	})
+}
 

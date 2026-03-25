@@ -42,4 +42,20 @@ func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, de
 	return s.repo.Stats(ctx)
 }
 
+// SyncEnrollmentForStudent aligns ACTIVE enrollment with CurrentPlanID and plan discount rules (ثبت‌نام / انتساب پلن).
+func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID uint) error {
+	st, err := s.repo.FindByID(ctx, studentID)
+	if err != nil {
+		return err
+	}
+	if st.CurrentPlanID == nil {
+		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
+	}
+	if st.CurrentPlan == nil {
+		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
+	}
+	price := models.EffectiveEnrollmentPriceCents(st.CurrentPlan)
+	pid := st.CurrentPlan.ID
+	return s.repo.ReplaceActiveEnrollment(ctx, studentID, &pid, price)
+}
 

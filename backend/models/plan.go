@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"math"
+
+	"gorm.io/gorm"
+)
 
 type PlanType string
 
@@ -18,9 +22,11 @@ type Plan struct {
 	Type   PlanType `gorm:"type:varchar(32);not null;index"`
 	// Price in smallest currency unit (e.g. rials or tomans*10)
 	PriceCents int64 `gorm:"not null;default:0"`
-	// Optional discount percentage (e.g. 10.0 = 10%)
+	// Optional discount percentage (e.g. 10.0 = 10% off list price)
 	DiscountPercent *float64
-	IsActive        bool `gorm:"not null;default:true;index"`
+	// When true, EffectiveEnrollmentPriceCents uses DiscountPercent; otherwise list PriceCents is used for enrollments.
+	DiscountApplyOnEnrollment bool `gorm:"not null;default:false;index"`
+	IsActive                  bool `gorm:"not null;default:true;index"`
 	// Optional limit on number of users/students for this plan
 	MaxUsers *int
 
@@ -30,6 +36,21 @@ type Plan struct {
 	// When a plan is deleted, it's safe to delete enrollments referencing it.
 	Enrollments []Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Features    []PlanFeature `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+}
+
+// EffectiveEnrollmentPriceCents returns the price stored on enrollment rows when a student registers with this plan.
+func EffectiveEnrollmentPriceCents(p *Plan) int64 {
+	if p == nil {
+		return 0
+	}
+	if !p.DiscountApplyOnEnrollment || p.DiscountPercent == nil || *p.DiscountPercent <= 0 {
+		return p.PriceCents
+	}
+	pct := *p.DiscountPercent
+	if pct >= 100 {
+		return 0
+	}
+	return int64(math.Round(float64(p.PriceCents) * (100 - pct) / 100.0))
 }
 
 // PlanFeature represents entries under "امکانات" list in plan cards.

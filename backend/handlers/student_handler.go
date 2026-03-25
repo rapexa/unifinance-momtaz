@@ -289,6 +289,11 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, toStudentDoc(student))
 }
 
@@ -393,6 +398,11 @@ func (h *StudentHandler) Update(c *gin.Context) {
 
 	if err := h.service.Update(c.Request.Context(), student); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update student"})
+		return
+	}
+
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 

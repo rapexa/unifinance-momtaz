@@ -17,6 +17,7 @@ type PlanRepository interface {
 	Update(ctx context.Context, plan *models.Plan, features []string) error
 	Deactivate(ctx context.Context, id uint) error
 	CountEnrollments(ctx context.Context, id uint) (int64, error)
+	UpdateActiveEnrollmentPricesForPlan(ctx context.Context, planID uint, priceCents int64) error
 	Stats(ctx context.Context) (totalPlans, activePlans, activeEnrollments, monthlyRevenueCents int64, err error)
 }
 
@@ -156,6 +157,14 @@ func (r *GormPlanRepository) CountEnrollments(ctx context.Context, id uint) (int
 		return 0, err
 	}
 	return count, nil
+}
+
+// UpdateActiveEnrollmentPricesForPlan sets price_cents on all ACTIVE enrollments for the plan (after discount rules change).
+func (r *GormPlanRepository) UpdateActiveEnrollmentPricesForPlan(ctx context.Context, planID uint, priceCents int64) error {
+	return r.db.WithContext(ctx).
+		Model(&models.Enrollment{}).
+		Where("plan_id = ? AND status = ?", planID, models.EnrollmentStatusActive).
+		Update("price_cents", priceCents).Error
 }
 
 // Stats returns aggregate stats for plans: total, active, active enrollments and current month revenue.

@@ -17,6 +17,7 @@ var (
 	ErrInvalidPlanStatus  = errors.New("invalid plan status")
 	ErrInvalidPlanType    = errors.New("invalid plan type")
 	ErrInvalidPlanInterval = errors.New("invalid plan interval")
+	ErrInvalidPlanDiscount = errors.New("با روشن بودن «اعمال تخفیف در ثبت‌نام»، درصد تخفیف باید بین ۱ و ۱۰۰ باشد")
 )
 
 // PlanService encapsulates business logic for plans.
@@ -54,25 +55,39 @@ func (s *PlanService) GetByID(ctx context.Context, id uint) (*models.Plan, error
 }
 
 type CreatePlanParams struct {
-	Name        string
-	Description string
-	PriceCents  int64
-	Interval    string
-	Type        string
-	IsActive    *bool
-	MaxUsers    *int
-	Features    []string
+	Name                      string
+	Description               string
+	PriceCents                int64
+	Interval                  string
+	Type                      string
+	IsActive                  *bool
+	MaxUsers                  *int
+	Features                  []string
+	DiscountPercent           *float64
+	DiscountApplyOnEnrollment *bool
 }
 
 type UpdatePlanParams struct {
-	Name        *string
-	Description *string
-	PriceCents  *int64
-	Interval    *string
-	Type        *string
-	IsActive    *bool
-	MaxUsers    *int
-	Features    *[]string
+	Name                      *string
+	Description               *string
+	PriceCents                *int64
+	Interval                  *string
+	Type                      *string
+	IsActive                  *bool
+	MaxUsers                  *int
+	Features                  *[]string
+	DiscountPercent           *float64
+	DiscountApplyOnEnrollment *bool
+}
+
+func validatePlanDiscount(apply bool, pct *float64) error {
+	if !apply {
+		return nil
+	}
+	if pct == nil || *pct <= 0 || *pct > 100 {
+		return ErrInvalidPlanDiscount
+	}
+	return nil
 }
 
 func (s *PlanService) Create(ctx context.Context, p CreatePlanParams) (*models.Plan, error) {
@@ -86,11 +101,21 @@ func (s *PlanService) Create(ctx context.Context, p CreatePlanParams) (*models.P
 	planType := models.PlanType(strings.ToUpper(p.Type))
 	interval := strings.ToLower(p.Interval)
 
+	applyDisc := false
+	if p.DiscountApplyOnEnrollment != nil {
+		applyDisc = *p.DiscountApplyOnEnrollment
+	}
+	if err := validatePlanDiscount(applyDisc, p.DiscountPercent); err != nil {
+		return nil, err
+	}
+
 	plan := &models.Plan{
-		Name:       p.Name,
-		Type:       planType,
-		PriceCents: p.PriceCents,
-		IsActive:   true,
+		Name:                      p.Name,
+		Type:                      planType,
+		PriceCents:                p.PriceCents,
+		IsActive:                  true,
+		DiscountApplyOnEnrollment: applyDisc,
+		DiscountPercent:           p.DiscountPercent,
 	}
 	if p.Description != "" {
 		// description field doesn't exist in model; keep for future extension
@@ -139,6 +164,18 @@ func (s *PlanService) Update(ctx context.Context, id uint, p UpdatePlanParams) (
 	if p.MaxUsers != nil {
 		plan.MaxUsers = p.MaxUsers
 	}
+	if p.DiscountApplyOnEnrollment != nil {
+		plan.DiscountApplyOnEnrollment = *p.DiscountApplyOnEnrollment
+		if !plan.DiscountApplyOnEnrollment {
+			plan.DiscountPercent = nil
+		}
+	}
+	if p.DiscountPercent != nil {
+		plan.DiscountPercent = p.DiscountPercent
+	}
+	if err := validatePlanDiscount(plan.DiscountApplyOnEnrollment, plan.DiscountPercent); err != nil {
+		return nil, err
+	}
 
 	features := []string(nil)
 	if p.Features != nil {
@@ -146,6 +183,10 @@ func (s *PlanService) Update(ctx context.Context, id uint, p UpdatePlanParams) (
 	}
 
 	if err := s.repo.Update(ctx, plan, features); err != nil {
+		return nil, err
+	}
+	eff := models.EffectiveEnrollmentPriceCents(plan)
+	if err := s.repo.UpdateActiveEnrollmentPricesForPlan(ctx, plan.ID, eff); err != nil {
 		return nil, err
 	}
 	return plan, nil

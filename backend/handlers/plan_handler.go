@@ -27,11 +27,13 @@ type PlanDTO struct {
 	PriceCents  int64     `json:"price_cents"`
 	Interval    string    `json:"interval"`
 	Type        string    `json:"type,omitempty"`
-	IsActive    bool      `json:"is_active"`
-	MaxUsers    *int      `json:"max_users,omitempty"`
-	Features    []string  `json:"features,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+	IsActive                  bool     `json:"is_active"`
+	MaxUsers                  *int     `json:"max_users,omitempty"`
+	DiscountPercent           *float64 `json:"discount_percent,omitempty"`
+	DiscountApplyOnEnrollment bool     `json:"discount_apply_on_enrollment"`
+	Features                  []string `json:"features,omitempty"`
+	CreatedAt                 time.Time `json:"created_at"`
+	UpdatedAt                 time.Time `json:"updated_at,omitempty"`
 }
 
 // PlanSummaryDTO represents aggregated stats for plans page.
@@ -51,16 +53,18 @@ func planError(c *gin.Context, status int, msg string) {
 
 func toPlanDTO(p *models.Plan, features []string) PlanDTO {
 	dto := PlanDTO{
-		ID:         p.ID,
-		Name:       p.Name,
-		PriceCents: p.PriceCents,
-		Interval:   "", // interval not persisted separately yet
-		Type:       string(p.Type),
-		IsActive:   p.IsActive,
-		MaxUsers:   p.MaxUsers,
-		CreatedAt:  p.CreatedAt,
-		UpdatedAt:  p.UpdatedAt,
-		Features:   features,
+		ID:                        p.ID,
+		Name:                      p.Name,
+		PriceCents:                p.PriceCents,
+		Interval:                  "", // interval not persisted separately yet
+		Type:                      string(p.Type),
+		IsActive:                  p.IsActive,
+		MaxUsers:                  p.MaxUsers,
+		DiscountPercent:           p.DiscountPercent,
+		DiscountApplyOnEnrollment: p.DiscountApplyOnEnrollment,
+		CreatedAt:                 p.CreatedAt,
+		UpdatedAt:                 p.UpdatedAt,
+		Features:                  features,
 	}
 	return dto
 }
@@ -84,8 +88,10 @@ type createPlanRequest struct {
 	Interval    string   `json:"interval" binding:"required,oneof=monthly yearly"`
 	Type        string   `json:"type" binding:"omitempty,max=50"`
 	IsActive    *bool    `json:"is_active" binding:"omitempty"`
-	MaxUsers    *int     `json:"max_users" binding:"omitempty"`
-	Features    []string `json:"features" binding:"omitempty,dive,required"`
+	MaxUsers                  *int     `json:"max_users" binding:"omitempty"`
+	DiscountPercent           *float64 `json:"discount_percent" binding:"omitempty"`
+	DiscountApplyOnEnrollment *bool    `json:"discount_apply_on_enrollment" binding:"omitempty"`
+	Features                  []string `json:"features" binding:"omitempty,dive,required"`
 }
 
 type updatePlanRequest struct {
@@ -95,8 +101,10 @@ type updatePlanRequest struct {
 	Interval    *string   `json:"interval" binding:"omitempty,oneof=monthly yearly"`
 	Type        *string   `json:"type" binding:"omitempty,max=50"`
 	IsActive    *bool     `json:"is_active" binding:"omitempty"`
-	MaxUsers    *int      `json:"max_users" binding:"omitempty"`
-	Features    *[]string `json:"features" binding:"omitempty,dive,required"`
+	MaxUsers                  *int      `json:"max_users" binding:"omitempty"`
+	DiscountPercent           *float64  `json:"discount_percent" binding:"omitempty"`
+	DiscountApplyOnEnrollment *bool     `json:"discount_apply_on_enrollment" binding:"omitempty"`
+	Features                  *[]string `json:"features" binding:"omitempty,dive,required"`
 }
 
 // List handles GET /plans
@@ -223,14 +231,16 @@ func (h *PlanHandler) Create(c *gin.Context) {
 	}
 
 	params := services.CreatePlanParams{
-		Name:        req.Name,
-		Description: req.Description,
-		PriceCents:  req.PriceCents,
-		Interval:    req.Interval,
-		Type:        req.Type,
-		IsActive:    req.IsActive,
-		MaxUsers:    req.MaxUsers,
-		Features:    req.Features,
+		Name:                      req.Name,
+		Description:               req.Description,
+		PriceCents:                req.PriceCents,
+		Interval:                  req.Interval,
+		Type:                      req.Type,
+		IsActive:                  req.IsActive,
+		MaxUsers:                  req.MaxUsers,
+		Features:                  req.Features,
+		DiscountPercent:           req.DiscountPercent,
+		DiscountApplyOnEnrollment: req.DiscountApplyOnEnrollment,
 	}
 
 	p, err := h.service.Create(c.Request.Context(), params)
@@ -238,6 +248,8 @@ func (h *PlanHandler) Create(c *gin.Context) {
 		switch err {
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
+		case services.ErrInvalidPlanDiscount:
+			planError(c, http.StatusBadRequest, err.Error())
 		default:
 			planError(c, http.StatusInternalServerError, "failed to create plan")
 		}
@@ -285,14 +297,16 @@ func (h *PlanHandler) Update(c *gin.Context) {
 	}
 
 	params := services.UpdatePlanParams{
-		Name:        req.Name,
-		Description: req.Description,
-		PriceCents:  req.PriceCents,
-		Interval:    req.Interval,
-		Type:        req.Type,
-		IsActive:    req.IsActive,
-		MaxUsers:    req.MaxUsers,
-		Features:    &features,
+		Name:                      req.Name,
+		Description:               req.Description,
+		PriceCents:                req.PriceCents,
+		Interval:                  req.Interval,
+		Type:                      req.Type,
+		IsActive:                  req.IsActive,
+		MaxUsers:                  req.MaxUsers,
+		Features:                  &features,
+		DiscountPercent:           req.DiscountPercent,
+		DiscountApplyOnEnrollment: req.DiscountApplyOnEnrollment,
 	}
 
 	p, err := h.service.Update(c.Request.Context(), uint(id), params)
@@ -302,6 +316,8 @@ func (h *PlanHandler) Update(c *gin.Context) {
 			planError(c, http.StatusNotFound, "plan not found")
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
+		case services.ErrInvalidPlanDiscount:
+			planError(c, http.StatusBadRequest, err.Error())
 		default:
 			planError(c, http.StatusInternalServerError, "failed to update plan")
 		}
