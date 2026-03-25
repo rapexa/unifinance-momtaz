@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -45,6 +46,8 @@ type StudentDoc struct {
 	CurrentPlanName string `json:"current_plan_name,omitempty"`
 	CurrentPlanID   *uint  `json:"current_plan_id,omitempty"`
 	BalanceCents    int64  `json:"balance_cents"`
+	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
+	AdvisoryStartDate string `json:"advisory_start_date,omitempty"`
 }
 
 // toStudentDoc converts a Student model to a public DTO.
@@ -75,6 +78,9 @@ func toStudentDoc(s *models.Student) StudentDoc {
 	}
 	if s.CurrentPlan != nil {
 		doc.CurrentPlanName = s.CurrentPlan.Name
+	}
+	if s.JoinDate != nil {
+		doc.AdvisoryStartDate = s.JoinDate.Format("2006-01-02")
 	}
 	return doc
 }
@@ -234,6 +240,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
 		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
 		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
+		AdvisoryStartDate           string   `json:"advisory_start_date" binding:"omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -264,6 +271,13 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		student.BalanceCents = *payload.BalanceCents
 	}
 	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
+
+	joinDate, err := advisoryStartDateForCreate(payload.AdvisoryStartDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	student.JoinDate = joinDate
 
 	if err := normalizeStudentAdvisorCommission(student); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -321,6 +335,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
 		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
 		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
+		AdvisoryStartDate           *string  `json:"advisory_start_date,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -362,6 +377,12 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	}
 	if payload.BalanceCents != nil {
 		student.BalanceCents = *payload.BalanceCents
+	}
+	if payload.AdvisoryStartDate != nil {
+		if err := applyAdvisoryStartDateUpdate(student, *payload.AdvisoryStartDate); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, false)
 
@@ -413,6 +434,40 @@ func (h *StudentHandler) Delete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func todayLocalMidnight() time.Time {
+	now := time.Now()
+	y, m, d := now.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+}
+
+// advisoryStartDateForCreate: empty payload → today at local midnight; else parse YYYY-MM-DD.
+func advisoryStartDateForCreate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		t := todayLocalMidnight()
+		return &t, nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("تاریخ شروع مشاوره نامعتبر است (فرمت: YYYY-MM-DD)")
+	}
+	return &t, nil
+}
+
+func applyAdvisoryStartDateUpdate(st *models.Student, raw string) error {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		st.JoinDate = nil
+		return nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return fmt.Errorf("تاریخ شروع مشاوره نامعتبر است (فرمت: YYYY-MM-DD)")
+	}
+	st.JoinDate = &t
+	return nil
 }
 
 func applyAdvisorCommissionPayload(st *models.Student, kind string, pct *float64, fix *int64, isCreate bool) {

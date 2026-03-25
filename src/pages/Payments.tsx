@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
   Copy,
   Eye,
   Pencil,
+  ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -237,6 +238,25 @@ const Payments = () => {
   const [createStatus, setCreateStatus] = useState("PENDING");
   const [createDescription, setCreateDescription] = useState("");
   const [createDueDate, setCreateDueDate] = useState("");
+  const [studentSearchInput, setStudentSearchInput] = useState("");
+  const [debouncedStudentSearch, setDebouncedStudentSearch] = useState("");
+  const [studentComboOpen, setStudentComboOpen] = useState(false);
+  const [createStudentLabel, setCreateStudentLabel] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedStudentSearch(studentSearchInput), 300);
+    return () => clearTimeout(t);
+  }, [studentSearchInput]);
+
+  useEffect(() => {
+    if (isCreateOpen) {
+      setStudentSearchInput("");
+      setDebouncedStudentSearch("");
+      setStudentComboOpen(false);
+      setCreateStudentId("");
+      setCreateStudentLabel("");
+    }
+  }, [isCreateOpen]);
 
   const statusParam = activeTab === "all" ? undefined : activeTab.toUpperCase();
 
@@ -273,9 +293,14 @@ const Payments = () => {
     queryFn: getPaymentsSummary,
   });
 
-  const { data: studentsData } = useQuery({
-    queryKey: ["students", { forSelect: true }],
-    queryFn: () => listStudents({ page: 1, page_size: 500 }),
+  const { data: studentsPickData } = useQuery({
+    queryKey: ["students", "payment-picker", debouncedStudentSearch],
+    queryFn: () =>
+      listStudents({
+        search: debouncedStudentSearch.trim() || undefined,
+        page: 1,
+        page_size: 50,
+      }),
     enabled: isCreateOpen,
   });
 
@@ -291,6 +316,7 @@ const Payments = () => {
       setCreateStatus("PENDING");
       setCreateDescription("");
       setCreateDueDate("");
+      setCreateStudentLabel("");
     },
   });
 
@@ -382,7 +408,7 @@ const Payments = () => {
   ]);
 
   const payments: PaymentApi[] = listData?.data ?? [];
-  const students = studentsData?.data ?? [];
+  const pickStudents = studentsPickData?.data ?? [];
 
   return (
     <MainLayout title="پرداخت‌ها" subtitle="مدیریت دریافت و ثبت پرداخت‌ها">
@@ -711,25 +737,70 @@ const Payments = () => {
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <label className="text-sm font-medium">دانش‌آموز</label>
-              <Select
-                value={createStudentId}
-                onValueChange={setCreateStudentId}
-                required
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="انتخاب دانش‌آموز" />
-                </SelectTrigger>
-                <SelectContent>
-                  {students.map((s) => (
-                    <SelectItem
-                      key={s.id}
-                      value={String(s.id)}
-                    >
-                      {[s.first_name, s.last_name].filter(Boolean).join(" ") || `دانش‌آموز ${s.id}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={studentComboOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    <span className={cn(!createStudentLabel && "text-muted-foreground")}>
+                      {createStudentLabel || "جستجو و انتخاب دانش‌آموز"}
+                    </span>
+                    <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <div className="flex items-center border-b px-2">
+                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Input
+                      className="border-0 shadow-none focus-visible:ring-0"
+                      placeholder="نام، موبایل یا ایمیل..."
+                      value={studentSearchInput}
+                      onChange={(e) => setStudentSearchInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto p-1">
+                    {pickStudents.length === 0 ? (
+                      <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                        دانش‌آموزی یافت نشد
+                      </p>
+                    ) : (
+                      pickStudents.map((s) => {
+                        const label =
+                          [s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                          `دانش‌آموز ${s.id}`;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={cn(
+                              "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-right text-sm hover:bg-muted",
+                              createStudentId === String(s.id) && "bg-muted"
+                            )}
+                            onClick={() => {
+                              setCreateStudentId(String(s.id));
+                              setCreateStudentLabel(
+                                s.phone ? `${label} — ${s.phone}` : label
+                              );
+                              setStudentComboOpen(false);
+                            }}
+                          >
+                            <span>{label}</span>
+                            {s.phone ? (
+                              <span className="text-xs text-muted-foreground" dir="ltr">
+                                {s.phone}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">مبلغ (تومان)</label>

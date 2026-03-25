@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -65,12 +65,21 @@ interface StudentRow {
   plan: string;
   balance: string;
   status: "active" | "inactive";
+  advisoryStart: string;
 }
 
 function formatBalance(cents: number | undefined): string {
   const n = cents ?? 0;
   const s = Math.abs(n).toLocaleString("fa-IR");
   return n < 0 ? `-${s}` : s;
+}
+
+function todayIsoDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 type AdvisorCommKind = "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
@@ -82,6 +91,15 @@ function parseCommKind(raw: string | undefined): AdvisorCommKind {
 
 function mapStudent(api: StudentApi): StudentRow {
   const name = `${api.first_name ?? ""} ${api.last_name ?? ""}`.trim();
+  let advisoryStart = "—";
+  if (api.advisory_start_date) {
+    const [yy, mm, dd] = api.advisory_start_date.split("-").map(Number);
+    if (yy && mm && dd) {
+      advisoryStart = new Date(yy, mm - 1, dd).toLocaleDateString("fa-IR");
+    } else {
+      advisoryStart = api.advisory_start_date;
+    }
+  }
   return {
     id: api.id,
     name: name || "بدون نام",
@@ -91,6 +109,7 @@ function mapStudent(api: StudentApi): StudentRow {
     plan: api.current_plan_name?.trim() || "—",
     balance: formatBalance(api.balance_cents),
     status: api.status === "INACTIVE" ? "inactive" : "active",
+    advisoryStart,
   };
 }
 
@@ -133,6 +152,9 @@ function EditStudentForm({
   const [commFixed, setCommFixed] = useState(
     student.advisor_commission_fixed_cents != null ? String(student.advisor_commission_fixed_cents) : ""
   );
+  const [advisoryStartDate, setAdvisoryStartDate] = useState(
+    student.advisory_start_date || ""
+  );
 
   const advisorSelected = advisorId !== "none";
   const commissionInvalid =
@@ -166,6 +188,10 @@ function EditStudentForm({
             <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
           </div>
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
+          <Input type="date" value={advisoryStartDate} onChange={(e) => setAdvisoryStartDate(e.target.value)} dir="ltr" />
         </div>
       </div>
 
@@ -318,6 +344,7 @@ function EditStudentForm({
         </Button>
         <Button
           onClick={() => {
+            const advTrim = advisoryStartDate.trim();
             const payload: UpdateStudentPayload = {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
@@ -335,6 +362,11 @@ function EditStudentForm({
               current_plan_id: planId === "none" ? null : Number(planId),
               balance_cents: Number(balance) || 0,
             };
+            if (advTrim) {
+              payload.advisory_start_date = advTrim;
+            } else if (student.advisory_start_date) {
+              payload.advisory_start_date = "";
+            }
             if (advisorSelected) {
               payload.advisor_commission_kind = advisorCommKind;
               if (advisorCommKind === "PERCENT") {
@@ -382,8 +414,15 @@ const Students = () => {
   const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>("NONE");
   const [commPercent, setCommPercent] = useState("");
   const [commFixed, setCommFixed] = useState("");
+  const [createAdvisoryStartDate, setCreateAdvisoryStartDate] = useState(todayIsoDate);
 
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (isCreateOpen) {
+      setCreateAdvisoryStartDate(todayIsoDate());
+    }
+  }, [isCreateOpen]);
 
   const { data: detailsStudentData } = useQuery({
     queryKey: ["student", detailsStudentId],
@@ -475,6 +514,7 @@ const Students = () => {
       setAdvisorCommKind("NONE");
       setCommPercent("");
       setCommFixed("");
+      setCreateAdvisoryStartDate(todayIsoDate());
     },
   });
 
@@ -608,6 +648,10 @@ const Students = () => {
                   <Phone className="h-4 w-4" />
                   <span dir="ltr">{student.phone}</span>
                 </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  <span>شروع مشاوره: {student.advisoryStart}</span>
+                </div>
               </div>
               <div className="mt-4 pt-4 border-t flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">مانده حساب</span>
@@ -634,6 +678,7 @@ const Students = () => {
                 <tr className="border-b bg-muted/50">
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموز</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">تماس</th>
+                  <th className="p-4 text-right text-xs font-semibold text-muted-foreground">شروع مشاوره</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مشاور</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پلن</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مانده حساب</th>
@@ -661,6 +706,7 @@ const Students = () => {
                     <td className="p-4 text-muted-foreground" dir="ltr">
                       {student.phone}
                     </td>
+                    <td className="p-4 text-muted-foreground text-sm">{student.advisoryStart}</td>
                     <td className="p-4 text-foreground">{student.advisor}</td>
                     <td className="p-4">
                       <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
@@ -750,6 +796,17 @@ const Students = () => {
               <p><span className="text-muted-foreground">اسم مدرسه:</span> {detailsStudentData.school_name || "—"}</p>
               <p><span className="text-muted-foreground">آدرس مدرسه:</span> {detailsStudentData.school_address || "—"}</p>
               <p><span className="text-muted-foreground">آدرس خانه:</span> {detailsStudentData.home_address || "—"}</p>
+              <p>
+                <span className="text-muted-foreground">تاریخ شروع مشاوره:</span>{" "}
+                {detailsStudentData.advisory_start_date
+                  ? (() => {
+                      const [y, m, d] = detailsStudentData.advisory_start_date.split("-").map(Number);
+                      return y && m && d
+                        ? new Date(y, m - 1, d).toLocaleDateString("fa-IR")
+                        : detailsStudentData.advisory_start_date;
+                    })()
+                  : "—"}
+              </p>
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
               {detailsStudentData.advisor_id != null && (
                 <p>
@@ -846,6 +903,16 @@ const Students = () => {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">موبایل</label>
                   <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
                 </div>
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
+                <Input
+                  type="date"
+                  value={createAdvisoryStartDate}
+                  onChange={(e) => setCreateAdvisoryStartDate(e.target.value)}
+                  dir="ltr"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">پیش‌فرض: امروز — در صورت نیاز قابل تغییر است.</p>
               </div>
             </div>
 
@@ -1019,6 +1086,7 @@ const Students = () => {
                   school_name: schoolName.trim() || undefined,
                   school_address: schoolAddress.trim() || undefined,
                   home_address: homeAddress.trim() || undefined,
+                  advisory_start_date: createAdvisoryStartDate.trim() || undefined,
                   advisor_id: advisorId ? Number(advisorId) : undefined,
                   ...(createAdvisorSelected
                     ? {

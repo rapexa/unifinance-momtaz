@@ -33,6 +33,8 @@ export interface StudentApi {
   current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
+  /** YYYY-MM-DD — تاریخ شروع مشاوره */
+  advisory_start_date?: string;
 }
 
 export interface StudentsSummary {
@@ -109,6 +111,7 @@ export interface CreateStudentPayload {
   advisor_commission_fixed_cents?: number;
   current_plan_id?: number;
   balance_cents?: number;
+  advisory_start_date?: string;
 }
 
 export async function createStudent(
@@ -188,6 +191,7 @@ export interface UpdateStudentPayload {
   advisor_commission_fixed_cents?: number;
   current_plan_id?: number | null;
   balance_cents?: number;
+  advisory_start_date?: string;
 }
 
 export async function updateStudent(

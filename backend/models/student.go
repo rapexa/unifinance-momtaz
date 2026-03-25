@@ -61,7 +61,8 @@ type Student struct {
 	Email     string        `gorm:"size:255;index"`
 	Phone     string        `gorm:"size:20;index"`
 	Status    StudentStatus `gorm:"type:varchar(32);not null;default:'ACTIVE';index"`
-	JoinDate  *time.Time
+	// JoinDate is the advisory/consulting start date (calendar day; time is normalized to local midnight).
+	JoinDate *time.Time
 
 	// Parent contacts
 	FatherPhone string `gorm:"size:20"`
