@@ -296,4 +296,3 @@ func parseMonthRangeOrDefault(c *gin.Context) (time.Time, time.Time, bool) {
 
 	return from, to, true
 }
-

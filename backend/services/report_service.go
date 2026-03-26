@@ -18,9 +18,9 @@ type RevenuePoint struct {
 
 // PayrollPoint represents a single point in a payroll time series.
 type PayrollPoint struct {
-	Year          int   `json:"year"`
-	Month         int   `json:"month"`
-	PayrollCents  int64 `json:"payroll_cents"`
+	Year         int   `json:"year"`
+	Month        int   `json:"month"`
+	PayrollCents int64 `json:"payroll_cents"`
 }
 
 // AdvisorDebt aggregates student debts per advisor (for reports).
@@ -40,23 +40,23 @@ type ReportSummary struct {
 
 // PaidPaymentDetail is one PAID payment row for reports (دریافتی‌ها / پرداخت دانش‌آموز).
 type PaidPaymentDetail struct {
-	ID            uint       `json:"id"`
-	PaidAt        *time.Time `json:"paid_at"`
-	AmountCents   int64      `json:"amount_cents"`
-	Method        string     `json:"method"`
-	StudentID     uint       `json:"student_id"`
-	StudentName   string     `json:"student_name"`
-	Description   string     `json:"description,omitempty"`
-	AdvisorName   string     `json:"advisor_name,omitempty"`
+	ID          uint       `json:"id"`
+	PaidAt      *time.Time `json:"paid_at"`
+	AmountCents int64      `json:"amount_cents"`
+	Method      string     `json:"method"`
+	StudentID   uint       `json:"student_id"`
+	StudentName string     `json:"student_name"`
+	Description string     `json:"description,omitempty"`
+	AdvisorName string     `json:"advisor_name,omitempty"`
 }
 
 // RevenueByStudent aggregates paid amounts per student in a period.
 type RevenueByStudent struct {
-	StudentID       uint   `json:"student_id"`
-	StudentName     string `json:"student_name"`
-	TotalCents      int64  `json:"total_cents"`
-	PaymentCount    int64  `json:"payment_count"`
-	AdvisorName     string `json:"advisor_name,omitempty"`
+	StudentID    uint   `json:"student_id"`
+	StudentName  string `json:"student_name"`
+	TotalCents   int64  `json:"total_cents"`
+	PaymentCount int64  `json:"payment_count"`
+	AdvisorName  string `json:"advisor_name,omitempty"`
 }
 
 // PayrollLineDetail is one payroll entry in a period (کی چقدر حقوق).
@@ -171,10 +171,10 @@ func (s *ReportService) GetPayrollSeries(ctx context.Context, from, to time.Time
 func (s *ReportService) GetAdvisorDebts(ctx context.Context, month time.Time) ([]AdvisorDebt, error) {
 	// For now, we use the current student BalanceCents snapshot, not a historical value.
 	type row struct {
-		AdvisorID  uint
-		FirstName  string
-		LastName   string
-		DebtCents  int64
+		AdvisorID uint
+		FirstName string
+		LastName  string
+		DebtCents int64
 	}
 
 	var rows []row
@@ -392,11 +392,11 @@ func (s *ReportService) GetPayrollLinesInRange(ctx context.Context, from, to tim
 func (s *ReportService) GetPayrollByUser(ctx context.Context, from, to time.Time) ([]PayrollByUserSummary, error) {
 	fromKey, toKey := monthRangeKeys(from, to)
 	type agg struct {
-		UserID   uint
-		Total    int64
-		Paid     int64
-		Pending  int64
-		Cnt      int64
+		UserID  uint
+		Total   int64
+		Paid    int64
+		Pending int64
+		Cnt     int64
 	}
 	var aggs []agg
 	// MySQL: conditional sum
