@@ -24,49 +24,61 @@ func NewStudentHandler(service *services.StudentService, payments *services.Paym
 
 // StudentDoc is a simplified representation of Student for Swagger docs and API responses.
 type StudentDoc struct {
-	ID              uint   `json:"id"`
-	FirstName       string `json:"first_name"`
-	LastName        string `json:"last_name"`
-	Email           string `json:"email,omitempty"`
-	Phone           string `json:"phone,omitempty"`
-	Status          string `json:"status"`
-	FatherPhone     string `json:"father_phone,omitempty"`
-	MotherPhone     string `json:"mother_phone,omitempty"`
-	FatherJob       string `json:"father_job,omitempty"`
-	MotherJob       string `json:"mother_job,omitempty"`
-	SchoolName      string `json:"school_name,omitempty"`
-	SchoolAddress   string `json:"school_address,omitempty"`
-	HomeAddress     string `json:"home_address,omitempty"`
-	AdvisorName     string `json:"advisor_name,omitempty"`
-	AdvisorID       *uint  `json:"advisor_id,omitempty"`
+	ID            uint   `json:"id"`
+	FirstName     string `json:"first_name"`
+	LastName      string `json:"last_name"`
+	Email         string `json:"email,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+	Status        string `json:"status"`
+	FatherPhone   string `json:"father_phone,omitempty"`
+	MotherPhone   string `json:"mother_phone,omitempty"`
+	FatherJob     string `json:"father_job,omitempty"`
+	MotherJob     string `json:"mother_job,omitempty"`
+	SchoolName    string `json:"school_name,omitempty"`
+	SchoolAddress string `json:"school_address,omitempty"`
+	HomeAddress   string `json:"home_address,omitempty"`
+	AdvisorName   string `json:"advisor_name,omitempty"`
+	AdvisorID     *uint  `json:"advisor_id,omitempty"`
 	// Per paid payment: how the assigned advisor is compensated (see models.StudentAdvisorCommissionKind).
-	AdvisorCommissionKind         string   `json:"advisor_commission_kind,omitempty"`
-	AdvisorCommissionPercent      *float64 `json:"advisor_commission_percent,omitempty"`
+	AdvisorCommissionKind       string   `json:"advisor_commission_kind,omitempty"`
+	AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent,omitempty"`
 	AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents,omitempty"`
-	CurrentPlanName string `json:"current_plan_name,omitempty"`
-	CurrentPlanID   *uint  `json:"current_plan_id,omitempty"`
-	BalanceCents    int64  `json:"balance_cents"`
+	CurrentPlanName             string   `json:"current_plan_name,omitempty"`
+	CurrentPlanID               *uint    `json:"current_plan_id,omitempty"`
+	BalanceCents                int64    `json:"balance_cents"`
 	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
-	AdvisoryStartDate string `json:"advisory_start_date,omitempty"`
+	AdvisoryStartDate string                 `json:"advisory_start_date,omitempty"`
+	RolePayouts       []StudentRolePayoutDoc `json:"role_payouts,omitempty"`
+}
+
+type StudentRolePayoutDoc struct {
+	ID         uint     `json:"id"`
+	RoleID     uint     `json:"role_id"`
+	RoleName   string   `json:"role_name,omitempty"`
+	UserID     uint     `json:"user_id"`
+	UserName   string   `json:"user_name,omitempty"`
+	AmountKind string   `json:"amount_kind"`
+	Percent    *float64 `json:"percent,omitempty"`
+	FixedCents *int64   `json:"fixed_cents,omitempty"`
 }
 
 // toStudentDoc converts a Student model to a public DTO.
 func toStudentDoc(s *models.Student) StudentDoc {
 	doc := StudentDoc{
-		ID:            s.ID,
-		FirstName:     s.FirstName,
-		LastName:      s.LastName,
-		Email:         s.Email,
-		Phone:         s.Phone,
-		Status:        string(s.Status),
-		FatherPhone:   s.FatherPhone,
-		MotherPhone:   s.MotherPhone,
-		FatherJob:     s.FatherJob,
-		MotherJob:     s.MotherJob,
-		SchoolName:    s.SchoolName,
-		SchoolAddress: s.SchoolAddress,
-		HomeAddress:   s.HomeAddress,
-		BalanceCents:  s.BalanceCents,
+		ID:                          s.ID,
+		FirstName:                   s.FirstName,
+		LastName:                    s.LastName,
+		Email:                       s.Email,
+		Phone:                       s.Phone,
+		Status:                      string(s.Status),
+		FatherPhone:                 s.FatherPhone,
+		MotherPhone:                 s.MotherPhone,
+		FatherJob:                   s.FatherJob,
+		MotherJob:                   s.MotherJob,
+		SchoolName:                  s.SchoolName,
+		SchoolAddress:               s.SchoolAddress,
+		HomeAddress:                 s.HomeAddress,
+		BalanceCents:                s.BalanceCents,
 		AdvisorID:                   s.AdvisorID,
 		AdvisorCommissionKind:       string(s.AdvisorCommissionKind),
 		AdvisorCommissionPercent:    s.AdvisorCommissionPercent,
@@ -81,6 +93,26 @@ func toStudentDoc(s *models.Student) StudentDoc {
 	}
 	if s.JoinDate != nil {
 		doc.AdvisoryStartDate = s.JoinDate.Format("2006-01-02")
+	}
+	if len(s.StudentRolePayouts) > 0 {
+		doc.RolePayouts = make([]StudentRolePayoutDoc, 0, len(s.StudentRolePayouts))
+		for _, rp := range s.StudentRolePayouts {
+			item := StudentRolePayoutDoc{
+				ID:         rp.ID,
+				RoleID:     rp.RoleID,
+				UserID:     rp.UserID,
+				AmountKind: string(rp.AmountKind),
+				Percent:    rp.Percent,
+				FixedCents: rp.FixedCents,
+			}
+			if rp.Role != nil {
+				item.RoleName = rp.Role.Name
+			}
+			if rp.User != nil {
+				item.UserName = strings.TrimSpace(rp.User.FirstName + " " + rp.User.LastName)
+			}
+			doc.RolePayouts = append(doc.RolePayouts, item)
+		}
 	}
 	return doc
 }
@@ -98,6 +130,7 @@ type StudentStatsDoc struct {
 	Total    int64 `json:"total"`
 	Active   int64 `json:"active"`
 	Inactive int64 `json:"inactive"`
+	Deleted  int64 `json:"deleted"`
 	Debtors  int64 `json:"debtors"`
 }
 
@@ -164,7 +197,7 @@ func (h *StudentHandler) List(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /students/summary [get]
 func (h *StudentHandler) Summary(c *gin.Context) {
-	total, active, inactive, debtors, err := h.service.Stats(c.Request.Context())
+	total, active, inactive, deleted, debtors, err := h.service.Stats(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students summary"})
 		return
@@ -174,6 +207,7 @@ func (h *StudentHandler) Summary(c *gin.Context) {
 		Total:    total,
 		Active:   active,
 		Inactive: inactive,
+		Deleted:  deleted,
 		Debtors:  debtors,
 	})
 }
@@ -223,24 +257,25 @@ func (h *StudentHandler) Get(c *gin.Context) {
 // @Router       /students [post]
 func (h *StudentHandler) Create(c *gin.Context) {
 	var payload struct {
-		FirstName                   string   `json:"first_name" binding:"required,min=2,max=100"`
-		LastName                    string   `json:"last_name" binding:"required,min=2,max=100"`
-		Email                       string   `json:"email" binding:"omitempty,email,max=255"`
-		Phone                       string   `json:"phone" binding:"omitempty,max=20"`
-		FatherPhone                 string   `json:"father_phone" binding:"omitempty,max=20"`
-		MotherPhone                 string   `json:"mother_phone" binding:"omitempty,max=20"`
-		FatherJob                   string   `json:"father_job" binding:"omitempty,max=120"`
-		MotherJob                   string   `json:"mother_job" binding:"omitempty,max=120"`
-		SchoolName                  string   `json:"school_name" binding:"omitempty,max=200"`
-		SchoolAddress               string   `json:"school_address" binding:"omitempty,max=500"`
-		HomeAddress                 string   `json:"home_address" binding:"omitempty,max=500"`
-		AdvisorID                   *uint    `json:"advisor_id" binding:"omitempty"`
-		AdvisorCommissionKind       string   `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
-		AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent" binding:"omitempty"`
-		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
-		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
-		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
-		AdvisoryStartDate           string   `json:"advisory_start_date" binding:"omitempty"`
+		FirstName                   string                     `json:"first_name" binding:"required,min=2,max=100"`
+		LastName                    string                     `json:"last_name" binding:"required,min=2,max=100"`
+		Email                       string                     `json:"email" binding:"omitempty,email,max=255"`
+		Phone                       string                     `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone                 string                     `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone                 string                     `json:"mother_phone" binding:"omitempty,max=20"`
+		FatherJob                   string                     `json:"father_job" binding:"omitempty,max=120"`
+		MotherJob                   string                     `json:"mother_job" binding:"omitempty,max=120"`
+		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
+		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
+		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
+		AdvisoryStartDate           string                     `json:"advisory_start_date" binding:"omitempty"`
+		RolePayouts                 []studentRolePayoutPayload `json:"role_payouts"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -288,6 +323,15 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create student"})
 		return
 	}
+	rows, err := normalizeStudentRolePayoutPayloads(payload.RolePayouts)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.ReplaceStudentRolePayouts(c.Request.Context(), student.ID, rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save role payouts"})
+		return
+	}
 
 	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
@@ -322,25 +366,26 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	}
 
 	var payload struct {
-		FirstName                   string   `json:"first_name" binding:"required,min=2,max=100"`
-		LastName                    string   `json:"last_name" binding:"required,min=2,max=100"`
-		Email                       string   `json:"email" binding:"omitempty,email,max=255"`
-		Phone                       string   `json:"phone" binding:"omitempty,max=20"`
-		FatherPhone                 string   `json:"father_phone" binding:"omitempty,max=20"`
-		MotherPhone                 string   `json:"mother_phone" binding:"omitempty,max=20"`
-		FatherJob                   string   `json:"father_job" binding:"omitempty,max=120"`
-		MotherJob                   string   `json:"mother_job" binding:"omitempty,max=120"`
-		SchoolName                  string   `json:"school_name" binding:"omitempty,max=200"`
-		SchoolAddress               string   `json:"school_address" binding:"omitempty,max=500"`
-		HomeAddress                 string   `json:"home_address" binding:"omitempty,max=500"`
-		Status                      string   `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE"`
-		AdvisorID                   *uint    `json:"advisor_id" binding:"omitempty"`
-		AdvisorCommissionKind       string   `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
-		AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent" binding:"omitempty"`
-		AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents" binding:"omitempty"`
-		CurrentPlanID               *uint    `json:"current_plan_id" binding:"omitempty"`
-		BalanceCents                *int64   `json:"balance_cents" binding:"omitempty"`
-		AdvisoryStartDate           *string  `json:"advisory_start_date,omitempty"`
+		FirstName                   string                     `json:"first_name" binding:"required,min=2,max=100"`
+		LastName                    string                     `json:"last_name" binding:"required,min=2,max=100"`
+		Email                       string                     `json:"email" binding:"omitempty,email,max=255"`
+		Phone                       string                     `json:"phone" binding:"omitempty,max=20"`
+		FatherPhone                 string                     `json:"father_phone" binding:"omitempty,max=20"`
+		MotherPhone                 string                     `json:"mother_phone" binding:"omitempty,max=20"`
+		FatherJob                   string                     `json:"father_job" binding:"omitempty,max=120"`
+		MotherJob                   string                     `json:"mother_job" binding:"omitempty,max=120"`
+		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
+		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
+		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		Status                      string                     `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE DELETED"`
+		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
+		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
+		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
+		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
+		AdvisoryStartDate           *string                    `json:"advisory_start_date,omitempty"`
+		RolePayouts                 []studentRolePayoutPayload `json:"role_payouts"`
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -353,8 +398,6 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
 		return
 	}
-
-	beforeSnap := snapshotStudentCommission(student)
 
 	student.FirstName = payload.FirstName
 	student.LastName = payload.LastName
@@ -400,13 +443,22 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update student"})
 		return
 	}
+	rows, err := normalizeStudentRolePayoutPayloads(payload.RolePayouts)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.ReplaceStudentRolePayouts(c.Request.Context(), student.ID, rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save role payouts"})
+		return
+	}
 
 	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 
-	if h.payments != nil && !beforeSnap.equals(student) {
+	if h.payments != nil {
 		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), uint(id))
 	}
 
@@ -532,6 +584,53 @@ func normalizeStudentAdvisorCommission(st *models.Student) error {
 	}
 }
 
+type studentRolePayoutPayload struct {
+	RoleID     uint     `json:"role_id"`
+	UserID     uint     `json:"user_id"`
+	AmountKind string   `json:"amount_kind"`
+	Percent    *float64 `json:"percent"`
+	FixedCents *int64   `json:"fixed_cents"`
+}
+
+func normalizeStudentRolePayoutPayloads(items []studentRolePayoutPayload) ([]models.StudentRolePayout, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	rows := make([]models.StudentRolePayout, 0, len(items))
+	seen := map[uint]struct{}{}
+	for i, it := range items {
+		if it.RoleID == 0 || it.UserID == 0 {
+			return nil, fmt.Errorf("ردیف %d سهم نقش/کاربر ناقص است", i+1)
+		}
+		if _, ok := seen[it.UserID]; ok {
+			return nil, fmt.Errorf("کاربر تکراری در سهم‌های نقش ثبت شده است")
+		}
+		seen[it.UserID] = struct{}{}
+		kind := models.StudentAdvisorCommissionKind(strings.ToUpper(strings.TrimSpace(it.AmountKind)))
+		row := models.StudentRolePayout{
+			RoleID:     it.RoleID,
+			UserID:     it.UserID,
+			AmountKind: kind,
+		}
+		switch kind {
+		case models.StudentAdvisorCommPercent:
+			if it.Percent == nil || *it.Percent <= 0 || *it.Percent > 100 {
+				return nil, fmt.Errorf("درصد سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
+			}
+			row.Percent = it.Percent
+		case models.StudentAdvisorCommFixed:
+			if it.FixedCents == nil || *it.FixedCents < 0 {
+				return nil, fmt.Errorf("مبلغ ثابت سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
+			}
+			row.FixedCents = it.FixedCents
+		default:
+			return nil, fmt.Errorf("نوع سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
 type studentCommissionSnap struct {
 	advisorID *uint
 	kind      models.StudentAdvisorCommissionKind
@@ -599,4 +698,3 @@ func int64PtrEqual(a, b *int64) bool {
 	}
 	return *a == *b
 }
-

@@ -38,6 +38,8 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
+import { formatIsoDateShamsi, gregorianIsoToJalali, jalaliToGregorianIso } from "@/lib/jalaliDate";
 import {
   listPayments,
   getPaymentsSummary,
@@ -72,35 +74,74 @@ const methodLabels: Record<string, string> = {
   OTHER: "سایر",
 };
 
+const paymentTypeLabels: Record<string, string> = {
+  SINGLE_SESSION: "تک‌جلسه",
+  MONTHLY: "ماهانه",
+  COURSE: "دوره‌ای",
+};
+
 function formatCentsToToman(cents: number): string {
   const tomans = Math.floor(cents / 10);
   return tomans.toLocaleString("fa-IR");
 }
 
 function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "—";
-    return d.toLocaleDateString("fa-IR", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  } catch {
-    return "—";
+  return formatIsoDateShamsi(iso);
+}
+
+const SMALL_NUMS = [
+  "", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه",
+  "ده", "یازده", "دوازده", "سیزده", "چهارده", "پانزده", "شانزده", "هفده", "هجده", "نوزده",
+];
+const TENS = ["", "", "بیست", "سی", "چهل", "پنجاه", "شصت", "هفتاد", "هشتاد", "نود"];
+const HUNDREDS = ["", "صد", "دویست", "سیصد", "چهارصد", "پانصد", "ششصد", "هفتصد", "هشتصد", "نهصد"];
+const THOUSANDS = ["", "هزار", "میلیون", "میلیارد", "تریلیون"];
+
+
+function threeDigitsToWords(n: number): string {
+  if (n === 0) return "";
+  const parts: string[] = [];
+  const h = Math.floor(n / 100);
+  const rem = n % 100;
+  if (h > 0) parts.push(HUNDREDS[h]);
+  if (rem > 0) {
+    if (rem < 20) {
+      parts.push(SMALL_NUMS[rem]);
+    } else {
+      const t = Math.floor(rem / 10);
+      const o = rem % 10;
+      parts.push(TENS[t]);
+      if (o > 0) parts.push(SMALL_NUMS[o]);
+    }
   }
+  return parts.join(" و ");
+}
+
+function numberToPersianWords(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "صفر";
+  let value = Math.floor(n);
+  const parts: string[] = [];
+  let group = 0;
+  while (value > 0 && group < THOUSANDS.length) {
+    const chunk = value % 1000;
+    if (chunk > 0) {
+      const chunkWords = threeDigitsToWords(chunk);
+      const unit = THOUSANDS[group];
+      parts.unshift(unit ? `${chunkWords} ${unit}` : chunkWords);
+    }
+    value = Math.floor(value / 1000);
+    group++;
+  }
+  return parts.join(" و ");
+}
+
+function parseTomansInput(raw: string): number {
+  return parseLocalizedInt(raw);
 }
 
 function isoDateOnly(iso: string | null | undefined): string {
   if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return d.toISOString().slice(0, 10);
-  } catch {
-    return "";
-  }
+  return gregorianIsoToJalali(iso.slice(0, 10));
 }
 
 interface EditPaymentFormProps {
@@ -132,14 +173,14 @@ function EditPaymentForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const amountCents = parseInt(amountTomans.replace(/\D/g, ""), 10) * 10 || payment.amount_cents;
+    const amountCents = parseTomansInput(amountTomans) * 10 || payment.amount_cents;
     const payload: UpdatePaymentPayload = {
       amount_cents: amountCents,
       method: method,
       status: status,
       description: description || undefined,
-      due_date: dueDate || undefined,
-      paid_at: paidAt || undefined,
+      due_date: dueDate ? jalaliToGregorianIso(dueDate) || undefined : undefined,
+      paid_at: paidAt ? jalaliToGregorianIso(paidAt) || undefined : undefined,
     };
     onSave(payload);
   };
@@ -154,8 +195,11 @@ function EditPaymentForm({
           inputMode="numeric"
           placeholder="مثال: ۲۵۰۰۰۰۰"
           value={amountTomans}
-          onChange={(e) => setAmountTomans(e.target.value)}
+          onChange={(e) => setAmountTomans(formatGroupedFaIntInput(e.target.value))}
         />
+        <p className="text-xs text-muted-foreground">
+          به حروف: {numberToPersianWords(parseTomansInput(amountTomans))} تومان
+        </p>
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">روش پرداخت</label>
@@ -187,11 +231,11 @@ function EditPaymentForm({
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">سررسید</label>
-        <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <Input type="text" value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="۱۴۰۳/۰۱/۱۵" dir="ltr" />
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">تاریخ پرداخت</label>
-        <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+        <Input type="text" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} placeholder="۱۴۰۳/۰۱/۱۵" dir="ltr" />
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">شرح</label>
@@ -236,6 +280,7 @@ const Payments = () => {
   const [createAmountTomans, setCreateAmountTomans] = useState("");
   const [createMethod, setCreateMethod] = useState("");
   const [createStatus, setCreateStatus] = useState("PENDING");
+  const [createPaymentType, setCreatePaymentType] = useState<"SINGLE_SESSION" | "MONTHLY" | "COURSE">("MONTHLY");
   const [createDescription, setCreateDescription] = useState("");
   const [createDueDate, setCreateDueDate] = useState("");
   const [studentSearchInput, setStudentSearchInput] = useState("");
@@ -271,8 +316,8 @@ const Payments = () => {
       {
         search: searchQuery || undefined,
         status: statusParam,
-        from_date: fromDate || undefined,
-        to_date: toDate || undefined,
+      from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
+      to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
         page: 1,
         page_size: 50,
       },
@@ -281,8 +326,8 @@ const Payments = () => {
       listPayments({
         search: searchQuery || undefined,
         status: statusParam,
-        from_date: fromDate || undefined,
-        to_date: toDate || undefined,
+        from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
+        to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
         page: 1,
         page_size: 50,
       }),
@@ -314,6 +359,7 @@ const Payments = () => {
       setCreateAmountTomans("");
       setCreateMethod("");
       setCreateStatus("PENDING");
+      setCreatePaymentType("MONTHLY");
       setCreateDescription("");
       setCreateDueDate("");
       setCreateStudentLabel("");
@@ -349,8 +395,8 @@ const Payments = () => {
       const { blob, filename } = await exportPayments({
         search: searchQuery || undefined,
         status: statusParam,
-        from_date: fromDate || undefined,
-        to_date: toDate || undefined,
+        from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
+        to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -385,7 +431,7 @@ const Payments = () => {
 
   const handleCreateSubmit = useCallback(() => {
     const studentId = parseInt(createStudentId, 10);
-    const amountTomans = parseInt(createAmountTomans.replace(/\D/g, ""), 10) || 0;
+    const amountTomans = parseTomansInput(createAmountTomans);
     if (!studentId || amountTomans <= 0 || !createMethod || !createStatus) return;
     const amountCents = amountTomans * 10; // تومان به ریال
     const payload: CreatePaymentPayload = {
@@ -393,8 +439,9 @@ const Payments = () => {
       amount_cents: amountCents,
       method: createMethod,
       status: createStatus,
+      payment_type: createPaymentType,
       description: createDescription || undefined,
-      due_date: createDueDate || undefined,
+      due_date: createDueDate ? jalaliToGregorianIso(createDueDate) || undefined : undefined,
     };
     createMutation.mutate(payload);
   }, [
@@ -402,6 +449,7 @@ const Payments = () => {
     createAmountTomans,
     createMethod,
     createStatus,
+    createPaymentType,
     createDescription,
     createDueDate,
     createMutation,
@@ -469,8 +517,8 @@ const Payments = () => {
       </div>
 
       {/* Actions */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full flex-1 sm:max-w-md">
           <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="جستجو در پرداخت‌ها..."
@@ -479,33 +527,37 @@ const Payments = () => {
             className="pr-9"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
                 <Filter className="ml-2 h-4 w-4" />
                 فیلتر
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80" align="start">
+            <PopoverContent className="w-[min(20rem,calc(100vw-1rem))]" align="start">
               <div className="space-y-3">
                 <p className="text-sm font-medium">بازه تاریخ سررسید</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs text-muted-foreground">از</label>
                     <Input
-                      type="date"
+                      type="text"
                       value={fromDate}
                       onChange={(e) => setFromDate(e.target.value)}
+                      placeholder="۱۴۰۳/۰۱/۰۱"
+                      dir="ltr"
                       className="mt-1"
                     />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">تا</label>
                     <Input
-                      type="date"
+                      type="text"
                       value={toDate}
                       onChange={(e) => setToDate(e.target.value)}
+                      placeholder="۱۴۰۳/۰۱/۳۱"
+                      dir="ltr"
                       className="mt-1"
                     />
                   </div>
@@ -521,11 +573,12 @@ const Payments = () => {
             size="sm"
             disabled={exporting}
             onClick={handleExport}
+            className="flex-1 sm:flex-none"
           >
             <Download className="ml-2 h-4 w-4" />
             خروجی
           </Button>
-          <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+          <Button size="sm" onClick={() => setIsCreateOpen(true)} className="flex-1 sm:flex-none">
             <Plus className="ml-2 h-4 w-4" />
             ثبت پرداخت
           </Button>
@@ -534,7 +587,8 @@ const Payments = () => {
 
       {/* Tabs & Table */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="bg-muted/50">
+        <div className="overflow-x-auto">
+        <TabsList className="min-w-max bg-muted/50 whitespace-nowrap">
           <TabsTrigger value="all" className="data-[state=active]:bg-background">
             همه
           </TabsTrigger>
@@ -548,8 +602,38 @@ const Payments = () => {
             معوق
           </TabsTrigger>
         </TabsList>
+        </div>
 
-        <div className="card-elevated overflow-hidden">
+        <div className="grid gap-3 md:hidden">
+          {payments.map((payment) => (
+            <div key={payment.id} className="card-elevated p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium text-foreground">
+                  {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
+                </p>
+                <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs", statusStyles[payment.status] ?? "bg-muted")}>
+                  {statusLabels[payment.status] ?? payment.status}
+                </span>
+              </div>
+              <p className="mt-1 number-display text-sm">{formatCentsToToman(payment.amount_cents)} تومان</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {methodLabels[payment.method] ?? payment.method} | {formatDate(payment.due_date)} {payment.student_phone ? `| ${payment.student_phone}` : ""}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setDetailPaymentId(payment.id)}>
+                  <Eye className="ml-1 h-4 w-4" />
+                  جزئیات
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setEditPaymentId(payment.id)}>
+                  <Pencil className="ml-1 h-4 w-4" />
+                  ویرایش
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="card-elevated hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
             {isLoading && (
               <div className="p-6 text-sm text-muted-foreground">
@@ -610,7 +694,7 @@ const Payments = () => {
                               {(payment.student_name || "—").charAt(0)}
                             </div>
                             <span className="font-medium text-foreground">
-                              {payment.student_name || "—"}
+                              {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
                             </span>
                           </div>
                         </td>
@@ -693,8 +777,11 @@ const Payments = () => {
           {detailPayment && (
             <div className="space-y-3 text-sm">
               <p><span className="text-muted-foreground">دانش‌آموز:</span> {detailPayment.student_name || "—"}</p>
+              <p><span className="text-muted-foreground">شناسه دانش‌آموز:</span> #{detailPayment.student_id}</p>
+              <p><span className="text-muted-foreground">شماره تماس:</span> {detailPayment.student_phone || "—"}</p>
               <p><span className="text-muted-foreground">مبلغ:</span> {formatCentsToToman(detailPayment.amount_cents)} تومان</p>
               <p><span className="text-muted-foreground">وضعیت:</span> {statusLabels[detailPayment.status] ?? detailPayment.status}</p>
+              <p><span className="text-muted-foreground">نوع:</span> {paymentTypeLabels[detailPayment.payment_type] ?? detailPayment.payment_type}</p>
               <p><span className="text-muted-foreground">روش:</span> {methodLabels[detailPayment.method] ?? detailPayment.method}</p>
               <p><span className="text-muted-foreground">سررسید:</span> {formatDate(detailPayment.due_date)}</p>
               <p><span className="text-muted-foreground">تاریخ پرداخت:</span> {formatDate(detailPayment.paid_at)}</p>
@@ -809,8 +896,11 @@ const Payments = () => {
                 inputMode="numeric"
                 placeholder="مثال: ۲۵۰۰۰۰۰"
                 value={createAmountTomans}
-                onChange={(e) => setCreateAmountTomans(e.target.value)}
+                onChange={(e) => setCreateAmountTomans(formatGroupedFaIntInput(e.target.value))}
               />
+              <p className="text-xs text-muted-foreground">
+                به حروف: {numberToPersianWords(parseTomansInput(createAmountTomans))} تومان
+              </p>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">روش پرداخت</label>
@@ -824,6 +914,19 @@ const Payments = () => {
                       {label}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">نوع پرداخت</label>
+              <Select value={createPaymentType} onValueChange={(v) => setCreatePaymentType(v as "SINGLE_SESSION" | "MONTHLY" | "COURSE")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SINGLE_SESSION">تک‌جلسه</SelectItem>
+                  <SelectItem value="MONTHLY">ماهانه</SelectItem>
+                  <SelectItem value="COURSE">دوره‌ای</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -843,9 +946,11 @@ const Payments = () => {
             <div className="grid gap-2">
               <label className="text-sm font-medium">سررسید (اختیاری)</label>
               <Input
-                type="date"
+                type="text"
                 value={createDueDate}
                 onChange={(e) => setCreateDueDate(e.target.value)}
+                placeholder="۱۴۰۳/۰۱/۱۵"
+                dir="ltr"
               />
             </div>
             <div className="grid gap-2">

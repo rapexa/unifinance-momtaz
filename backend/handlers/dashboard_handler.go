@@ -22,11 +22,12 @@ func NewDashboardHandler(service *services.DashboardService) *DashboardHandler {
 
 // DashboardKPIsDTO mirrors services.DashboardKPIs for Swagger docs.
 type DashboardKPIsDTO struct {
-	TotalRevenueCents   int64 `json:"total_revenue_cents"`
-	PendingDebtCents    int64 `json:"pending_debt_cents"`
-	OverdueDebtCents    int64 `json:"overdue_debt_cents"`
-	ActiveStudents      int64 `json:"active_students"`
-	MonthlyPayrollCents int64 `json:"monthly_payroll_cents"`
+	TotalRevenueCents             int64 `json:"total_revenue_cents"`
+	PendingDebtCents              int64 `json:"pending_debt_cents"`
+	OverdueDebtCents              int64 `json:"overdue_debt_cents"`
+	ActiveStudents                int64 `json:"active_students"`
+	StudentRegistrationsThisMonth int64 `json:"student_registrations_this_month"`
+	MonthlyPayrollCents           int64 `json:"monthly_payroll_cents"`
 }
 
 // DebtAlertDTO represents a single debt alert item.
@@ -91,11 +92,12 @@ func (h *DashboardHandler) GetSummary(c *gin.Context) {
 
 	// Map service structs to DTOs
 	kpiDTO := DashboardKPIsDTO{
-		TotalRevenueCents:   kpis.TotalRevenueCents,
-		PendingDebtCents:    kpis.PendingDebtCents,
-		OverdueDebtCents:    kpis.OverdueDebtCents,
-		ActiveStudents:      kpis.ActiveStudents,
-		MonthlyPayrollCents: kpis.MonthlyPayrollCents,
+		TotalRevenueCents:             kpis.TotalRevenueCents,
+		PendingDebtCents:              kpis.PendingDebtCents,
+		OverdueDebtCents:              kpis.OverdueDebtCents,
+		ActiveStudents:                kpis.ActiveStudents,
+		StudentRegistrationsThisMonth: kpis.StudentRegistrationsThisMonth,
+		MonthlyPayrollCents:           kpis.MonthlyPayrollCents,
 	}
 
 	paymentDTOs := toPaymentDTOSlice(payments)
@@ -224,4 +226,3 @@ func parsePositiveIntDefault(raw string, def, min, max int) int {
 	}
 	return v
 }
-

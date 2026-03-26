@@ -15,9 +15,10 @@ type StudentRepository interface {
 	Create(ctx context.Context, student *models.Student) error
 	Update(ctx context.Context, student *models.Student) error
 	Delete(ctx context.Context, id uint) error
-	Stats(ctx context.Context) (total, active, inactive, debtors int64, err error)
+	Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error)
 	// ReplaceActiveEnrollment cancels active enrollments for the student; if planID is non-nil, creates a new ACTIVE row.
 	ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error
+	ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error
 }
 
 type GormStudentRepository struct {
@@ -33,6 +34,9 @@ func (r *GormStudentRepository) FindByID(ctx context.Context, id uint) (*models.
 	if err := r.db.WithContext(ctx).
 		Preload("Advisor").
 		Preload("CurrentPlan").
+		Preload("StudentRolePayouts").
+		Preload("StudentRolePayouts.Role").
+		Preload("StudentRolePayouts.User").
 		First(&s, id).Error; err != nil {
 		return nil, err
 	}
@@ -82,7 +86,7 @@ func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 
 // Stats returns aggregate counts for students: total, active, inactive, and debtors (balance < 0).
 // Each count uses a fresh query so Where conditions do not accumulate.
-func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inactive, debtors int64, err error) {
+func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error) {
 	ctxDB := r.db.WithContext(ctx)
 	m := func() *gorm.DB { return ctxDB.Model(&models.Student{}) }
 
@@ -93,6 +97,9 @@ func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inact
 		return
 	}
 	if err = m().Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
+		return
+	}
+	if err = m().Where("status = ?", models.StudentStatusDeleted).Count(&deleted).Error; err != nil {
 		return
 	}
 	if err = m().Where("balance_cents < 0").Count(&debtors).Error; err != nil {
@@ -123,3 +130,17 @@ func (r *GormStudentRepository) ReplaceActiveEnrollment(ctx context.Context, stu
 	})
 }
 
+func (r *GormStudentRepository) ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("student_id = ?", studentID).Delete(&models.StudentRolePayout{}).Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		for i := range rows {
+			rows[i].StudentID = studentID
+		}
+		return tx.Create(&rows).Error
+	})
+}

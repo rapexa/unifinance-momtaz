@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { formatIsoDateShamsi } from "@/lib/jalaliDate";
 
 export interface DashboardPaymentItem {
   id: number;
@@ -37,14 +38,7 @@ function formatCentsToToman(cents: number): string {
 }
 
 function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "—";
-    return d.toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
-  } catch {
-    return "—";
-  }
+  return formatIsoDateShamsi(iso);
 }
 
 interface RecentPaymentsTableProps {

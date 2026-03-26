@@ -23,6 +23,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
 import {
   createPlan,
   deactivatePlan,
@@ -291,7 +292,7 @@ const Plans = () => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-10 w-10 sm:h-8 sm:w-8"
                   onClick={() => openEdit(plan)}
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -299,7 +300,7 @@ const Plans = () => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-destructive"
+                  className="h-10 w-10 text-destructive sm:h-8 sm:w-8"
                   onClick={() => {
                     if (
                       window.confirm(
@@ -362,7 +363,7 @@ const Plans = () => {
               </ul>
             </div>
 
-            <div className="mt-4 pt-4 border-t flex gap-2">
+            <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row">
               <Button
                 variant="outline"
                 size="sm"
@@ -419,7 +420,7 @@ const Plans = () => {
                 </label>
                 <Input
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => setPrice(formatGroupedFaIntInput(e.target.value))}
                   placeholder="مثلاً 2500000"
                   inputMode="numeric"
                 />
@@ -507,14 +508,14 @@ const Plans = () => {
             </Button>
             <Button
               onClick={() => {
-                const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                const pct = parseLocalizedFloat(discountPercent);
                 const discInvalid =
                   discountApplyOnEnrollment &&
                   (!Number.isFinite(pct) || pct <= 0 || pct > 100);
                 if (discInvalid) return;
                 createMutation.mutate({
                   name: name.trim(),
-                  price_cents: Number(price) * 10,
+                  price_cents: parseLocalizedInt(price) * 10,
                   interval,
                   type: typeCode,
                   is_active: true,
@@ -532,10 +533,10 @@ const Plans = () => {
                 createMutation.isPending ||
                 !name.trim() ||
                 !price.trim() ||
-                isNaN(Number(price)) ||
+                parseLocalizedInt(price) <= 0 ||
                 (discountApplyOnEnrollment &&
                   (() => {
-                    const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                    const pct = parseLocalizedFloat(discountPercent);
                     return !Number.isFinite(pct) || pct <= 0 || pct > 100;
                   })())
               }
@@ -569,7 +570,7 @@ const Plans = () => {
                 </label>
                 <Input
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => setPrice(formatGroupedFaIntInput(e.target.value))}
                   inputMode="numeric"
                 />
               </div>
@@ -655,7 +656,7 @@ const Plans = () => {
             <Button
               onClick={() => {
                 if (!selectedPlan) return;
-                const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                const pct = parseLocalizedFloat(discountPercent);
                 const discInvalid =
                   discountApplyOnEnrollment &&
                   (!Number.isFinite(pct) || pct <= 0 || pct > 100);
@@ -664,7 +665,7 @@ const Plans = () => {
                   id: selectedPlan.id,
                   data: {
                     name: name.trim(),
-                    price_cents: price ? Number(price) * 10 : undefined,
+                    price_cents: price ? parseLocalizedInt(price) * 10 : undefined,
                     interval,
                     type: typeCode,
                     discount_apply_on_enrollment: discountApplyOnEnrollment,
@@ -683,10 +684,10 @@ const Plans = () => {
                 !selectedPlan ||
                 !name.trim() ||
                 !price.trim() ||
-                isNaN(Number(price)) ||
+                parseLocalizedInt(price) <= 0 ||
                 (discountApplyOnEnrollment &&
                   (() => {
-                    const pct = parseFloat(discountPercent.replace(/,/g, "."));
+                    const pct = parseLocalizedFloat(discountPercent);
                     return !Number.isFinite(pct) || pct <= 0 || pct > 100;
                   })())
               }

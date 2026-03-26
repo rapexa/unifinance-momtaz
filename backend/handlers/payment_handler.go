@@ -22,21 +22,23 @@ func NewPaymentHandler(service *services.PaymentService) *PaymentHandler {
 }
 
 type PaymentDTO struct {
-	ID            uint       `json:"id"`
-	StudentID     uint       `json:"student_id"`
-	StudentName   string     `json:"student_name"`
-	EnrollmentID  *uint      `json:"enrollment_id,omitempty"`
-	PlanName      *string    `json:"plan_name,omitempty"`
-	AmountCents       int64 `json:"amount_cents"`
-	AdvisorShareCents int64 `json:"advisor_share_cents"`
-	Currency      string     `json:"currency"`
-	Status        string     `json:"status"`
-	Method        string     `json:"method"`
-	DueDate       *time.Time `json:"due_date,omitempty"`
-	PaidAt        *time.Time `json:"paid_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	Description   string     `json:"description,omitempty"`
-	ReferenceCode string     `json:"reference_code,omitempty"`
+	ID                uint       `json:"id"`
+	StudentID         uint       `json:"student_id"`
+	StudentName       string     `json:"student_name"`
+	StudentPhone      string     `json:"student_phone,omitempty"`
+	EnrollmentID      *uint      `json:"enrollment_id,omitempty"`
+	PlanName          *string    `json:"plan_name,omitempty"`
+	AmountCents       int64      `json:"amount_cents"`
+	AdvisorShareCents int64      `json:"advisor_share_cents"`
+	Currency          string     `json:"currency"`
+	Status            string     `json:"status"`
+	Method            string     `json:"method"`
+	Type              string     `json:"payment_type"`
+	DueDate           *time.Time `json:"due_date,omitempty"`
+	PaidAt            *time.Time `json:"paid_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	Description       string     `json:"description,omitempty"`
+	ReferenceCode     string     `json:"reference_code,omitempty"`
 }
 
 func toPaymentDTO(p *models.Payment) PaymentDTO {
@@ -46,17 +48,19 @@ func toPaymentDTO(p *models.Payment) PaymentDTO {
 		AmountCents:       p.AmountCents,
 		AdvisorShareCents: p.AdvisorShareCents,
 		Currency:          p.Currency,
-		Status:        string(p.Status),
-		Method:        string(p.Method),
-		DueDate:       p.DueDate,
-		PaidAt:        p.PaidAt,
-		CreatedAt:     p.CreatedAt,
-		Description:   p.Description,
-		ReferenceCode: p.ReferenceCode,
+		Status:            string(p.Status),
+		Method:            string(p.Method),
+		Type:              string(p.Type),
+		DueDate:           p.DueDate,
+		PaidAt:            p.PaidAt,
+		CreatedAt:         p.CreatedAt,
+		Description:       p.Description,
+		ReferenceCode:     p.ReferenceCode,
 	}
 
 	if p.Student.ID != 0 {
 		dto.StudentName = fmt.Sprintf("%s %s", p.Student.FirstName, p.Student.LastName)
+		dto.StudentPhone = p.Student.Phone
 	}
 
 	if p.EnrollmentID != nil && p.Enrollment != nil {
@@ -87,6 +91,7 @@ type createPaymentRequest struct {
 	Description   string `json:"description" binding:"omitempty,max=500"`
 	ReferenceCode string `json:"reference_number" binding:"omitempty,max=255"`
 	Status        string `json:"status" binding:"required"`
+	Type          string `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
 	EnrollmentID  *uint  `json:"enrollment_id" binding:"omitempty"`
 	DueDateStr    string `json:"due_date" binding:"omitempty"`
 	Currency      string `json:"currency" binding:"omitempty"`
@@ -99,6 +104,7 @@ type updatePaymentRequest struct {
 	Description   *string    `json:"description" binding:"omitempty,max=500"`
 	ReferenceCode *string    `json:"reference_number" binding:"omitempty,max=255"`
 	Status        *string    `json:"status" binding:"omitempty"`
+	Type          *string    `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
 	EnrollmentID  *uint      `json:"enrollment_id" binding:"omitempty"`
 	DueDate       *time.Time `json:"due_date" binding:"omitempty"`
 }
@@ -121,9 +127,9 @@ func (h *PaymentHandler) Summary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"today_received_cents":     sum.TodayReceivedCents,
-		"pending_cents":           sum.PendingCents,
-		"overdue_cents":           sum.OverdueCents,
+		"today_received_cents":      sum.TodayReceivedCents,
+		"pending_cents":             sum.PendingCents,
+		"overdue_cents":             sum.OverdueCents,
 		"this_month_received_cents": sum.ThisMonthReceivedCents,
 	})
 }
@@ -298,6 +304,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		Description:   req.Description,
 		ReferenceCode: req.ReferenceCode,
 		Status:        req.Status,
+		Type:          req.Type,
 		EnrollmentID:  req.EnrollmentID,
 		DueDate:       dueDate,
 		Currency:      req.Currency,
@@ -349,6 +356,7 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 		Description:   req.Description,
 		ReferenceCode: req.ReferenceCode,
 		Status:        req.Status,
+		Type:          req.Type,
 		EnrollmentID:  req.EnrollmentID,
 		DueDate:       req.DueDate,
 	}

@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
+const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&
@@ -16,6 +16,7 @@ export interface DashboardKPIs {
   pending_debt_cents: number;
   overdue_debt_cents: number;
   active_students: number;
+  student_registrations_this_month: number;
   monthly_payroll_cents: number;
 }
 
@@ -23,6 +24,7 @@ export interface DashboardPayment {
   id: number;
   student_id: number;
   student_name: string;
+  student_phone?: string;
   amount_cents: number;
   currency: string;
   status: string;

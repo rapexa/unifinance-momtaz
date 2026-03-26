@@ -12,6 +12,7 @@ const (
 	PaymentStatusPaid    PaymentStatus = "PAID"
 	PaymentStatusPending PaymentStatus = "PENDING"
 	PaymentStatusOverdue PaymentStatus = "OVERDUE"
+	PaymentStatusCancelled PaymentStatus = "CANCELLED"
 )
 
 type PaymentMethod string
@@ -22,6 +23,14 @@ const (
 	PaymentMethodCash        PaymentMethod = "CASH"
 	PaymentMethodInstallment PaymentMethod = "INSTALLMENT"
 	PaymentMethodOther       PaymentMethod = "OTHER"
+)
+
+type PaymentType string
+
+const (
+	PaymentTypeSingleSession PaymentType = "SINGLE_SESSION"
+	PaymentTypeMonthly       PaymentType = "MONTHLY"
+	PaymentTypeCourse        PaymentType = "COURSE"
 )
 
 // Payment supports data on /payments and dashboard recent payments.
@@ -40,6 +49,7 @@ type Payment struct {
 
 	Status PaymentStatus `gorm:"type:varchar(32);not null;index"`
 	Method PaymentMethod `gorm:"type:varchar(32);not null;index"`
+	Type   PaymentType   `gorm:"type:varchar(32);not null;default:'MONTHLY';index"`
 
 	DueDate *time.Time `gorm:"index"`
 	PaidAt  *time.Time `gorm:"index"`

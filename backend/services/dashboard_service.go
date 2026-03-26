@@ -11,11 +11,12 @@ import (
 
 // DashboardKPIs holds the high-level metrics shown on the dashboard KPI cards.
 type DashboardKPIs struct {
-	TotalRevenueCents    int64
-	PendingDebtCents     int64
-	OverdueDebtCents     int64
-	ActiveStudents       int64
-	MonthlyPayrollCents  int64
+	TotalRevenueCents             int64
+	PendingDebtCents              int64
+	OverdueDebtCents              int64
+	ActiveStudents                int64
+	StudentRegistrationsThisMonth int64
+	MonthlyPayrollCents           int64
 }
 
 // DebtAlert represents a single overdue debt alert item.
@@ -54,11 +55,12 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
 
 	var (
-		totalRevenue   int64
-		pendingDebt    int64
-		overdueDebt    int64
-		activeStudents int64
-		monthlyPayroll int64
+		totalRevenue           int64
+		pendingDebt            int64
+		overdueDebt            int64
+		activeStudents         int64
+		registrationsThisMonth int64
+		monthlyPayroll         int64
 	)
 
 	// Total revenue for current month (paid payments).
@@ -96,6 +98,14 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 		return DashboardKPIs{}, err
 	}
 
+	// Student registrations in current month.
+	if err := s.db.WithContext(ctx).
+		Model(&models.Student{}).
+		Where("created_at >= ?", firstOfMonth).
+		Count(&registrationsThisMonth).Error; err != nil {
+		return DashboardKPIs{}, err
+	}
+
 	// Monthly payroll paid (only PAID status) for current period.
 	if err := s.db.WithContext(ctx).
 		Model(&models.PayrollEntry{}).
@@ -106,11 +116,12 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 	}
 
 	return DashboardKPIs{
-		TotalRevenueCents:   totalRevenue,
-		PendingDebtCents:    pendingDebt,
-		OverdueDebtCents:    overdueDebt,
-		ActiveStudents:      activeStudents,
-		MonthlyPayrollCents: monthlyPayroll,
+		TotalRevenueCents:             totalRevenue,
+		PendingDebtCents:              pendingDebt,
+		OverdueDebtCents:              overdueDebt,
+		ActiveStudents:                activeStudents,
+		StudentRegistrationsThisMonth: registrationsThisMonth,
+		MonthlyPayrollCents:           monthlyPayroll,
 	}, nil
 }
 
@@ -131,11 +142,11 @@ func (s *DashboardService) GetDebtAlerts(ctx context.Context, limit int) ([]Debt
 	now := time.Now()
 
 	type row struct {
-		StudentID  uint
-		FirstName  string
-		LastName   string
+		StudentID   uint
+		FirstName   string
+		LastName    string
 		AmountCents int64
-		DueDate    *time.Time
+		DueDate     *time.Time
 	}
 
 	var rows []row
@@ -217,4 +228,3 @@ func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now 
 
 	return points, nil
 }
-

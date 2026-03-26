@@ -30,6 +30,8 @@ import {
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
+import { formatIsoDateShamsi } from "@/lib/jalaliDate";
 import {
   createUser,
   getUsersSummary,
@@ -109,7 +111,7 @@ function mapUser(u: UserApi): UserRow {
     roleLabel,
     roleCode,
     status: u.is_active ? "active" : "inactive",
-    createdAt: new Date((u as any).created_at).toLocaleDateString("fa-IR"),
+    createdAt: formatIsoDateShamsi((u as any).created_at),
   } as UserRow;
 }
 
@@ -183,10 +185,10 @@ function EditUserForm({
           placeholder="حداقل ۸ کاراکتر"
         />
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-muted-foreground">نقش</span>
         <Select value={roleId} onValueChange={setRoleId}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="انتخاب نقش" />
           </SelectTrigger>
           <SelectContent>
@@ -436,24 +438,25 @@ const Users = () => {
             className="pr-9"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none"
             onClick={() => setShowFilters((v) => !v)}
           >
             <Filter className="ml-2 h-4 w-4" />
             فیلتر
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={handleExport}>
             <Download className="ml-2 h-4 w-4" />
             خروجی
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setRoleDialogOpen(true)}>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => setRoleDialogOpen(true)}>
             <Shield className="ml-2 h-4 w-4" />
             نقش جدید
           </Button>
-          <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+          <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setIsCreateOpen(true)}>
             <Plus className="ml-2 h-4 w-4" />
             کاربر جدید
           </Button>
@@ -973,35 +976,38 @@ const Users = () => {
                 </SelectContent>
               </Select>
             </div>
-            {newCompKind === "FIXED" && (
+            {(newCompKind === "FIXED" || newCompKind === "PERCENT") && (
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان)</label>
+                <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان) - اختیاری برای درصدی</label>
                 <Input
                   inputMode="numeric"
                   value={newFixedTomans}
-                  onChange={(e) => setNewFixedTomans(e.target.value)}
+                  onChange={(e) => setNewFixedTomans(formatGroupedFaIntInput(e.target.value))}
                 />
               </div>
             )}
-            {newCompKind === "PERCENT" && (
+            {(newCompKind === "PERCENT" || newCompKind === "FIXED") && (
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">درصد از جمع پرداخت‌های دانش‌آموزان</label>
+                <label className="mb-1 block text-xs text-muted-foreground">درصد از جمع پرداخت‌های دانش‌آموزان - اختیاری برای ثابت</label>
                 <Input
                   inputMode="decimal"
                   value={newPercent}
                   onChange={(e) => setNewPercent(e.target.value)}
                 />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  برای ترکیب روی دانش‌آموزهای متفاوت (مثلا ۱و۲ درصدی و ۳و۴ ثابت)، بعد از ساخت نقش از «قوانین تسهیم» با Scope = دانش‌آموزهای انتخابی استفاده کنید.
+                </p>
               </div>
             )}
             {newCompKind === "PER_UNIT" && (
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">واحد حجم (تومان)</label>
-                  <Input inputMode="numeric" value={newUnitTomans} onChange={(e) => setNewUnitTomans(e.target.value)} />
+                  <Input inputMode="numeric" value={newUnitTomans} onChange={(e) => setNewUnitTomans(formatGroupedFaIntInput(e.target.value))} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">مبلغ هر واحد (تومان)</label>
-                  <Input inputMode="numeric" value={newPerUnitTomans} onChange={(e) => setNewPerUnitTomans(e.target.value)} />
+                  <Input inputMode="numeric" value={newPerUnitTomans} onChange={(e) => setNewPerUnitTomans(formatGroupedFaIntInput(e.target.value))} />
                 </div>
               </div>
             )}
@@ -1034,7 +1040,7 @@ const Users = () => {
                 !newRoleName.trim()
               }
               onClick={() => {
-                const tomansToCents = (s: string) => (parseInt(s.replace(/\D/g, ""), 10) || 0) * 10;
+                const tomansToCents = (s: string) => parseLocalizedInt(s) * 10;
                 const payload: CreateRolePayload = {
                   code: newRoleCode.trim().toLowerCase(),
                   name: newRoleName.trim(),
@@ -1047,14 +1053,22 @@ const Users = () => {
                   payload.fixed_cents = 0;
                 } else if (newCompKind === "FIXED") {
                   payload.fixed_cents = tomansToCents(newFixedTomans);
+                  const pct = parseLocalizedFloat(newPercent);
+                  if (pct > 0) {
+                    payload.percent_of_student_payments = pct;
+                  }
                 } else if (newCompKind === "PERCENT") {
-                  payload.percent_of_student_payments = parseFloat(newPercent.replace(/,/g, ".")) || 0;
+                  payload.percent_of_student_payments = parseLocalizedFloat(newPercent) || 0;
+                  const fixed = tomansToCents(newFixedTomans);
+                  if (fixed > 0) {
+                    payload.fixed_cents = fixed;
+                  }
                 } else {
                   payload.revenue_unit_cents = tomansToCents(newUnitTomans);
                   payload.amount_per_unit_cents = tomansToCents(newPerUnitTomans);
                 }
                 if (!newRoleFullAccess && newGrossPercent.trim() !== "") {
-                  const g = parseFloat(newGrossPercent.replace(/,/g, "."));
+                  const g = parseLocalizedFloat(newGrossPercent);
                   if (Number.isFinite(g)) {
                     payload.percent_of_gross_student_payment = g;
                   }

@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
+const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&

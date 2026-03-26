@@ -31,39 +31,39 @@ type PayrollSummaryDTO struct {
 
 // PayrollEntryDTO is the public representation of a payroll entry row.
 type PayrollEntryDTO struct {
-	ID                 uint      `json:"id"`
-	UserID             uint      `json:"user_id"`
-	UserFirstName      string    `json:"user_first_name"`
-	UserLastName       string    `json:"user_last_name"`
-	UserRole           string    `json:"user_role"`
-	PeriodYear         int       `json:"period_year"`
-	PeriodMonth        int       `json:"period_month"`
-	BaseSalaryCents    int64     `json:"base_salary_cents"`
-	VariableSalaryCents int64     `json:"variable_salary_cents"`
-	TotalSalaryCents   int64     `json:"total_salary_cents"`
-	StudentsCount      int       `json:"students_count"`
-	Status             string    `json:"status"`
-	PaidAt             *time.Time `json:"paid_at,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                  uint       `json:"id"`
+	UserID              uint       `json:"user_id"`
+	UserFirstName       string     `json:"user_first_name"`
+	UserLastName        string     `json:"user_last_name"`
+	UserRole            string     `json:"user_role"`
+	PeriodYear          int        `json:"period_year"`
+	PeriodMonth         int        `json:"period_month"`
+	BaseSalaryCents     int64      `json:"base_salary_cents"`
+	VariableSalaryCents int64      `json:"variable_salary_cents"`
+	TotalSalaryCents    int64      `json:"total_salary_cents"`
+	StudentsCount       int        `json:"students_count"`
+	Status              string     `json:"status"`
+	PaidAt              *time.Time `json:"paid_at,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 // PayrollSchemeDTO represents the salary scheme per role (from Role model).
 type PayrollSchemeDTO struct {
-	ID                       uint     `json:"id"`
-	RoleID                   uint     `json:"role_id"`
-	RoleCode                 string   `json:"role_code"`
-	RoleName                 string   `json:"role_name"`
-	CompensationKind         string   `json:"compensation_kind"`
-	FixedCents                       *int64   `json:"fixed_cents,omitempty"`
-	PercentOfStudentPayments         *float64 `json:"percent_of_student_payments,omitempty"`
-	RevenueUnitCents                 *int64   `json:"revenue_unit_cents,omitempty"`
-	AmountPerUnitCents               *int64   `json:"amount_per_unit_cents,omitempty"`
-	PercentOfGrossStudentPayment     *float64 `json:"percent_of_gross_student_payment,omitempty"`
+	ID                           uint     `json:"id"`
+	RoleID                       uint     `json:"role_id"`
+	RoleCode                     string   `json:"role_code"`
+	RoleName                     string   `json:"role_name"`
+	CompensationKind             string   `json:"compensation_kind"`
+	FixedCents                   *int64   `json:"fixed_cents,omitempty"`
+	PercentOfStudentPayments     *float64 `json:"percent_of_student_payments,omitempty"`
+	RevenueUnitCents             *int64   `json:"revenue_unit_cents,omitempty"`
+	AmountPerUnitCents           *int64   `json:"amount_per_unit_cents,omitempty"`
+	PercentOfGrossStudentPayment *float64 `json:"percent_of_gross_student_payment,omitempty"`
 	// Legacy-shaped fields for existing UI
 	BaseSalaryCents   int64   `json:"base_salary_cents"`
 	PerStudentCents   int64   `json:"per_student_cents"`
 	RevenuePercent    float64 `json:"revenue_percent"`
-	MonthlyBonusCents int64 `json:"monthly_bonus_cents"`
+	MonthlyBonusCents int64   `json:"monthly_bonus_cents"`
 	IsActive          bool    `json:"is_active"`
 }
 
@@ -159,6 +159,8 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 		return
 	}
 
+	_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
+
 	summary, err := h.service.GetMonthlySummary(c.Request.Context(), year, month)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll summary"})
@@ -223,14 +225,14 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"base_salary_cents":         br.BaseSalaryCents,
-		"variable_salary_cents":     br.VariableSalaryCents,
-		"students_count":            br.StudentsCount,
-		"role_gross_share_cents":    br.RoleGrossShareCents,
-		"compensation_kind":         string(br.CompensationKind),
-		"revenue_volume_cents":      br.RevenueVolumeCents,
-		"period_year":               year,
-		"period_month":              month,
+		"base_salary_cents":      br.BaseSalaryCents,
+		"variable_salary_cents":  br.VariableSalaryCents,
+		"students_count":         br.StudentsCount,
+		"role_gross_share_cents": br.RoleGrossShareCents,
+		"compensation_kind":      string(br.CompensationKind),
+		"revenue_volume_cents":   br.RevenueVolumeCents,
+		"period_year":            year,
+		"period_month":           month,
 	})
 }
 
@@ -262,6 +264,8 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
 		return
 	}
+
+	_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
 
 	pageStr := c.DefaultQuery("page", "1")
 	pageSizeStr := c.DefaultQuery("page_size", "20")
@@ -532,4 +536,3 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 
 	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
 }
-

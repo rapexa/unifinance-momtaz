@@ -27,6 +27,7 @@ import {
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
 import {
   getPayrollSummary,
   listPayrollEntries,
@@ -79,9 +80,9 @@ function EditPayrollForm({
   }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count, entry.status]);
 
   const handleSubmit = () => {
-    const baseCents = (parseInt(baseTomans.replace(/\D/g, ""), 10) || 0) * 10;
-    const variableCents = (parseInt(variableTomans.replace(/\D/g, ""), 10) || 0) * 10;
-    const count = parseInt(studentsCount.replace(/\D/g, ""), 10) || 0;
+    const baseCents = parseLocalizedInt(baseTomans) * 10;
+    const variableCents = parseLocalizedInt(variableTomans) * 10;
+    const count = parseLocalizedInt(studentsCount);
     onSave({
       base_salary_cents: baseCents,
       variable_salary_cents: variableCents,
@@ -101,7 +102,7 @@ function EditPayrollForm({
           type="text"
           inputMode="numeric"
           value={baseTomans}
-          onChange={(e) => setBaseTomans(e.target.value)}
+          onChange={(e) => setBaseTomans(formatGroupedFaIntInput(e.target.value))}
         />
       </div>
       <div className="grid gap-2">
@@ -110,7 +111,7 @@ function EditPayrollForm({
           type="text"
           inputMode="numeric"
           value={variableTomans}
-          onChange={(e) => setVariableTomans(e.target.value)}
+          onChange={(e) => setVariableTomans(formatGroupedFaIntInput(e.target.value))}
         />
       </div>
       <div className="grid gap-2">
@@ -121,7 +122,7 @@ function EditPayrollForm({
           type="text"
           inputMode="numeric"
           value={studentsCount}
-          onChange={(e) => setStudentsCount(e.target.value)}
+          onChange={(e) => setStudentsCount(formatGroupedFaIntInput(e.target.value))}
         />
       </div>
       <div className="grid gap-2">
@@ -304,9 +305,9 @@ const Payroll = () => {
     if (createAutoFromRole) {
       payload.apply_role_rules = true;
     } else {
-      const baseTomans = parseInt(createBaseTomans.replace(/\D/g, ""), 10) || 0;
-      const variableTomans = parseInt(createVariableTomans.replace(/\D/g, ""), 10) || 0;
-      const studentsCount = parseInt(createStudentsCount.replace(/\D/g, ""), 10) || 0;
+      const baseTomans = parseLocalizedInt(createBaseTomans);
+      const variableTomans = parseLocalizedInt(createVariableTomans);
+      const studentsCount = parseLocalizedInt(createStudentsCount);
       payload.base_salary_cents = baseTomans * 10;
       payload.variable_salary_cents = variableTomans * 10;
       payload.students_count = studentsCount;
@@ -393,8 +394,9 @@ const Payroll = () => {
       </div>
 
       <Tabs defaultValue="payslips" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList className="bg-muted/50">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="overflow-x-auto">
+          <TabsList className="min-w-max bg-muted/50">
             <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
               فیش حقوقی
             </TabsTrigger>
@@ -402,8 +404,9 @@ const Payroll = () => {
               ساختار حقوق
             </TabsTrigger>
           </TabsList>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+          </div>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button size="sm" className="w-full sm:w-auto" onClick={() => setIsCreateOpen(true)}>
               <Plus className="ml-2 h-4 w-4" />
               ثبت حقوق
             </Button>
@@ -666,7 +669,7 @@ const Payroll = () => {
                     inputMode="numeric"
                     placeholder="مثال: ۱۵۰۰۰۰۰۰"
                     value={createBaseTomans}
-                    onChange={(e) => setCreateBaseTomans(e.target.value)}
+                    onChange={(e) => setCreateBaseTomans(formatGroupedFaIntInput(e.target.value))}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -676,7 +679,7 @@ const Payroll = () => {
                     inputMode="numeric"
                     placeholder="مثال: ۸۵۰۰۰۰۰"
                     value={createVariableTomans}
-                    onChange={(e) => setCreateVariableTomans(e.target.value)}
+                    onChange={(e) => setCreateVariableTomans(formatGroupedFaIntInput(e.target.value))}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -687,7 +690,7 @@ const Payroll = () => {
                     type="text"
                     inputMode="numeric"
                     value={createStudentsCount}
-                    onChange={(e) => setCreateStudentsCount(e.target.value)}
+                    onChange={(e) => setCreateStudentsCount(formatGroupedFaIntInput(e.target.value))}
                   />
                 </div>
               </>

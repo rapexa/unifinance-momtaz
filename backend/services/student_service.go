@@ -34,11 +34,19 @@ func (s *StudentService) Update(ctx context.Context, student *models.Student) er
 }
 
 func (s *StudentService) Delete(ctx context.Context, id uint) error {
-	return s.repo.Delete(ctx, id)
+	st, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	st.Status = models.StudentStatusDeleted
+	if err := s.repo.Update(ctx, st); err != nil {
+		return err
+	}
+	return s.repo.ReplaceActiveEnrollment(ctx, id, nil, 0)
 }
 
 // Stats returns aggregate student counters for use in the Students page stats.
-func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, debtors int64, err error) {
+func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error) {
 	return s.repo.Stats(ctx)
 }
 
@@ -47,6 +55,9 @@ func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID
 	st, err := s.repo.FindByID(ctx, studentID)
 	if err != nil {
 		return err
+	}
+	if st.Status != models.StudentStatusActive {
+		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
 	}
 	if st.CurrentPlanID == nil {
 		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
@@ -59,3 +70,6 @@ func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID
 	return s.repo.ReplaceActiveEnrollment(ctx, studentID, &pid, price)
 }
 
+func (s *StudentService) ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error {
+	return s.repo.ReplaceStudentRolePayouts(ctx, studentID, rows)
+}

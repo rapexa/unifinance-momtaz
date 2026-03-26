@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
+const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&
@@ -35,12 +35,25 @@ export interface StudentApi {
   balance_cents?: number;
   /** YYYY-MM-DD — تاریخ شروع مشاوره */
   advisory_start_date?: string;
+  role_payouts?: StudentRolePayoutApi[];
+}
+
+export interface StudentRolePayoutApi {
+  id: number;
+  role_id: number;
+  role_name?: string;
+  user_id: number;
+  user_name?: string;
+  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT";
+  percent?: number;
+  fixed_cents?: number;
 }
 
 export interface StudentsSummary {
   total: number;
   active: number;
   inactive: number;
+  deleted: number;
   debtors: number;
 }
 
@@ -112,6 +125,15 @@ export interface CreateStudentPayload {
   current_plan_id?: number;
   balance_cents?: number;
   advisory_start_date?: string;
+  role_payouts?: StudentRolePayoutPayload[];
+}
+
+export interface StudentRolePayoutPayload {
+  role_id: number;
+  user_id: number;
+  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT";
+  percent?: number;
+  fixed_cents?: number;
 }
 
 export async function createStudent(
@@ -184,7 +206,7 @@ export interface UpdateStudentPayload {
   school_name?: string;
   school_address?: string;
   home_address?: string;
-  status?: "ACTIVE" | "INACTIVE";
+  status?: "ACTIVE" | "INACTIVE" | "DELETED";
   advisor_id?: number | null;
   advisor_commission_kind?: "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
   advisor_commission_percent?: number;
@@ -192,6 +214,7 @@ export interface UpdateStudentPayload {
   current_plan_id?: number | null;
   balance_cents?: number;
   advisory_start_date?: string;
+  role_payouts?: StudentRolePayoutPayload[];
 }
 
 export async function updateStudent(

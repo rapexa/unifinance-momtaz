@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://130.185.75.183:8081/api/v1";
+const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
 
 const API_BASE =
   (typeof import.meta !== "undefined" &&
@@ -15,6 +15,7 @@ export interface PaymentApi {
   id: number;
   student_id: number;
   student_name: string;
+  student_phone?: string;
   enrollment_id?: number;
   plan_name?: string;
   amount_cents: number;
@@ -22,6 +23,7 @@ export interface PaymentApi {
   currency: string;
   status: string;
   method: string;
+  payment_type: string;
   due_date: string | null;
   paid_at: string | null;
   created_at: string;
@@ -102,6 +104,7 @@ export interface CreatePaymentPayload {
   amount_cents: number;
   method: string;
   status: string;
+  payment_type?: "SINGLE_SESSION" | "MONTHLY" | "COURSE";
   description?: string;
   reference_number?: string;
   enrollment_id?: number;
@@ -145,6 +148,7 @@ export interface UpdatePaymentPayload {
   amount_cents?: number;
   method?: string;
   status?: string;
+  payment_type?: "SINGLE_SESSION" | "MONTHLY" | "COURSE";
   description?: string;
   reference_number?: string;
   due_date?: string | null;
@@ -160,6 +164,7 @@ export async function updatePayment(
   if (payload.amount_cents != null) body.amount_cents = payload.amount_cents;
   if (payload.method != null) body.method = payload.method;
   if (payload.status != null) body.status = payload.status;
+  if (payload.payment_type != null) body.payment_type = payload.payment_type;
   if (payload.description != null) body.description = payload.description;
   if (payload.reference_number != null) body.reference_number = payload.reference_number;
   if (payload.due_date !== undefined) body.due_date = payload.due_date || null;

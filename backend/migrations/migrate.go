@@ -22,6 +22,7 @@ func Run() {
 	autoMigrate(db)
 	backfillPaymentAdvisorShares(db)
 	seedRolesAndPermissions(db)
+	seedDefaultCompensationRules(db)
 	backfillPaymentPayrollShares(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
@@ -40,9 +41,13 @@ func autoMigrate(db *gorm.DB) {
 		&models.Plan{},
 		&models.PlanFeature{},
 		&models.Student{},
+		&models.StudentRolePayout{},
 		&models.Enrollment{},
 		&models.Payment{},
 		&models.PaymentPayrollShare{},
+		&models.CompensationRule{},
+		&models.CompensationRuleStudent{},
+		&models.CompensationRuleUserStudent{},
 		&models.PayrollEntry{},
 		&models.ReminderRule{},
 		&models.PaymentReminder{},
@@ -94,7 +99,51 @@ func backfillPaymentPayrollShares(db *gorm.DB) {
 	log.Println("migrations: payment payroll shares backfill finished")
 }
 
-func ptrI64(v int64) *int64  { return &v }
+func seedDefaultCompensationRules(db *gorm.DB) {
+	ensureRule := func(rule models.CompensationRule) {
+		var existing models.CompensationRule
+		err := db.Where("name = ?", rule.Name).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			if err := db.Create(&rule).Error; err != nil {
+				log.Printf("migrations: create compensation rule %s failed: %v", rule.Name, err)
+			}
+		}
+	}
+
+	ensureRule(models.CompensationRule{
+		Name:        "Advisor Contract Share",
+		IsActive:    true,
+		Priority:    10,
+		TargetKind:  models.CompTargetAdvisorContract,
+		AmountKind:  models.CompAmountPercent,
+		ScopeKind:   models.CompScopeAll,
+		PaymentType: models.CompPaymentTypeAll,
+	})
+
+	var roles []models.Role
+	if err := db.Where("percent_of_gross_student_payment IS NOT NULL AND percent_of_gross_student_payment > 0").Find(&roles).Error; err != nil {
+		return
+	}
+	for _, role := range roles {
+		if role.PercentOfGrossStudentPayment == nil || *role.PercentOfGrossStudentPayment <= 0 {
+			continue
+		}
+		pct := *role.PercentOfGrossStudentPayment
+		ensureRule(models.CompensationRule{
+			Name:        "Role Gross Share - " + role.Code,
+			IsActive:    true,
+			Priority:    50,
+			TargetKind:  models.CompTargetRole,
+			AmountKind:  models.CompAmountPercent,
+			ScopeKind:   models.CompScopeAll,
+			PaymentType: models.CompPaymentTypeAll,
+			RoleID:      &role.ID,
+			Percent:     &pct,
+		})
+	}
+}
+
+func ptrI64(v int64) *int64     { return &v }
 func ptrF64(v float64) *float64 { return &v }
 
 func seedRolesAndPermissions(db *gorm.DB) {
@@ -110,13 +159,13 @@ func seedRolesAndPermissions(db *gorm.DB) {
 	seeds := []seed{
 		{
 			role: models.Role{
-				Code:               models.RoleCodeGeneralManager,
-				Name:               "مدیرکل",
-				Description:        "دسترسی کامل",
-				IsSystem:           true,
-				FullAccess:         true,
-				CompensationKind:   models.CompFixed,
-				FixedCents:         ptrI64(z),
+				Code:             models.RoleCodeGeneralManager,
+				Name:             "مدیرکل",
+				Description:      "دسترسی کامل",
+				IsSystem:         true,
+				FullAccess:       true,
+				CompensationKind: models.CompFixed,
+				FixedCents:       ptrI64(z),
 			},
 			perms: models.AllPermissions,
 		},

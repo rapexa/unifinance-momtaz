@@ -32,6 +32,8 @@ import {
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
+import { gregorianIsoToJalali, jalaliToGregorianIso } from "@/lib/jalaliDate";
 import {
   createStudent,
   listStudents,
@@ -41,9 +43,11 @@ import {
   deleteStudent as deleteStudentApi,
   StudentApi,
   UpdateStudentPayload,
+  StudentRolePayoutPayload,
 } from "@/api/studentsApi";
-import { listAdvisors, UserApi } from "@/api/usersApi";
+import { listAdvisors, listUsers, UserApi } from "@/api/usersApi";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
+import { listRoles, RoleApi } from "@/api/rolesApi";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +68,7 @@ interface StudentRow {
   advisor: string;
   plan: string;
   balance: string;
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "deleted";
   advisoryStart: string;
 }
 
@@ -82,23 +86,67 @@ function todayIsoDate(): string {
   return `${y}-${m}-${day}`;
 }
 
+function todayJalaliDate(): string {
+  return gregorianIsoToJalali(todayIsoDate());
+}
+
 type AdvisorCommKind = "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT";
+
+interface RolePayoutFormRow {
+  key: string;
+  roleId: string;
+  userId: string;
+  amountKind: PayoutAmountKind;
+  percent: string;
+  fixedCents: string;
+}
 
 function parseCommKind(raw: string | undefined): AdvisorCommKind {
   if (raw === "PERCENT" || raw === "FIXED_PER_PAYMENT") return raw;
   return "NONE";
 }
 
+function makeRolePayoutRow(seed?: Partial<RolePayoutFormRow>): RolePayoutFormRow {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    roleId: seed?.roleId ?? "",
+    userId: seed?.userId ?? "",
+    amountKind: seed?.amountKind ?? "PERCENT",
+    percent: seed?.percent ?? "",
+    fixedCents: seed?.fixedCents ?? "",
+  };
+}
+
+function mapApiRolePayoutsToRows(student: StudentApi): RolePayoutFormRow[] {
+  return (student.role_payouts ?? []).map((p) =>
+    makeRolePayoutRow({
+      roleId: String(p.role_id),
+      userId: String(p.user_id),
+      amountKind: p.amount_kind,
+      percent: p.percent != null ? String(p.percent) : "",
+      fixedCents: p.fixed_cents != null ? String(p.fixed_cents) : "",
+    })
+  );
+}
+
+function buildRolePayoutPayload(rows: RolePayoutFormRow[]): StudentRolePayoutPayload[] {
+  return rows
+    .filter((r) => r.roleId && r.userId)
+    .map((r) => ({
+      role_id: Number(r.roleId),
+      user_id: Number(r.userId),
+      amount_kind: r.amountKind,
+      ...(r.amountKind === "PERCENT" ? { percent: parseLocalizedFloat(r.percent) } : {}),
+      ...(r.amountKind === "FIXED_PER_PAYMENT" ? { fixed_cents: parseLocalizedInt(r.fixedCents) } : {}),
+    }));
+}
+
 function mapStudent(api: StudentApi): StudentRow {
   const name = `${api.first_name ?? ""} ${api.last_name ?? ""}`.trim();
   let advisoryStart = "—";
   if (api.advisory_start_date) {
-    const [yy, mm, dd] = api.advisory_start_date.split("-").map(Number);
-    if (yy && mm && dd) {
-      advisoryStart = new Date(yy, mm - 1, dd).toLocaleDateString("fa-IR");
-    } else {
-      advisoryStart = api.advisory_start_date;
-    }
+    advisoryStart = gregorianIsoToJalali(api.advisory_start_date) || api.advisory_start_date;
   }
   return {
     id: api.id,
@@ -108,7 +156,12 @@ function mapStudent(api: StudentApi): StudentRow {
     advisor: api.advisor_name?.trim() || "—",
     plan: api.current_plan_name?.trim() || "—",
     balance: formatBalance(api.balance_cents),
-    status: api.status === "INACTIVE" ? "inactive" : "active",
+    status:
+      api.status === "DELETED"
+        ? "deleted"
+        : api.status === "INACTIVE"
+          ? "inactive"
+          : "active",
     advisoryStart,
   };
 }
@@ -116,6 +169,8 @@ function mapStudent(api: StudentApi): StudentRow {
 function EditStudentForm({
   student,
   advisors,
+  users,
+  roles,
   plans,
   onCancel,
   onSuccess,
@@ -123,6 +178,8 @@ function EditStudentForm({
 }: {
   student: StudentApi;
   advisors: UserApi[];
+  users: UserApi[];
+  roles: RoleApi[];
   plans: PlanApi[];
   onCancel: () => void;
   onSuccess: () => void;
@@ -139,7 +196,9 @@ function EditStudentForm({
   const [schoolName, setSchoolName] = useState(student.school_name || "");
   const [schoolAddress, setSchoolAddress] = useState(student.school_address || "");
   const [homeAddress, setHomeAddress] = useState(student.home_address || "");
-  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(student.status === "INACTIVE" ? "INACTIVE" : "ACTIVE");
+  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE" | "DELETED">(
+    student.status === "DELETED" ? "DELETED" : student.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"
+  );
   const [advisorId, setAdvisorId] = useState(student.advisor_id != null ? String(student.advisor_id) : "none");
   const [planId, setPlanId] = useState(student.current_plan_id != null ? String(student.current_plan_id) : "none");
   const [balance, setBalance] = useState(student.balance_cents != null ? String(student.balance_cents) : "0");
@@ -153,16 +212,27 @@ function EditStudentForm({
     student.advisor_commission_fixed_cents != null ? String(student.advisor_commission_fixed_cents) : ""
   );
   const [advisoryStartDate, setAdvisoryStartDate] = useState(
-    student.advisory_start_date || ""
+    gregorianIsoToJalali(student.advisory_start_date) || ""
+  );
+  const [rolePayoutRows, setRolePayoutRows] = useState<RolePayoutFormRow[]>(
+    mapApiRolePayoutsToRows(student)
   );
 
   const advisorSelected = advisorId !== "none";
   const commissionInvalid =
     advisorSelected &&
     ((advisorCommKind === "PERCENT" &&
-      (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+      (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
       (advisorCommKind === "FIXED_PER_PAYMENT" &&
-        (!commFixed.trim() || Number(commFixed) < 0)));
+        (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)));
+  const rolePayoutInvalid = rolePayoutRows.some((r) =>
+    !r.roleId ||
+    !r.userId ||
+    (r.amountKind === "PERCENT" &&
+      (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+    (r.amountKind === "FIXED_PER_PAYMENT" &&
+      (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+  );
 
   return (
     <div className="space-y-6 py-2">
@@ -191,7 +261,13 @@ function EditStudentForm({
         </div>
         <div className="mt-3">
           <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
-          <Input type="date" value={advisoryStartDate} onChange={(e) => setAdvisoryStartDate(e.target.value)} dir="ltr" />
+          <Input
+            type="text"
+            value={advisoryStartDate}
+            onChange={(e) => setAdvisoryStartDate(e.target.value)}
+            placeholder="۱۴۰۳/۰۱/۱۵"
+            dir="ltr"
+          />
         </div>
       </div>
 
@@ -275,7 +351,7 @@ function EditStudentForm({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب (ریال)</label>
-            <Input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} dir="ltr" />
+            <Input type="text" inputMode="numeric" value={balance} onChange={(e) => setBalance(formatGroupedFaIntInput(e.target.value))} dir="ltr" />
           </div>
         </div>
         {advisorSelected && (
@@ -315,7 +391,7 @@ function EditStudentForm({
                 </label>
                 <Input
                   value={commFixed}
-                  onChange={(e) => setCommFixed(e.target.value)}
+                  onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))}
                   placeholder="مبلغ به ریال"
                   inputMode="numeric"
                   dir="ltr"
@@ -324,17 +400,67 @@ function EditStudentForm({
             )}
           </div>
         )}
+        <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">سهم‌های اضافه برای نقش‌های دیگر (اختیاری)</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
+              افزودن نقش
+            </Button>
+          </div>
+          {rolePayoutRows.length === 0 && (
+            <p className="text-xs text-muted-foreground">نقش اضافه‌ای تعریف نشده است.</p>
+          )}
+          {rolePayoutRows.map((row) => {
+            const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
+            return (
+              <div key={row.key} className="space-y-2 rounded-md border border-border bg-background p-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Select value={row.roleId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, roleId: v === "none" ? "" : v, userId: "" } : x))}>
+                    <SelectTrigger><SelectValue placeholder="نقش" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">انتخاب نقش</SelectItem>
+                      {roles.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={row.userId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, userId: v === "none" ? "" : v } : x))}>
+                    <SelectTrigger><SelectValue placeholder="کاربر" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">انتخاب کاربر</SelectItem>
+                      {roleUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.first_name} {u.last_name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PERCENT">درصدی</SelectItem>
+                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {row.amountKind === "PERCENT" ? (
+                  <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۵)" inputMode="decimal" dir="ltr" />
+                ) : (
+                  <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (ریال)" inputMode="numeric" dir="ltr" />
+                )}
+                <div className="flex justify-end">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">وضعیت</span>
-        <Select value={status} onValueChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE")}>
+        <Select value={status} onValueChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE" | "DELETED")}>
           <SelectTrigger className="w-[140px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ACTIVE">فعال</SelectItem>
             <SelectItem value="INACTIVE">غیرفعال</SelectItem>
+            <SelectItem value="DELETED">حذف‌شده (خروج کامل)</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -345,6 +471,7 @@ function EditStudentForm({
         <Button
           onClick={() => {
             const advTrim = advisoryStartDate.trim();
+            const advGregorian = advTrim ? jalaliToGregorianIso(advTrim) : "";
             const payload: UpdateStudentPayload = {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
@@ -360,25 +487,26 @@ function EditStudentForm({
               status,
               advisor_id: advisorId === "none" ? null : Number(advisorId),
               current_plan_id: planId === "none" ? null : Number(planId),
-              balance_cents: Number(balance) || 0,
+              balance_cents: parseLocalizedInt(balance) || 0,
             };
-            if (advTrim) {
-              payload.advisory_start_date = advTrim;
+            if (advTrim && advGregorian) {
+              payload.advisory_start_date = advGregorian;
             } else if (student.advisory_start_date) {
               payload.advisory_start_date = "";
             }
             if (advisorSelected) {
               payload.advisor_commission_kind = advisorCommKind;
               if (advisorCommKind === "PERCENT") {
-                payload.advisor_commission_percent = Number(commPercent);
+                payload.advisor_commission_percent = parseLocalizedFloat(commPercent);
               }
               if (advisorCommKind === "FIXED_PER_PAYMENT") {
-                payload.advisor_commission_fixed_cents = Number(commFixed);
+                payload.advisor_commission_fixed_cents = parseLocalizedInt(commFixed);
               }
             }
+            payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
             mutation.mutate({ id: student.id, payload }, { onSuccess });
           }}
-          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || commissionInvalid}
+          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || commissionInvalid || rolePayoutInvalid}
         >
           {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
         </Button>
@@ -392,6 +520,7 @@ function EditStudentForm({
 
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
@@ -414,13 +543,15 @@ const Students = () => {
   const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>("NONE");
   const [commPercent, setCommPercent] = useState("");
   const [commFixed, setCommFixed] = useState("");
-  const [createAdvisoryStartDate, setCreateAdvisoryStartDate] = useState(todayIsoDate);
+  const [rolePayoutRows, setRolePayoutRows] = useState<RolePayoutFormRow[]>([]);
+  const [createAdvisoryStartDate, setCreateAdvisoryStartDate] = useState(todayJalaliDate);
 
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isCreateOpen) {
-      setCreateAdvisoryStartDate(todayIsoDate());
+      setCreateAdvisoryStartDate(todayJalaliDate());
+      setRolePayoutRows([]);
     }
   }, [isCreateOpen]);
 
@@ -484,6 +615,15 @@ const Students = () => {
     queryKey: ["advisors"],
     queryFn: listAdvisors,
   });
+  const { data: usersData } = useQuery({
+    queryKey: ["users", "student-role-payouts"],
+    queryFn: () => listUsers({ status: "active", page: 1, page_size: 300 }),
+  });
+  const users = usersData?.data ?? [];
+  const { data: roles = [] } = useQuery({
+    queryKey: ["roles", "student-role-payouts"],
+    queryFn: listRoles,
+  });
 
   const { data: plans } = useQuery({
     queryKey: ["plans-active"],
@@ -514,11 +654,16 @@ const Students = () => {
       setAdvisorCommKind("NONE");
       setCommPercent("");
       setCommFixed("");
-      setCreateAdvisoryStartDate(todayIsoDate());
+      setRolePayoutRows([]);
+      setCreateAdvisoryStartDate(todayJalaliDate());
     },
   });
 
-  const students: StudentRow[] = (data?.data || []).map(mapStudent);
+  const studentsAll: StudentRow[] = (data?.data || []).map(mapStudent);
+  const students: StudentRow[] =
+    statusFilter === "all"
+      ? studentsAll
+      : studentsAll.filter((s) => s.status === statusFilter);
 
   return (
     <MainLayout title="دانش‌آموزان" subtitle="مدیریت پروفایل و اطلاعات مالی دانش‌آموزان">
@@ -533,12 +678,46 @@ const Students = () => {
             className="pr-9"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <div className="flex w-full overflow-x-auto rounded-lg border p-1 sm:w-auto">
+            <Button
+              variant={statusFilter === "all" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-10 sm:h-8"
+              onClick={() => setStatusFilter("all")}
+            >
+              همه
+            </Button>
+            <Button
+              variant={statusFilter === "active" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-10 sm:h-8"
+              onClick={() => setStatusFilter("active")}
+            >
+              فعال
+            </Button>
+            <Button
+              variant={statusFilter === "inactive" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-10 sm:h-8"
+              onClick={() => setStatusFilter("inactive")}
+            >
+              غیرفعال
+            </Button>
+            <Button
+              variant={statusFilter === "deleted" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-10 sm:h-8"
+              onClick={() => setStatusFilter("deleted")}
+            >
+              حذف‌شده
+            </Button>
+          </div>
           <div className="flex rounded-lg border p-1">
             <Button
               variant={viewMode === "list" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-10 w-10 sm:h-8 sm:w-8"
               onClick={() => setViewMode("list")}
             >
               <List className="h-4 w-4" />
@@ -546,17 +725,17 @@ const Students = () => {
             <Button
               variant={viewMode === "grid" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-10 w-10 sm:h-8 sm:w-8"
               onClick={() => setViewMode("grid")}
             >
               <Grid className="h-4 w-4" />
             </Button>
           </div>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
             <Filter className="ml-2 h-4 w-4" />
             فیلتر
           </Button>
-          <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+          <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setIsCreateOpen(true)}>
             <Plus className="ml-2 h-4 w-4" />
             دانش‌آموز جدید
           </Button>
@@ -564,7 +743,7 @@ const Students = () => {
       </div>
 
       {/* Stats */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-5">
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">کل دانش‌آموزان</p>
           <p className="text-2xl font-bold text-foreground">
@@ -587,6 +766,14 @@ const Students = () => {
             {isSummaryLoading || isSummaryError
               ? "—"
               : summary?.inactive ?? 0}
+          </p>
+        </div>
+        <div className="card-elevated p-4">
+          <p className="text-sm text-muted-foreground">حذف‌شده</p>
+          <p className="text-2xl font-bold text-muted-foreground">
+            {isSummaryLoading || isSummaryError
+              ? "—"
+              : summary?.deleted ?? 0}
           </p>
         </div>
         <div className="card-elevated p-4">
@@ -635,7 +822,7 @@ const Students = () => {
                 <span
                   className={cn(
                     "h-2.5 w-2.5 rounded-full",
-                    student.status === "active" ? "bg-success" : "bg-muted-foreground"
+                    student.status === "active" ? "bg-success" : student.status === "inactive" ? "bg-warning" : "bg-destructive"
                   )}
                 />
               </div>
@@ -729,11 +916,24 @@ const Students = () => {
                       <span
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                          student.status === "active" ? "status-paid" : "status-debt"
+                          student.status === "active"
+                            ? "status-paid"
+                            : student.status === "inactive"
+                              ? "status-pending"
+                              : "status-debt"
                         )}
                       >
-                        <span className={cn("h-1.5 w-1.5 rounded-full", student.status === "active" ? "bg-success" : "bg-destructive")} />
-                        {student.status === "active" ? "فعال" : "غیرفعال"}
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            student.status === "active"
+                              ? "bg-success"
+                              : student.status === "inactive"
+                                ? "bg-warning"
+                                : "bg-destructive"
+                          )}
+                        />
+                        {student.status === "active" ? "فعال" : student.status === "inactive" ? "غیرفعال" : "حذف‌شده"}
                       </span>
                     </td>
                     <td className="p-4">
@@ -799,12 +999,7 @@ const Students = () => {
               <p>
                 <span className="text-muted-foreground">تاریخ شروع مشاوره:</span>{" "}
                 {detailsStudentData.advisory_start_date
-                  ? (() => {
-                      const [y, m, d] = detailsStudentData.advisory_start_date.split("-").map(Number);
-                      return y && m && d
-                        ? new Date(y, m - 1, d).toLocaleDateString("fa-IR")
-                        : detailsStudentData.advisory_start_date;
-                    })()
+                  ? gregorianIsoToJalali(detailsStudentData.advisory_start_date) || detailsStudentData.advisory_start_date
                   : "—"}
               </p>
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
@@ -820,9 +1015,31 @@ const Students = () => {
                       : "بدون سهم"}
                 </p>
               )}
+              {Array.isArray(detailsStudentData.role_payouts) && detailsStudentData.role_payouts.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground">سهم نقش‌های اضافه:</p>
+                  <ul className="mt-1 space-y-1 text-sm">
+                    {detailsStudentData.role_payouts.map((rp) => (
+                      <li key={rp.id}>
+                        {(rp.role_name || `نقش #${rp.role_id}`)} / {(rp.user_name || `کاربر #${rp.user_id}`)}:{" "}
+                        {rp.amount_kind === "PERCENT"
+                          ? `${rp.percent ?? 0}٪`
+                          : `${formatBalance(rp.fixed_cents)} ریال`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
               <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
-              <p><span className="text-muted-foreground">وضعیت:</span> {detailsStudentData.status === "INACTIVE" ? "غیرفعال" : "فعال"}</p>
+              <p>
+                <span className="text-muted-foreground">وضعیت:</span>{" "}
+                {detailsStudentData.status === "DELETED"
+                  ? "حذف‌شده"
+                  : detailsStudentData.status === "INACTIVE"
+                    ? "غیرفعال"
+                    : "فعال"}
+              </p>
             </div>
           )}
         </DialogContent>
@@ -830,7 +1047,7 @@ const Students = () => {
 
       {/* Edit student dialog */}
       <Dialog open={editStudentId != null} onOpenChange={(open) => !open && setEditStudentId(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>ویرایش دانش‌آموز</DialogTitle>
           </DialogHeader>
@@ -839,6 +1056,8 @@ const Students = () => {
               key={editStudentData.id}
               student={editStudentData}
               advisors={advisors || []}
+              users={users}
+              roles={roles}
               plans={plans || []}
               onCancel={() => setEditStudentId(null)}
               onSuccess={() => setEditStudentId(null)}
@@ -854,7 +1073,7 @@ const Students = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>حذف دانش‌آموز</AlertDialogTitle>
             <AlertDialogDescription>
-              آیا از حذف دانش‌آموز «{deleteStudent?.name}» اطمینان دارید؟ این عمل قابل بازگشت نیست.
+              دانش‌آموز «{deleteStudent?.name}» از چرخه مشاوره خارج و به وضعیت «حذف‌شده» منتقل می‌شود، اما برای گزارش سالانه در لیست باقی می‌ماند.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -863,7 +1082,7 @@ const Students = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteStudent && deleteMutation.mutate(deleteStudent.id)}
             >
-              {deleteMutation.isPending ? "در حال حذف..." : "حذف"}
+              {deleteMutation.isPending ? "در حال ثبت..." : "تبدیل به حذف‌شده"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -871,7 +1090,7 @@ const Students = () => {
 
       {/* Create student dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>دانش‌آموز جدید</DialogTitle>
           </DialogHeader>
@@ -907,12 +1126,13 @@ const Students = () => {
               <div className="mt-3">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
                 <Input
-                  type="date"
+                  type="text"
                   value={createAdvisoryStartDate}
                   onChange={(e) => setCreateAdvisoryStartDate(e.target.value)}
+                  placeholder="۱۴۰۳/۰۱/۱۵"
                   dir="ltr"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">پیش‌فرض: امروز — در صورت نیاز قابل تغییر است.</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">فرمت: سال/ماه/روز شمسی (مثلا ۱۴۰۳/۰۱/۱۵)</p>
               </div>
             </div>
 
@@ -998,14 +1218,17 @@ const Students = () => {
                   </Select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب اولیه (ریال)</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ کل ثبت‌نام (ریال)</label>
                   <Input
                     value={balance}
-                    onChange={(e) => setBalance(e.target.value)}
-                    placeholder="مثلاً -2500000"
+                    onChange={(e) => setBalance(formatGroupedFaIntInput(e.target.value))}
+                    placeholder="مثلاً 2500000"
                     inputMode="numeric"
                     dir="ltr"
                   />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    این مبلغ به عنوان بدهی اولیه دانش‌آموز ثبت می‌شود.
+                  </p>
                 </div>
               </div>
               {!!advisorId && (
@@ -1045,7 +1268,7 @@ const Students = () => {
                       </label>
                       <Input
                         value={commFixed}
-                        onChange={(e) => setCommFixed(e.target.value)}
+                        onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))}
                         placeholder="مبلغ به ریال"
                         inputMode="numeric"
                         dir="ltr"
@@ -1054,6 +1277,55 @@ const Students = () => {
                   )}
                 </div>
               )}
+              <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-muted-foreground">سهم‌های اضافه برای نقش‌های دیگر (اختیاری)</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
+                    افزودن نقش
+                  </Button>
+                </div>
+                {rolePayoutRows.length === 0 && (
+                  <p className="text-xs text-muted-foreground">نقش اضافه‌ای تعریف نشده است.</p>
+                )}
+                {rolePayoutRows.map((row) => {
+                  const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
+                  return (
+                    <div key={row.key} className="space-y-2 rounded-md border border-border bg-background p-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <Select value={row.roleId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, roleId: v === "none" ? "" : v, userId: "" } : x))}>
+                          <SelectTrigger><SelectValue placeholder="نقش" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">انتخاب نقش</SelectItem>
+                            {roles.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={row.userId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, userId: v === "none" ? "" : v } : x))}>
+                          <SelectTrigger><SelectValue placeholder="کاربر" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">انتخاب کاربر</SelectItem>
+                            {roleUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.first_name} {u.last_name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PERCENT">درصدی</SelectItem>
+                            <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {row.amountKind === "PERCENT" ? (
+                        <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۵)" inputMode="decimal" dir="ltr" />
+                      ) : (
+                        <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (ریال)" inputMode="numeric" dir="ltr" />
+                      )}
+                      <div className="flex justify-end">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1070,10 +1342,18 @@ const Students = () => {
                 const createCommissionInvalid =
                   createAdvisorSelected &&
                   ((advisorCommKind === "PERCENT" &&
-                    (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+                    (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
                     (advisorCommKind === "FIXED_PER_PAYMENT" &&
-                      (!commFixed.trim() || Number(commFixed) < 0)));
-                if (createCommissionInvalid) return;
+                      (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)));
+                const createRolePayoutInvalid = rolePayoutRows.some((r) =>
+                  !r.roleId ||
+                  !r.userId ||
+                  (r.amountKind === "PERCENT" &&
+                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                );
+                if (createCommissionInvalid || createRolePayoutInvalid) return;
                 createMutation.mutate({
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
@@ -1086,21 +1366,25 @@ const Students = () => {
                   school_name: schoolName.trim() || undefined,
                   school_address: schoolAddress.trim() || undefined,
                   home_address: homeAddress.trim() || undefined,
-                  advisory_start_date: createAdvisoryStartDate.trim() || undefined,
+                  advisory_start_date: (() => {
+                    const g = jalaliToGregorianIso(createAdvisoryStartDate.trim());
+                    return g || undefined;
+                  })(),
                   advisor_id: advisorId ? Number(advisorId) : undefined,
                   ...(createAdvisorSelected
                     ? {
                         advisor_commission_kind: advisorCommKind,
                         ...(advisorCommKind === "PERCENT"
-                          ? { advisor_commission_percent: Number(commPercent) }
+                          ? { advisor_commission_percent: parseLocalizedFloat(commPercent) }
                           : {}),
                         ...(advisorCommKind === "FIXED_PER_PAYMENT"
-                          ? { advisor_commission_fixed_cents: Number(commFixed) }
+                          ? { advisor_commission_fixed_cents: parseLocalizedInt(commFixed) }
                           : {}),
                       }
                     : {}),
+                  role_payouts: buildRolePayoutPayload(rolePayoutRows),
                   current_plan_id: planId ? Number(planId) : undefined,
-                  balance_cents: balance ? Number(balance) : undefined,
+                  balance_cents: balance ? -Math.abs(parseLocalizedInt(balance)) : undefined,
                 });
               }}
               disabled={
@@ -1109,9 +1393,17 @@ const Students = () => {
                 !lastName.trim() ||
                 (!!advisorId &&
                   ((advisorCommKind === "PERCENT" &&
-                    (!commPercent.trim() || Number(commPercent) <= 0 || Number(commPercent) > 100)) ||
+                    (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
                     (advisorCommKind === "FIXED_PER_PAYMENT" &&
-                      (!commFixed.trim() || Number(commFixed) < 0))))
+                      (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)))) ||
+                rolePayoutRows.some((r) =>
+                  !r.roleId ||
+                  !r.userId ||
+                  (r.amountKind === "PERCENT" &&
+                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                )
               }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -56,6 +57,8 @@ func main() {
 	payrollService := services.NewPayrollService(db)
 	reportService := services.NewReportService(db)
 	settingsService := services.NewSettingsService(db, userService)
+	compRuleService := services.NewCompensationRuleService(db)
+	reminderService := services.NewReminderService(db)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -68,6 +71,8 @@ func main() {
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService)
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
+	compRuleHandler := handlers.NewCompensationRuleHandler(compRuleService, paymentService)
+	reminderHandler := handlers.NewReminderHandler(reminderService)
 
 	// Gin engine
 	r := gin.Default()
@@ -77,7 +82,11 @@ func main() {
 		AllowOrigins: []string{
 			"http://localhost:8080",
 			"http://127.0.0.1:8080",
+			"http://130.185.75.183:8080",
 			"http://130.185.75.183",
+			"http://130.185.75.183:8081",
+			"https://mali-momtazisho.ir",
+			"https://api.mali-momtazisho.ir",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
@@ -119,9 +128,9 @@ func main() {
 		roleVal, _ := c.Get(middleware.ContextUserRole)
 		fullVal, _ := c.Get(middleware.ContextUserFullAccess)
 		c.JSON(http.StatusOK, gin.H{
-			"user_id":      userIDVal,
-			"role":         roleVal,
-			"full_access":  fullVal,
+			"user_id":     userIDVal,
+			"role":        roleVal,
+			"full_access": fullVal,
 		})
 	})
 
@@ -250,6 +259,16 @@ func main() {
 		paymentsSettings.PUT("", settingsHandler.UpdatePaymentSettings)
 	}
 
+	compRules := settings.Group("/compensation-rules")
+	compRules.Use(middleware.PermissionMiddleware(permService, models.PermSettings))
+	{
+		compRules.GET("", compRuleHandler.List)
+		compRules.POST("", compRuleHandler.Create)
+		compRules.PUT("/:id", compRuleHandler.Update)
+		compRules.DELETE("/:id", compRuleHandler.Delete)
+		compRules.POST("/:id/students", compRuleHandler.ReplaceStudents)
+	}
+
 	// Profile, security and notifications for current user
 	settings.GET("/profile", settingsHandler.GetProfile)
 	settings.PUT("/profile", settingsHandler.UpdateProfile)
@@ -268,7 +287,29 @@ func main() {
 		notifications.PUT("", settingsHandler.UpdateNotifications)
 	}
 
-	// TODO: add other groups for /reminders.
+	reminders := protected.Group("/reminders")
+	reminders.Use(middleware.PermissionMiddleware(permService, models.PermReminders))
+	{
+		reminders.GET("/rules", reminderHandler.ListRules)
+		reminders.PUT("/rules", reminderHandler.ReplaceRules)
+		reminders.GET("/logs", reminderHandler.ListLogs)
+		reminders.POST("/run", reminderHandler.RunNow)
+	}
+
+	// Auto scheduler: run reminder dispatch periodically.
+	go func() {
+		ctx := context.Background()
+		if _, err := reminderService.RunNow(ctx); err != nil {
+			log.Printf("reminder scheduler initial run failed: %v", err)
+		}
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := reminderService.RunNow(ctx); err != nil {
+				log.Printf("reminder scheduler run failed: %v", err)
+			}
+		}
+	}()
 
 	addr := ":8081"
 	log.Printf("API server listening on %s", addr)

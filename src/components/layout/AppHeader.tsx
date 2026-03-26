@@ -53,13 +53,13 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div>
-        <h1 className="text-lg font-bold text-foreground">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-background/95 px-3 sm:px-4 lg:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="min-w-0">
+        <h1 className="truncate text-base font-bold text-foreground sm:text-lg">{title}</h1>
+        {subtitle && <p className="hidden truncate text-xs text-muted-foreground sm:block sm:text-sm">{subtitle}</p>}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3">
         <div className="relative hidden md:block">
           <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -79,7 +79,7 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="gap-2 pr-2">
+            <Button variant="ghost" className="gap-2 pr-1 sm:pr-2">
               {profile?.avatar_url ? (
                 <img
                   src={`${getUploadsBase()}${profile.avatar_url}`}

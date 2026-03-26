@@ -29,12 +29,12 @@ type PayrollCompensationBreakdown struct {
 
 // PayrollSummary holds aggregated payroll metrics for a given period.
 type PayrollSummary struct {
-	PeriodYear        int   `json:"period_year"`
-	PeriodMonth       int   `json:"period_month"`
-	TotalBaseCents    int64 `json:"total_base_cents"`
+	PeriodYear         int   `json:"period_year"`
+	PeriodMonth        int   `json:"period_month"`
+	TotalBaseCents     int64 `json:"total_base_cents"`
 	TotalVariableCents int64 `json:"total_variable_cents"`
-	TotalPaidCents    int64 `json:"total_paid_cents"`
-	TotalPendingCents int64 `json:"total_pending_cents"`
+	TotalPaidCents     int64 `json:"total_paid_cents"`
+	TotalPendingCents  int64 `json:"total_pending_cents"`
 }
 
 // PayrollService encapsulates payroll-related business logic.
@@ -95,6 +95,62 @@ func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int)
 		TotalPaidCents:     totalPaid,
 		TotalPendingCents:  totalPending,
 	}, nil
+}
+
+// EnsureEntriesForPeriod auto-registers pending payroll rows for active users for a month.
+func (s *PayrollService) EnsureEntriesForPeriod(ctx context.Context, year, month int) error {
+	var users []models.User
+	if err := s.db.WithContext(ctx).
+		Preload("Role").
+		Where("is_active = ? AND role_id IS NOT NULL", true).
+		Find(&users).Error; err != nil {
+		return err
+	}
+	for i := range users {
+		u := &users[i]
+		if u.Role == nil {
+			continue
+		}
+		if err := s.EnsureEntryForUserPeriod(ctx, u.ID, year, month); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EnsureEntryForUserPeriod creates or refreshes a pending payroll entry for a user/period.
+func (s *PayrollService) EnsureEntryForUserPeriod(ctx context.Context, userID uint, year, month int) error {
+	var existing models.PayrollEntry
+	err := s.db.WithContext(ctx).
+		Where("user_id = ? AND period_year = ? AND period_month = ?", userID, year, month).
+		First(&existing).Error
+	if err == nil {
+		// Do not mutate already-paid entries automatically.
+		if existing.Status == models.PayrollStatusPaid {
+			return nil
+		}
+		br, err := s.ComputeCompensationForUser(ctx, userID, year, month)
+		if err != nil {
+			return err
+		}
+		existing.BaseSalaryCents = br.BaseSalaryCents
+		existing.VariableSalaryCents = br.VariableSalaryCents
+		existing.TotalSalaryCents = br.BaseSalaryCents + br.VariableSalaryCents
+		existing.StudentsCount = br.StudentsCount
+		existing.Status = models.PayrollStatusPending
+		return s.db.WithContext(ctx).Save(&existing).Error
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	_, err = s.CreateEntry(ctx, CreateEntryParams{
+		UserID:         userID,
+		PeriodYear:     year,
+		PeriodMonth:    month,
+		ApplyRoleRules: true,
+		Status:         models.PayrollStatusPending,
+	})
+	return err
 }
 
 // ListEntries returns payroll entries for a given period with pagination.
@@ -270,20 +326,25 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		CompensationKind:    r.CompensationKind,
 		RevenueVolumeCents:  volume,
 		RoleGrossShareCents: roleGross,
-		StudentsCount:       totalStudentsInPeriod,
+		StudentsCount:       0,
 	}
 
 	switch r.CompensationKind {
 	case models.CompFixed:
 		out.BaseSalaryCents = derefInt64(r.FixedCents)
 		out.VariableSalaryCents = roleGross
+		if r.PercentOfStudentPayments != nil && *r.PercentOfStudentPayments > 0 {
+			out.VariableSalaryCents += int64(math.Round(float64(volume) * (*r.PercentOfStudentPayments) / 100.0))
+			out.StudentsCount = totalStudentsInPeriod
+		}
 	case models.CompPercent:
 		if r.PercentOfStudentPayments == nil {
 			return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
 		}
 		p := *r.PercentOfStudentPayments
-		out.BaseSalaryCents = 0
+		out.BaseSalaryCents = derefInt64(r.FixedCents)
 		out.VariableSalaryCents = int64(math.Round(float64(volume)*p/100.0)) + roleGross
+		out.StudentsCount = totalStudentsInPeriod
 	case models.CompPerUnit:
 		if r.RevenueUnitCents == nil || *r.RevenueUnitCents <= 0 || r.AmountPerUnitCents == nil {
 			return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
@@ -292,6 +353,7 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		per := derefInt64(r.AmountPerUnitCents)
 		out.BaseSalaryCents = 0
 		out.VariableSalaryCents = (volume/unit)*per + roleGross
+		out.StudentsCount = totalStudentsInPeriod
 	default:
 		return PayrollCompensationBreakdown{}, ErrPayrollInvalidRoleCompensation
 	}
@@ -412,4 +474,3 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 	}
 	return s.GetEntryByID(ctx, entry.ID)
 }
-

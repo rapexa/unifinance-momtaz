@@ -12,6 +12,7 @@ type StudentStatus string
 const (
 	StudentStatusActive   StudentStatus = "ACTIVE"
 	StudentStatusInactive StudentStatus = "INACTIVE"
+	StudentStatusDeleted  StudentStatus = "DELETED"
 )
 
 // StudentAdvisorCommissionKind defines how advisor earnings are computed per paid payment.
@@ -71,9 +72,9 @@ type Student struct {
 	MotherJob   string `gorm:"size:120"`
 
 	// Per-payment advisor commission (when AdvisorID is set)
-	AdvisorCommissionKind         StudentAdvisorCommissionKind `gorm:"type:varchar(32);not null;default:'NONE'"`
-	AdvisorCommissionPercent    *float64                       `gorm:""` // 0–100 when kind = PERCENT
-	AdvisorCommissionFixedCents *int64                         `gorm:""` // per PAID payment when kind = FIXED_PER_PAYMENT
+	AdvisorCommissionKind       StudentAdvisorCommissionKind `gorm:"type:varchar(32);not null;default:'NONE'"`
+	AdvisorCommissionPercent    *float64                     `gorm:""` // 0–100 when kind = PERCENT
+	AdvisorCommissionFixedCents *int64                       `gorm:""` // per PAID payment when kind = FIXED_PER_PAYMENT
 
 	// School info
 	SchoolName    string `gorm:"size:200"`
@@ -96,8 +97,8 @@ type Student struct {
 	Organization   *Organization `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	// When a student is deleted, related enrollments, payments, and reminders are removed.
-	Enrollments []Enrollment    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	Payments    []Payment       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	Reminders   []PaymentReminder `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Enrollments        []Enrollment        `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Payments           []Payment           `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Reminders          []PaymentReminder   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	StudentRolePayouts []StudentRolePayout `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
-

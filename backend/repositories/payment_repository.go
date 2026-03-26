@@ -189,7 +189,7 @@ func (r *GormPaymentRepository) SoftDelete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).
 		Model(&models.Payment{}).
 		Where("id = ?", id).
-		Update("status", "CANCELLED").Error
+		Update("status", models.PaymentStatusCancelled).Error
 }
 
 func (r *GormPaymentRepository) ListRecent(ctx context.Context, limit int) ([]models.Payment, error) {

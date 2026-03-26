@@ -16,11 +16,11 @@ const (
 // PayrollEntry represents a monthly payslip (Payroll > فیش‌های حقوقی, Employees tab).
 type PayrollEntry struct {
 	gorm.Model
-	UserID uint `gorm:"not null;index"`
+	UserID uint `gorm:"not null;index;uniqueIndex:idx_payroll_user_period"`
 	User   User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	PeriodYear  int `gorm:"not null;index"`
-	PeriodMonth int `gorm:"not null;index"` // 1-12
+	PeriodYear  int `gorm:"not null;index;uniqueIndex:idx_payroll_user_period"`
+	PeriodMonth int `gorm:"not null;index;uniqueIndex:idx_payroll_user_period"` // 1-12
 
 	BaseSalaryCents     int64 `gorm:"not null;default:0"`
 	VariableSalaryCents int64 `gorm:"not null;default:0"`
@@ -31,4 +31,3 @@ type PayrollEntry struct {
 	Status PayrollStatus `gorm:"type:varchar(32);not null;index"`
 	PaidAt *time.Time    `gorm:"index"`
 }
-

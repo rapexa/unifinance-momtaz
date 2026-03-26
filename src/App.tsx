@@ -12,6 +12,7 @@ import Payroll from "./pages/Payroll";
 import Reminders from "./pages/Reminders";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import CompensationRules from "./pages/CompensationRules";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 
@@ -35,6 +36,7 @@ const App = () => (
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/compensation-rules" element={<CompensationRules />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

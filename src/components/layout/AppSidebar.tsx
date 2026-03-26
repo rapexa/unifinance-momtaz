@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -10,6 +10,7 @@ import {
   Bell,
   BarChart3,
   Settings,
+  SlidersHorizontal,
   ChevronRight,
   Menu,
   Building2,
@@ -58,6 +59,7 @@ const navItems: NavItem[] = [
   { title: "یادآوری‌ها", href: "/reminders", icon: Bell, permission: PERMISSIONS.REMINDERS },
   { title: "گزارش‌ها", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS },
   { title: "تنظیمات", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
+  { title: "قوانین تسهیم", href: "/compensation-rules", icon: SlidersHorizontal, permission: PERMISSIONS.SETTINGS },
 ];
 
 function hasPermission(permissions: string[] | undefined, permission: PermissionCode): boolean {
@@ -66,7 +68,8 @@ function hasPermission(permissions: string[] | undefined, permission: Permission
 }
 
 export function AppSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, isLoading, isError, logout } = useCurrentUser();
@@ -83,29 +86,47 @@ export function AppSidebar() {
     navigate("/login");
   };
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+    document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
+
   return (
     <>
       <div
         className={cn(
           "fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm transition-opacity lg:hidden",
-          collapsed ? "opacity-0 pointer-events-none" : "opacity-100"
+          mobileOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
-        onClick={() => setCollapsed(true)}
+        onClick={() => setMobileOpen(false)}
       />
 
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-screen flex-col bg-sidebar transition-all duration-300",
-          collapsed ? "w-20" : "w-64",
-          "lg:relative"
+          "fixed right-0 top-0 z-50 flex h-screen w-72 max-w-[86vw] flex-col bg-sidebar transition-transform duration-300 lg:relative lg:max-w-none",
+          mobileOpen ? "translate-x-0" : "translate-x-full",
+          desktopCollapsed ? "lg:w-20" : "lg:w-64",
+          "lg:translate-x-0"
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
-          <div className={cn("flex items-center gap-3", collapsed && "justify-center w-full")}>
+          <div className={cn("flex items-center gap-3", desktopCollapsed && "lg:justify-center lg:w-full")}>
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary">
               <Building2 className="h-5 w-5 text-sidebar-primary-foreground" />
             </div>
-            {!collapsed && (
+            {!desktopCollapsed && (
               <div className="animate-fade-in">
                 <h1 className="text-sm font-bold text-sidebar-foreground">سیستم حسابداری</h1>
                 <p className="text-xs text-sidebar-muted">گروه مشاوره</p>
@@ -115,13 +136,14 @@ export function AppSidebar() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => setDesktopCollapsed(!desktopCollapsed)}
             className={cn(
               "h-8 w-8 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent",
-              collapsed && "hidden lg:flex absolute -left-4 top-4 bg-sidebar border border-sidebar-border rounded-full shadow-lg"
+              desktopCollapsed && "hidden lg:flex absolute -left-4 top-4 bg-sidebar border border-sidebar-border rounded-full shadow-lg",
+              "hidden lg:flex"
             )}
           >
-            {collapsed ? <ChevronRight className="h-4 w-4 rotate-180" /> : <Menu className="h-4 w-4" />}
+            {desktopCollapsed ? <ChevronRight className="h-4 w-4 rotate-180" /> : <Menu className="h-4 w-4" />}
           </Button>
         </div>
 
@@ -139,11 +161,11 @@ export function AppSidebar() {
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-sidebar-primary/25"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  collapsed && "justify-center px-2"
+                  desktopCollapsed && "lg:justify-center lg:px-2"
                 )}
               >
                 <item.icon className={cn("h-5 w-5 shrink-0", isActive && "animate-pulse-soft")} />
-                {!collapsed && <span className="flex-1">{item.title}</span>}
+                {!desktopCollapsed && <span className="flex-1">{item.title}</span>}
               </Link>
             );
           })}
@@ -155,7 +177,7 @@ export function AppSidebar() {
               <button
                 className={cn(
                   "w-full flex items-center gap-3 rounded-lg px-3 py-2 text-right hover:bg-sidebar-accent transition-colors",
-                  collapsed && "justify-center px-2"
+                  desktopCollapsed && "lg:justify-center lg:px-2"
                 )}
               >
                 {profile?.avatar_url ? (
@@ -169,7 +191,7 @@ export function AppSidebar() {
                     {(displayName || "م").charAt(0)}
                   </div>
                 )}
-                {!collapsed && (
+                {!desktopCollapsed && (
                   <div className="flex-1 min-w-0 animate-fade-in">
                     <p className="text-sm font-medium text-sidebar-foreground truncate">
                       {isLoading ? "..." : isError ? "ورود" : displayName}
@@ -208,10 +230,9 @@ export function AppSidebar() {
       <Button
         variant="outline"
         size="icon"
-        onClick={() => setCollapsed(false)}
+        onClick={() => setMobileOpen(true)}
         className={cn(
-          "fixed bottom-4 right-4 z-30 h-12 w-12 rounded-full shadow-lg lg:hidden",
-          !collapsed && "hidden"
+          "fixed bottom-4 right-4 z-30 h-12 w-12 rounded-full shadow-lg lg:hidden"
         )}
       >
         <Menu className="h-5 w-5" />

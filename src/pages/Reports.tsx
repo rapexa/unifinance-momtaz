@@ -28,6 +28,7 @@ import {
   gregorianYYYYMMToShamsi,
   shamsiYearOptions,
 } from "@/lib/shamsi";
+import { formatIsoDateTimeShamsi } from "@/lib/jalaliDate";
 import {
   AreaChart,
   Area,
@@ -90,22 +91,12 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 function formatPaidAt(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("fa-IR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+  return formatIsoDateTimeShamsi(iso);
 }
 
 function formatGregorianMonth(year: number, month: number): string {
-  return `${MONTH_NAMES[month] ?? month} ${year}`;
+  const sh = gregorianYYYYMMToShamsi(`${year}-${String(month).padStart(2, "0")}`);
+  return `${MONTH_NAMES[sh.month]} ${sh.year}`;
 }
 
 const Reports = () => {
@@ -167,14 +158,14 @@ const Reports = () => {
 
   const revenueChartData = useMemo(() => {
     return revenueSeries.map((p) => ({
-      month: `${MONTH_NAMES[p.month] ?? p.month} ${p.year}`,
+      month: formatGregorianMonth(p.year, p.month),
       revenue: Math.floor(p.revenue_cents / 10),
     }));
   }, [revenueSeries]);
 
   const payrollChartData = useMemo(() => {
     return payrollSeries.map((p) => ({
-      month: `${MONTH_NAMES[p.month] ?? p.month} ${p.year}`,
+      month: formatGregorianMonth(p.year, p.month),
       amount: Math.floor(p.payroll_cents / 10),
     }));
   }, [payrollSeries]);
@@ -192,15 +183,15 @@ const Reports = () => {
     <MainLayout title="گزارش‌ها" subtitle="گزارش‌های مالی و تحلیلی">
       {/* Filters - no Excel button */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-2">
+        <div className="flex w-full gap-2 sm:w-auto">
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="w-full justify-start sm:w-auto sm:max-w-[360px]">
                 <Calendar className="ml-2 h-4 w-4" />
-                {filterLabel}
+                <span className="truncate">{filterLabel}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80" align="start">
+            <PopoverContent className="w-[min(20rem,calc(100vw-1rem))]" align="start">
               <div className="space-y-3">
                 <p className="text-sm font-medium">بازه ماه (شمسی)</p>
                 <div className="grid gap-3">
@@ -334,7 +325,8 @@ const Reports = () => {
 
       {/* Charts */}
       <Tabs defaultValue="revenue" className="space-y-4">
-        <TabsList className="bg-muted/50">
+        <div className="overflow-x-auto">
+        <TabsList className="min-w-max bg-muted/50">
           <TabsTrigger value="revenue" className="data-[state=active]:bg-background">
             درآمد
           </TabsTrigger>
@@ -345,6 +337,7 @@ const Reports = () => {
             بدهی‌ها
           </TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="revenue">
           <div className="card-elevated p-5">
