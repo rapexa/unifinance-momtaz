@@ -77,6 +77,7 @@ const Plans = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["plans"] });
       queryClient.invalidateQueries({ queryKey: ["plans-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["plans-active"] });
       setIsCreateOpen(false);
       resetForm();
     },
@@ -88,6 +89,7 @@ const Plans = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["plans"] });
       queryClient.invalidateQueries({ queryKey: ["plans-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["plans-active"] });
       setIsEditOpen(false);
       setSelectedPlan(null);
     },
@@ -98,6 +100,7 @@ const Plans = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["plans"] });
       queryClient.invalidateQueries({ queryKey: ["plans-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["plans-active"] });
     },
   });
 

@@ -587,10 +587,12 @@ const Students = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: UpdateStudentPayload }) =>
       updateStudent(id, payload),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["student", id] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setEditStudentId(null);
     },
   });
@@ -600,6 +602,7 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setDeleteStudent(null);
     },
   });
@@ -653,6 +656,7 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateOpen(false);
       setFirstName("");
       setLastName("");

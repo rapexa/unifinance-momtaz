@@ -1,8 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Search, ChevronDown, User, Settings, LogOut } from "lucide-react";
+import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,14 +59,6 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-3">
-        <div className="relative hidden md:block">
-          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="جستجو..."
-            className="w-64 pr-9 bg-muted/50 border-0 focus-visible:ring-1"
-          />
-        </div>
-
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
           {notificationCount > 0 && (

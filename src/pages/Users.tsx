@@ -310,9 +310,11 @@ const Users = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: UpdateUserPayload }) =>
       updateUser(id, payload),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["user", id] });
+      queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setEditUserId(null);
     },
   });
@@ -338,6 +340,7 @@ const Users = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setDeleteUser(null);
     },
   });
@@ -376,6 +379,7 @@ const Users = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setIsCreateOpen(false);
       setFirstName("");
       setLastName("");
@@ -536,7 +540,6 @@ const Users = () => {
             <thead>
               <tr className="border-b bg-muted/30 text-right">
                 <th className="p-3 font-medium">نقش</th>
-                <th className="p-3 font-medium">کد</th>
                 <th className="p-3 font-medium">نوع حقوق</th>
                 <th className="p-3 font-medium">جزئیات</th>
                 <th className="p-3 font-medium w-24">عملیات</th>
@@ -551,7 +554,6 @@ const Users = () => {
                       <span className="mr-2 text-xs text-muted-foreground">(سیستمی)</span>
                     )}
                   </td>
-                  <td className="p-3 font-mono text-xs">{r.code}</td>
                   <td className="p-3">{COMP_KIND_LABELS[r.compensation_kind] ?? r.compensation_kind}</td>
                   <td className="p-3 text-muted-foreground text-xs">
                     {r.compensation_kind === "FIXED" && r.fixed_cents != null &&

@@ -354,6 +354,9 @@ const Payments = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateOpen(false);
       setCreateStudentId("");
       setCreateAmountTomans("");
@@ -385,6 +388,9 @@ const Payments = () => {
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payment", id] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setEditPaymentId(null);
     },
   });

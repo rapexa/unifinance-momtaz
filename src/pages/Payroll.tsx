@@ -259,6 +259,7 @@ const Payroll = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateOpen(false);
       resetCreateForm();
     },
@@ -271,6 +272,7 @@ const Payroll = () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       if (!payload.recalculate_from_role_rules) {
         setEditEntryId(null);
       }
