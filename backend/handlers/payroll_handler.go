@@ -49,22 +49,13 @@ type PayrollEntryDTO struct {
 
 // PayrollSchemeDTO represents the salary scheme per role (from Role model).
 type PayrollSchemeDTO struct {
-	ID                           uint     `json:"id"`
-	RoleID                       uint     `json:"role_id"`
-	RoleCode                     string   `json:"role_code"`
-	RoleName                     string   `json:"role_name"`
-	CompensationKind             string   `json:"compensation_kind"`
-	FixedCents                   *int64   `json:"fixed_cents,omitempty"`
-	PercentOfStudentPayments     *float64 `json:"percent_of_student_payments,omitempty"`
-	RevenueUnitCents             *int64   `json:"revenue_unit_cents,omitempty"`
-	AmountPerUnitCents           *int64   `json:"amount_per_unit_cents,omitempty"`
-	PercentOfGrossStudentPayment *float64 `json:"percent_of_gross_student_payment,omitempty"`
-	// Legacy-shaped fields for existing UI
-	BaseSalaryCents   int64   `json:"base_salary_cents"`
-	PerStudentCents   int64   `json:"per_student_cents"`
-	RevenuePercent    float64 `json:"revenue_percent"`
-	MonthlyBonusCents int64   `json:"monthly_bonus_cents"`
-	IsActive          bool    `json:"is_active"`
+	ID               uint   `json:"id"`
+	RoleID           uint   `json:"role_id"`
+	RoleCode         string `json:"role_code"`
+	RoleName         string `json:"role_name"`
+	CompensationKind string `json:"compensation_kind"`
+	FixedCents       *int64 `json:"fixed_cents,omitempty"`
+	IsActive         bool   `json:"is_active"`
 }
 
 func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
@@ -103,31 +94,13 @@ func toPayrollSchemeDTOSlice(roles []models.Role) []PayrollSchemeDTO {
 	out := make([]PayrollSchemeDTO, 0, len(roles))
 	for _, r := range roles {
 		dto := PayrollSchemeDTO{
-			ID:                           r.ID,
-			RoleID:                       r.ID,
-			RoleCode:                     r.Code,
-			RoleName:                     r.Name,
-			CompensationKind:             string(r.CompensationKind),
-			FixedCents:                   r.FixedCents,
-			PercentOfStudentPayments:     r.PercentOfStudentPayments,
-			RevenueUnitCents:             r.RevenueUnitCents,
-			AmountPerUnitCents:           r.AmountPerUnitCents,
-			PercentOfGrossStudentPayment: r.PercentOfGrossStudentPayment,
-			IsActive:                     true,
-		}
-		switch r.CompensationKind {
-		case models.CompFixed:
-			if r.FixedCents != nil {
-				dto.BaseSalaryCents = *r.FixedCents
-			}
-		case models.CompPercent:
-			if r.PercentOfStudentPayments != nil {
-				dto.RevenuePercent = *r.PercentOfStudentPayments
-			}
-		case models.CompPerUnit:
-			if r.AmountPerUnitCents != nil {
-				dto.PerStudentCents = *r.AmountPerUnitCents
-			}
+			ID:               r.ID,
+			RoleID:           r.ID,
+			RoleCode:         r.Code,
+			RoleName:         r.Name,
+			CompensationKind: string(r.CompensationKind),
+			FixedCents:       r.FixedCents,
+			IsActive:         true,
 		}
 		out = append(out, dto)
 	}
@@ -225,14 +198,12 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"base_salary_cents":      br.BaseSalaryCents,
-		"variable_salary_cents":  br.VariableSalaryCents,
-		"students_count":         br.StudentsCount,
-		"role_gross_share_cents": br.RoleGrossShareCents,
-		"compensation_kind":      string(br.CompensationKind),
-		"revenue_volume_cents":   br.RevenueVolumeCents,
-		"period_year":            year,
-		"period_month":           month,
+		"base_salary_cents":     br.BaseSalaryCents,
+		"variable_salary_cents": br.VariableSalaryCents,
+		"students_count":        br.StudentsCount,
+		"compensation_kind":     string(br.CompensationKind),
+		"period_year":           year,
+		"period_month":          month,
 	})
 }
 

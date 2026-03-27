@@ -86,10 +86,10 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, 
 		return nil, errors.New("password too short")
 	}
 
-	adv, err := s.roleRepo.GetByCode(ctx, models.RoleCodeAdvisor)
+	gm, err := s.roleRepo.GetByCode(ctx, models.RoleCodeGeneralManager)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("default advisor role is not configured; run migrations")
+			return nil, errors.New("general_manager role is not configured; run migrations")
 		}
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, 
 		LastName:      lastName,
 		Email:         email,
 		Phone:         phone,
-		RoleID:        adv.ID,
+		RoleID:        gm.ID,
 		IsActive:      true,
 		PlainPassword: password,
 	}

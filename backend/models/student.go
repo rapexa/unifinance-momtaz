@@ -66,6 +66,8 @@ type Student struct {
 	JoinDate *time.Time
 
 	// Parent contacts
+	FatherName  string `gorm:"size:100"`
+	MotherName  string `gorm:"size:100"`
 	FatherPhone string `gorm:"size:20"`
 	MotherPhone string `gorm:"size:20"`
 	FatherJob   string `gorm:"size:120"`

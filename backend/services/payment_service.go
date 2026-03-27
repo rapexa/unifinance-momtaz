@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"time"
 
@@ -25,49 +24,13 @@ func NewPaymentService(repo repositories.PaymentRepository, db *gorm.DB) *Paymen
 	return &PaymentService{repo: repo, db: db}
 }
 
-func (s *PaymentService) syncAdvisorShare(ctx context.Context, payment *models.Payment) error {
-	var st models.Student
-	if err := s.db.WithContext(ctx).First(&st, payment.StudentID).Error; err != nil {
-		return err
-	}
-	if payment.Status == models.PaymentStatusPaid {
-		payment.AdvisorShareCents = models.ComputeAdvisorShareCents(&st, payment.AmountCents)
-	} else {
-		payment.AdvisorShareCents = 0
-	}
-	return nil
-}
-
-// RecalculatePaidSharesForStudent refreshes advisor_share_cents on all PAID payments for a student (e.g. after contract change).
-func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, studentID uint) error {
-	var st models.Student
-	if err := s.db.WithContext(ctx).First(&st, studentID).Error; err != nil {
-		return err
-	}
-	var list []models.Payment
-	if err := s.db.WithContext(ctx).
-		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
-		Find(&list).Error; err != nil {
-		return err
-	}
-	for i := range list {
-		list[i].AdvisorShareCents = models.ComputeAdvisorShareCents(&st, list[i].AmountCents)
-		if err := s.db.WithContext(ctx).Save(&list[i]).Error; err != nil {
-			return err
-		}
-		if err := s.rebuildPaymentPayrollShares(ctx, list[i].ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// rebuildPaymentPayrollShares replaces split rows for a payment (advisor contract + per-role % of gross).
+// rebuildPaymentPayrollShares replaces split rows for a payment using only StudentRolePayout definitions.
 func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymentID uint) error {
 	var p models.Payment
 	if err := s.db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
 		return err
 	}
+	// Clear existing shares
 	if err := s.db.WithContext(ctx).Unscoped().
 		Where("payment_id = ?", paymentID).
 		Delete(&models.PaymentPayrollShare{}).Error; err != nil {
@@ -76,182 +39,36 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 	if p.Status != models.PaymentStatusPaid {
 		return nil
 	}
+	// Load student with role payouts
 	var st models.Student
 	if err := s.db.WithContext(ctx).Preload("StudentRolePayouts").First(&st, p.StudentID).Error; err != nil {
 		return err
 	}
-	var rules []models.CompensationRule
-	if err := s.db.WithContext(ctx).
-		Where("is_active = ? AND (payment_type = ? OR payment_type = ?)", true, mapPaymentTypeToComp(p.Type), models.CompPaymentTypeAll).
-		Order("priority ASC, id ASC").
-		Find(&rules).Error; err != nil {
-		return err
+	// Aggregate shares per user
+	agg := map[uint]int64{}
+	for _, rp := range st.StudentRolePayouts {
+		share := rp.ComputeShareCents(p.AmountCents)
+		if share <= 0 {
+			continue
+		}
+		agg[rp.UserID] += share
 	}
-
-	for i := range rules {
-		r := &rules[i]
-		userIDs, err := s.resolveRuleUsers(ctx, r, &st)
-		if err != nil {
+	for uid, share := range agg {
+		row := models.PaymentPayrollShare{
+			PaymentID:        p.ID,
+			UserID:           uid,
+			Kind:             models.ShareKindStudentRolePayout,
+			ShareCents:       share,
+			BasisAmountCents: p.AmountCents,
+		}
+		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 			return err
-		}
-		for _, uid := range userIDs {
-			ok, err := s.ruleAppliesToStudent(ctx, r, uid, st.ID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				continue
-			}
-			share := s.computeRuleShareCents(r, &st, &p)
-			if share <= 0 {
-				continue
-			}
-			row := models.PaymentPayrollShare{
-				PaymentID:          p.ID,
-				UserID:             uid,
-				Kind:               models.ShareKindCompRule,
-				CompensationRuleID: &r.ID,
-				ShareCents:         share,
-				BasisAmountCents:   p.AmountCents,
-			}
-			if r.TargetKind == models.CompTargetAdvisorContract {
-				row.Kind = models.ShareKindAdvisorContract
-			}
-			if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
-				return err
-			}
-		}
-	}
-	if len(st.StudentRolePayouts) > 0 {
-		agg := map[uint]int64{}
-		for _, rp := range st.StudentRolePayouts {
-			share := rp.ComputeShareCents(p.AmountCents)
-			if share <= 0 {
-				continue
-			}
-			agg[rp.UserID] += share
-		}
-		for uid, share := range agg {
-			row := models.PaymentPayrollShare{
-				PaymentID:        p.ID,
-				UserID:           uid,
-				Kind:             models.ShareKindStudentRolePayout,
-				ShareCents:       share,
-				BasisAmountCents: p.AmountCents,
-			}
-			if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
-				return err
-			}
 		}
 	}
 	return nil
 }
 
-func mapPaymentTypeToComp(t models.PaymentType) models.CompensationPaymentType {
-	switch t {
-	case models.PaymentTypeSingleSession:
-		return models.CompPaymentTypeSingleSession
-	case models.PaymentTypeCourse:
-		return models.CompPaymentTypeCourse
-	default:
-		return models.CompPaymentTypeMonthly
-	}
-}
-
-func (s *PaymentService) resolveRuleUsers(ctx context.Context, r *models.CompensationRule, st *models.Student) ([]uint, error) {
-	switch r.TargetKind {
-	case models.CompTargetAdvisorContract:
-		if st.AdvisorID == nil {
-			return nil, nil
-		}
-		return []uint{*st.AdvisorID}, nil
-	case models.CompTargetUser:
-		if r.UserID == nil {
-			return nil, nil
-		}
-		return []uint{*r.UserID}, nil
-	case models.CompTargetRole:
-		if r.RoleID == nil {
-			return nil, nil
-		}
-		var userIDs []uint
-		if err := s.db.WithContext(ctx).Model(&models.User{}).
-			Where("role_id = ? AND deleted_at IS NULL", *r.RoleID).
-			Pluck("id", &userIDs).Error; err != nil {
-			return nil, err
-		}
-		return userIDs, nil
-	default:
-		return nil, nil
-	}
-}
-
-func (s *PaymentService) ruleAppliesToStudent(ctx context.Context, r *models.CompensationRule, userID, studentID uint) (bool, error) {
-	switch r.ScopeKind {
-	case models.CompScopeAll:
-		return true, nil
-	case models.CompScopeSelected:
-		var count int64
-		if err := s.db.WithContext(ctx).Model(&models.CompensationRuleStudent{}).
-			Where("compensation_rule_id = ? AND student_id = ?", r.ID, studentID).
-			Count(&count).Error; err != nil {
-			return false, err
-		}
-		return count > 0, nil
-	case models.CompScopeCapacity:
-		if r.CapacityLimit == nil || *r.CapacityLimit <= 0 {
-			return false, nil
-		}
-		var count int64
-		if err := s.db.WithContext(ctx).Model(&models.CompensationRuleUserStudent{}).
-			Where("compensation_rule_id = ? AND user_id = ? AND student_id = ?", r.ID, userID, studentID).
-			Count(&count).Error; err != nil {
-			return false, err
-		}
-		if count > 0 {
-			return true, nil
-		}
-		var used int64
-		if err := s.db.WithContext(ctx).Model(&models.CompensationRuleUserStudent{}).
-			Where("compensation_rule_id = ? AND user_id = ?", r.ID, userID).
-			Count(&used).Error; err != nil {
-			return false, err
-		}
-		if used >= int64(*r.CapacityLimit) {
-			return false, nil
-		}
-		link := models.CompensationRuleUserStudent{
-			CompensationRuleID: r.ID,
-			UserID:             userID,
-			StudentID:          studentID,
-		}
-		if err := s.db.WithContext(ctx).FirstOrCreate(&link, models.CompensationRuleUserStudent{
-			CompensationRuleID: r.ID,
-			UserID:             userID,
-			StudentID:          studentID,
-		}).Error; err != nil {
-			return false, err
-		}
-		return true, nil
-	default:
-		return false, nil
-	}
-}
-
-func (s *PaymentService) computeRuleShareCents(r *models.CompensationRule, st *models.Student, p *models.Payment) int64 {
-	if r.TargetKind == models.CompTargetAdvisorContract {
-		return models.ComputeAdvisorShareCents(st, p.AmountCents)
-	}
-	if r.FixedCents != nil && *r.FixedCents > 0 {
-		return *r.FixedCents
-	}
-	if r.Percent != nil && *r.Percent > 0 {
-		return int64(math.Round(float64(p.AmountCents) * (*r.Percent) / 100.0))
-	}
-	return 0
-}
-
-// RebuildAllPaidPaymentPayrollShares recomputes split rows for every PAID payment (e.g. after role gross % change).
+// RebuildAllPaidPaymentPayrollShares recomputes split rows for every PAID payment.
 func (s *PaymentService) RebuildAllPaidPaymentPayrollShares(ctx context.Context) error {
 	var ids []uint
 	if err := s.db.WithContext(ctx).Model(&models.Payment{}).
@@ -261,6 +78,22 @@ func (s *PaymentService) RebuildAllPaidPaymentPayrollShares(ctx context.Context)
 	}
 	for _, id := range ids {
 		if err := s.rebuildPaymentPayrollShares(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RecalculatePaidSharesForStudent refreshes payroll shares on all PAID payments for a student.
+func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, studentID uint) error {
+	var list []models.Payment
+	if err := s.db.WithContext(ctx).
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Find(&list).Error; err != nil {
+		return err
+	}
+	for i := range list {
+		if err := s.rebuildPaymentPayrollShares(ctx, list[i].ID); err != nil {
 			return err
 		}
 	}
@@ -356,10 +189,6 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		payment.PaidAt = p.PaidAt
 	}
 
-	if err := s.syncAdvisorShare(ctx, payment); err != nil {
-		return nil, err
-	}
-
 	if err := s.repo.Create(ctx, payment); err != nil {
 		return nil, err
 	}
@@ -416,10 +245,6 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	}
 	if p.PaidAt != nil {
 		payment.PaidAt = p.PaidAt
-	}
-
-	if err := s.syncAdvisorShare(ctx, payment); err != nil {
-		return nil, err
 	}
 
 	if err := s.repo.Update(ctx, payment); err != nil {

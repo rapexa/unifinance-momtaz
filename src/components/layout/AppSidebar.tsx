@@ -10,7 +10,6 @@ import {
   Bell,
   BarChart3,
   Settings,
-  SlidersHorizontal,
   ChevronRight,
   Menu,
   Building2,
@@ -59,7 +58,6 @@ const navItems: NavItem[] = [
   { title: "یادآوری‌ها", href: "/reminders", icon: Bell, permission: PERMISSIONS.REMINDERS },
   { title: "گزارش‌ها", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS },
   { title: "تنظیمات", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
-  { title: "قوانین تسهیم", href: "/compensation-rules", icon: SlidersHorizontal, permission: PERMISSIONS.SETTINGS },
 ];
 
 function hasPermission(permissions: string[] | undefined, permission: PermissionCode): boolean {
@@ -115,7 +113,7 @@ export function AppSidebar() {
 
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-screen w-72 max-w-[86vw] flex-col bg-sidebar transition-transform duration-300 lg:relative lg:max-w-none",
+          "fixed right-0 top-0 z-50 flex h-screen w-72 max-w-[86vw] flex-col bg-sidebar transition-transform duration-300 lg:relative lg:h-full lg:max-w-none",
           mobileOpen ? "translate-x-0" : "translate-x-full",
           desktopCollapsed ? "lg:w-20" : "lg:w-64",
           "lg:translate-x-0"

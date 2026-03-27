@@ -50,8 +50,9 @@ func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, de
 	return s.repo.Stats(ctx)
 }
 
-// SyncEnrollmentForStudent aligns ACTIVE enrollment with CurrentPlanID and plan discount rules (ثبت‌نام / انتساب پلن).
-func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID uint) error {
+// SyncEnrollmentForStudent aligns ACTIVE enrollment with CurrentPlanID and the provided enrollment amount.
+// amountCents is the per-student enrollment price (0 means keep existing or use 0 if new).
+func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID uint, amountCents int64) error {
 	st, err := s.repo.FindByID(ctx, studentID)
 	if err != nil {
 		return err
@@ -62,12 +63,8 @@ func (s *StudentService) SyncEnrollmentForStudent(ctx context.Context, studentID
 	if st.CurrentPlanID == nil {
 		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
 	}
-	if st.CurrentPlan == nil {
-		return s.repo.ReplaceActiveEnrollment(ctx, studentID, nil, 0)
-	}
-	price := models.EffectiveEnrollmentPriceCents(st.CurrentPlan)
-	pid := st.CurrentPlan.ID
-	return s.repo.ReplaceActiveEnrollment(ctx, studentID, &pid, price)
+	pid := *st.CurrentPlanID
+	return s.repo.ReplaceActiveEnrollment(ctx, studentID, &pid, amountCents)
 }
 
 func (s *StudentService) ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error {

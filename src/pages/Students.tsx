@@ -189,6 +189,8 @@ function EditStudentForm({
   const [lastName, setLastName] = useState(student.last_name || "");
   const [email, setEmail] = useState(student.email || "");
   const [phone, setPhone] = useState(student.phone || "");
+  const [fatherName, setFatherName] = useState(student.father_name || "");
+  const [motherName, setMotherName] = useState(student.mother_name || "");
   const [fatherPhone, setFatherPhone] = useState(student.father_phone || "");
   const [motherPhone, setMotherPhone] = useState(student.mother_phone || "");
   const [fatherJob, setFatherJob] = useState(student.father_job || "");
@@ -201,6 +203,11 @@ function EditStudentForm({
   );
   const [advisorId, setAdvisorId] = useState(student.advisor_id != null ? String(student.advisor_id) : "none");
   const [planId, setPlanId] = useState(student.current_plan_id != null ? String(student.current_plan_id) : "none");
+  const [enrollmentAmount, setEnrollmentAmount] = useState(
+    student.enrollment_amount_cents != null && student.enrollment_amount_cents > 0
+      ? formatGroupedFaIntInput(String(Math.round(student.enrollment_amount_cents / 10)))
+      : ""
+  );
   const [balance, setBalance] = useState(student.balance_cents != null ? String(student.balance_cents) : "0");
   const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>(
     parseCommKind(student.advisor_commission_kind)
@@ -272,9 +279,19 @@ function EditStudentForm({
       </div>
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثانویه دانش‌آموز</h3>
+        <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات تکمیلی دانش‌آموز</h3>
         <Separator className="mb-3" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نام پدر</label>
+            <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} placeholder="نام پدر" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مادر</label>
+            <Input value={motherName} onChange={(e) => setMotherName(e.target.value)} placeholder="نام مادر" />
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
             <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
@@ -306,38 +323,70 @@ function EditStudentForm({
           <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
           <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
-            <Select
-              value={advisorId}
-              onValueChange={(v) => {
-                setAdvisorId(v);
-                if (v === "none") {
-                  setAdvisorCommKind("NONE");
-                  setCommPercent("");
-                  setCommFixed("");
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="انتخاب مشاور" />
-              </SelectTrigger>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
+          <Select
+            value={advisorId}
+            onValueChange={(v) => {
+              setAdvisorId(v);
+              if (v === "none") {
+                setAdvisorCommKind("NONE");
+                setCommPercent("");
+                setCommFixed("");
+              }
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="انتخاب مشاور" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">بدون مشاور</SelectItem>
+              {advisors.map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>
+                  {a.first_name} {a.last_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {advisorSelected && (
+          <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              سهم مشاور از هر پرداخت (به‌صورت خودکار محاسبه می‌شود)
+            </p>
+            <Select value={advisorCommKind} onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">بدون مشاور</SelectItem>
-                {advisors.map((a) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    {a.first_name} {a.last_name}
-                  </SelectItem>
-                ))}
+                <SelectItem value="NONE">بدون سهم</SelectItem>
+                <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
               </SelectContent>
             </Select>
+            {advisorCommKind === "PERCENT" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
+                <Input value={commPercent} onChange={(e) => setCommPercent(e.target.value)} placeholder="مثلاً ۱۰" inputMode="decimal" dir="ltr" />
+              </div>
+            )}
+            {advisorCommKind === "FIXED_PER_PAYMENT" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثابت (تومان، به ازای هر پرداخت)</label>
+                <Input value={commFixed} onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))} placeholder="مبلغ به تومان" inputMode="numeric" dir="ltr" />
+              </div>
+            )}
           </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
+        <Separator className="mb-3" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
             <Select value={planId} onValueChange={setPlanId}>
               <SelectTrigger>
-                <SelectValue placeholder="انتخاب پلن" />
+                <SelectValue placeholder="انتخاب نوع ثبت‌نام" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">بدون پلن</SelectItem>
@@ -350,65 +399,26 @@ function EditStudentForm({
             </Select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">مانده حساب (ریال)</label>
-            <Input type="text" inputMode="numeric" value={balance} onChange={(e) => setBalance(formatGroupedFaIntInput(e.target.value))} dir="ltr" />
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثبت‌نامی (تومان)</label>
+            <Input
+              inputMode="numeric"
+              value={enrollmentAmount}
+              onChange={(e) => setEnrollmentAmount(formatGroupedFaIntInput(e.target.value))}
+              placeholder="مثلاً 2,500,000"
+              dir="ltr"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">مبلغ خاص این دانش‌آموز برای پلن انتخاب‌شده</p>
           </div>
         </div>
-        {advisorSelected && (
-          <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-            <p className="text-xs font-medium text-muted-foreground">
-              سهم مشاور از هر پرداخت ثبت‌شده با وضعیت «پرداخت شده» (به‌صورت خودکار محاسبه می‌شود)
-            </p>
-            <Select
-              value={advisorCommKind}
-              onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">بدون سهم</SelectItem>
-                <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
-              </SelectContent>
-            </Select>
-            {advisorCommKind === "PERCENT" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
-                <Input
-                  value={commPercent}
-                  onChange={(e) => setCommPercent(e.target.value)}
-                  placeholder="مثلاً ۱۰"
-                  inputMode="decimal"
-                  dir="ltr"
-                />
-              </div>
-            )}
-            {advisorCommKind === "FIXED_PER_PAYMENT" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  مبلغ ثابت (ریال، به ازای هر پرداخت)
-                </label>
-                <Input
-                  value={commFixed}
-                  onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))}
-                  placeholder="مبلغ به ریال"
-                  inputMode="numeric"
-                  dir="ltr"
-                />
-              </div>
-            )}
-          </div>
-        )}
         <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground">سهم‌های اضافه برای نقش‌های دیگر (اختیاری)</p>
+            <p className="text-xs font-medium text-muted-foreground">تقسیم مبلغ ثبت‌نام به نقش‌ها (اختیاری)</p>
             <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
               افزودن نقش
             </Button>
           </div>
           {rolePayoutRows.length === 0 && (
-            <p className="text-xs text-muted-foreground">نقش اضافه‌ای تعریف نشده است.</p>
+            <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
           )}
           {rolePayoutRows.map((row) => {
             const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
@@ -432,15 +442,15 @@ function EditStudentForm({
                   <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PERCENT">درصدی</SelectItem>
+                      <SelectItem value="PERCENT">درصدی از مبلغ</SelectItem>
                       <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {row.amountKind === "PERCENT" ? (
-                  <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۵)" inputMode="decimal" dir="ltr" />
+                  <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
                 ) : (
-                  <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (ریال)" inputMode="numeric" dir="ltr" />
+                  <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (تومان)" inputMode="numeric" dir="ltr" />
                 )}
                 <div className="flex justify-end">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
@@ -472,11 +482,14 @@ function EditStudentForm({
           onClick={() => {
             const advTrim = advisoryStartDate.trim();
             const advGregorian = advTrim ? jalaliToGregorianIso(advTrim) : "";
+            const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
             const payload: UpdateStudentPayload = {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
               email: email.trim() || undefined,
               phone: phone.trim() || undefined,
+              father_name: fatherName.trim() || undefined,
+              mother_name: motherName.trim() || undefined,
               father_phone: fatherPhone.trim() || undefined,
               mother_phone: motherPhone.trim() || undefined,
               father_job: fatherJob.trim() || undefined,
@@ -487,6 +500,7 @@ function EditStudentForm({
               status,
               advisor_id: advisorId === "none" ? null : Number(advisorId),
               current_plan_id: planId === "none" ? null : Number(planId),
+              enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0,
               balance_cents: parseLocalizedInt(balance) || 0,
             };
             if (advTrim && advGregorian) {
@@ -530,8 +544,11 @@ const Students = () => {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [fatherName, setFatherName] = useState("");
+  const [motherName, setMotherName] = useState("");
   const [advisorId, setAdvisorId] = useState("");
   const [planId, setPlanId] = useState("");
+  const [enrollmentAmount, setEnrollmentAmount] = useState("");
   const [balance, setBalance] = useState("");
   const [fatherPhone, setFatherPhone] = useState("");
   const [motherPhone, setMotherPhone] = useState("");
@@ -641,8 +658,11 @@ const Students = () => {
       setLastName("");
       setEmail("");
       setPhone("");
+      setFatherName("");
+      setMotherName("");
       setAdvisorId("");
       setPlanId("");
+      setEnrollmentAmount("");
       setBalance("");
       setFatherPhone("");
       setMotherPhone("");
@@ -989,6 +1009,8 @@ const Students = () => {
               <p><span className="text-muted-foreground">نام و نام خانوادگی:</span> {detailsStudentData.first_name} {detailsStudentData.last_name}</p>
               <p><span className="text-muted-foreground">ایمیل:</span> {detailsStudentData.email || "—"}</p>
               <p><span className="text-muted-foreground">موبایل:</span> {detailsStudentData.phone ? <span dir="ltr">{detailsStudentData.phone}</span> : "—"}</p>
+              <p><span className="text-muted-foreground">نام پدر:</span> {detailsStudentData.father_name || "—"}</p>
+              <p><span className="text-muted-foreground">نام مادر:</span> {detailsStudentData.mother_name || "—"}</p>
               <p><span className="text-muted-foreground">شماره پدر:</span> {detailsStudentData.father_phone ? <span dir="ltr">{detailsStudentData.father_phone}</span> : "—"}</p>
               <p><span className="text-muted-foreground">شماره مادر:</span> {detailsStudentData.mother_phone ? <span dir="ltr">{detailsStudentData.mother_phone}</span> : "—"}</p>
               <p><span className="text-muted-foreground">شغل پدر:</span> {detailsStudentData.father_job || "—"}</p>
@@ -1031,6 +1053,12 @@ const Students = () => {
                 </div>
               )}
               <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
+              {detailsStudentData.enrollment_amount_cents != null && detailsStudentData.enrollment_amount_cents > 0 && (
+                <p>
+                  <span className="text-muted-foreground">مبلغ ثبت‌نامی:</span>{" "}
+                  {Math.round(detailsStudentData.enrollment_amount_cents / 10).toLocaleString("fa-IR")} تومان
+                </p>
+              )}
               <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
               <p>
                 <span className="text-muted-foreground">وضعیت:</span>{" "}
@@ -1137,9 +1165,19 @@ const Students = () => {
             </div>
 
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثانویه دانش‌آموز</h3>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات تکمیلی دانش‌آموز</h3>
               <Separator className="mb-3" />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نام پدر</label>
+                  <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} placeholder="نام پدر" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مادر</label>
+                  <Input value={motherName} onChange={(e) => setMotherName(e.target.value)} placeholder="نام مادر" />
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">شماره پدر</label>
                   <Input value={fatherPhone} onChange={(e) => setFatherPhone(e.target.value)} placeholder="۰۹۱۲..." dir="ltr" />
@@ -1171,41 +1209,73 @@ const Students = () => {
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
                 <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
-                  <Select
-                    value={advisorId || "none"}
-                    onValueChange={(val) => {
-                      setAdvisorId(val === "none" ? "" : val);
-                      if (val === "none") {
-                        setAdvisorCommKind("NONE");
-                        setCommPercent("");
-                        setCommFixed("");
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="انتخاب مشاور" />
-                    </SelectTrigger>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
+                <Select
+                  value={advisorId || "none"}
+                  onValueChange={(val) => {
+                    setAdvisorId(val === "none" ? "" : val);
+                    if (val === "none") {
+                      setAdvisorCommKind("NONE");
+                      setCommPercent("");
+                      setCommFixed("");
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="انتخاب مشاور" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">بدون مشاور</SelectItem>
+                    {(advisors || []).map((advisor: UserApi) => (
+                      <SelectItem key={advisor.id} value={String(advisor.id)}>
+                        {advisor.first_name} {advisor.last_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {!!advisorId && (
+                <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    سهم مشاور از هر پرداخت (به‌صورت خودکار محاسبه می‌شود)
+                  </p>
+                  <Select value={advisorCommKind} onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">بدون مشاور</SelectItem>
-                      {(advisors || []).map((advisor: UserApi) => (
-                        <SelectItem key={advisor.id} value={String(advisor.id)}>
-                          {advisor.first_name} {advisor.last_name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="NONE">بدون سهم</SelectItem>
+                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
                     </SelectContent>
                   </Select>
+                  {advisorCommKind === "PERCENT" && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
+                      <Input value={commPercent} onChange={(e) => setCommPercent(e.target.value)} placeholder="مثلاً ۱۰" inputMode="decimal" dir="ltr" />
+                    </div>
+                  )}
+                  {advisorCommKind === "FIXED_PER_PAYMENT" && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثابت (تومان، به ازای هر پرداخت)</label>
+                      <Input value={commFixed} onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))} placeholder="مبلغ به تومان" inputMode="numeric" dir="ltr" />
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
+              <Separator className="mb-3" />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن (اختیاری)</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
                   <Select
                     value={planId || "none"}
                     onValueChange={(val) => setPlanId(val === "none" ? "" : val)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="انتخاب پلن" />
+                      <SelectValue placeholder="انتخاب نوع ثبت‌نام" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">بدون پلن</SelectItem>
@@ -1218,74 +1288,26 @@ const Students = () => {
                   </Select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ کل ثبت‌نام (ریال)</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثبت‌نامی (تومان)</label>
                   <Input
-                    value={balance}
-                    onChange={(e) => setBalance(formatGroupedFaIntInput(e.target.value))}
-                    placeholder="مثلاً 2500000"
+                    value={enrollmentAmount}
+                    onChange={(e) => setEnrollmentAmount(formatGroupedFaIntInput(e.target.value))}
+                    placeholder="مثلاً 2,500,000"
                     inputMode="numeric"
                     dir="ltr"
                   />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    این مبلغ به عنوان بدهی اولیه دانش‌آموز ثبت می‌شود.
-                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">مبلغ خاص این دانش‌آموز برای پلن انتخاب‌شده</p>
                 </div>
               </div>
-              {!!advisorId && (
-                <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    سهم مشاور از هر پرداخت ثبت‌شده با وضعیت «پرداخت شده» (به‌صورت خودکار محاسبه می‌شود)
-                  </p>
-                  <Select
-                    value={advisorCommKind}
-                    onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE">بدون سهم</SelectItem>
-                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {advisorCommKind === "PERCENT" && (
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
-                      <Input
-                        value={commPercent}
-                        onChange={(e) => setCommPercent(e.target.value)}
-                        placeholder="مثلاً ۱۰"
-                        inputMode="decimal"
-                        dir="ltr"
-                      />
-                    </div>
-                  )}
-                  {advisorCommKind === "FIXED_PER_PAYMENT" && (
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        مبلغ ثابت (ریال، به ازای هر پرداخت)
-                      </label>
-                      <Input
-                        value={commFixed}
-                        onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))}
-                        placeholder="مبلغ به ریال"
-                        inputMode="numeric"
-                        dir="ltr"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
               <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-muted-foreground">سهم‌های اضافه برای نقش‌های دیگر (اختیاری)</p>
+                  <p className="text-xs font-medium text-muted-foreground">تقسیم مبلغ ثبت‌نام به نقش‌ها (اختیاری)</p>
                   <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
                     افزودن نقش
                   </Button>
                 </div>
                 {rolePayoutRows.length === 0 && (
-                  <p className="text-xs text-muted-foreground">نقش اضافه‌ای تعریف نشده است.</p>
+                  <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
                 )}
                 {rolePayoutRows.map((row) => {
                   const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
@@ -1309,15 +1331,15 @@ const Students = () => {
                         <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="PERCENT">درصدی</SelectItem>
+                            <SelectItem value="PERCENT">درصدی از مبلغ</SelectItem>
                             <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       {row.amountKind === "PERCENT" ? (
-                        <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۵)" inputMode="decimal" dir="ltr" />
+                        <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
                       ) : (
-                        <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (ریال)" inputMode="numeric" dir="ltr" />
+                        <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (تومان)" inputMode="numeric" dir="ltr" />
                       )}
                       <div className="flex justify-end">
                         <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
@@ -1354,11 +1376,14 @@ const Students = () => {
                     (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
                 );
                 if (createCommissionInvalid || createRolePayoutInvalid) return;
+                const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
                 createMutation.mutate({
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
                   email: email.trim() || undefined,
                   phone: phone.trim() || undefined,
+                  father_name: fatherName.trim() || undefined,
+                  mother_name: motherName.trim() || undefined,
                   father_phone: fatherPhone.trim() || undefined,
                   mother_phone: motherPhone.trim() || undefined,
                   father_job: fatherJob.trim() || undefined,
@@ -1378,13 +1403,13 @@ const Students = () => {
                           ? { advisor_commission_percent: parseLocalizedFloat(commPercent) }
                           : {}),
                         ...(advisorCommKind === "FIXED_PER_PAYMENT"
-                          ? { advisor_commission_fixed_cents: parseLocalizedInt(commFixed) }
+                          ? { advisor_commission_fixed_cents: parseLocalizedInt(commFixed) * 10 }
                           : {}),
                       }
                     : {}),
                   role_payouts: buildRolePayoutPayload(rolePayoutRows),
                   current_plan_id: planId ? Number(planId) : undefined,
-                  balance_cents: balance ? -Math.abs(parseLocalizedInt(balance)) : undefined,
+                  enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined,
                 });
               }}
               disabled={

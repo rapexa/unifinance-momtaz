@@ -21,27 +21,20 @@ func NewPlanHandler(service *services.PlanService) *PlanHandler {
 
 // PlanDTO is the public representation of a plan.
 type PlanDTO struct {
-	ID          uint      `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	PriceCents  int64     `json:"price_cents"`
-	Interval    string    `json:"interval"`
-	Type        string    `json:"type,omitempty"`
-	IsActive                  bool     `json:"is_active"`
-	MaxUsers                  *int     `json:"max_users,omitempty"`
-	DiscountPercent           *float64 `json:"discount_percent,omitempty"`
-	DiscountApplyOnEnrollment bool     `json:"discount_apply_on_enrollment"`
-	Features                  []string `json:"features,omitempty"`
-	CreatedAt                 time.Time `json:"created_at"`
-	UpdatedAt                 time.Time `json:"updated_at,omitempty"`
+	ID        uint      `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	IsActive  bool      `json:"is_active"`
+	Features  []string  `json:"features,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
 // PlanSummaryDTO represents aggregated stats for plans page.
 type PlanSummaryDTO struct {
-	TotalPlans          int64 `json:"total_plans"`
-	ActivePlans         int64 `json:"active_plans"`
-	ActiveEnrollments   int64 `json:"active_enrollments"`
-	MonthlyRevenueCents int64 `json:"monthly_revenue_cents"`
+	TotalPlans        int64 `json:"total_plans"`
+	ActivePlans       int64 `json:"active_plans"`
+	ActiveEnrollments int64 `json:"active_enrollments"`
 }
 
 func planError(c *gin.Context, status int, msg string) {
@@ -52,21 +45,15 @@ func planError(c *gin.Context, status int, msg string) {
 }
 
 func toPlanDTO(p *models.Plan, features []string) PlanDTO {
-	dto := PlanDTO{
-		ID:                        p.ID,
-		Name:                      p.Name,
-		PriceCents:                p.PriceCents,
-		Interval:                  "", // interval not persisted separately yet
-		Type:                      string(p.Type),
-		IsActive:                  p.IsActive,
-		MaxUsers:                  p.MaxUsers,
-		DiscountPercent:           p.DiscountPercent,
-		DiscountApplyOnEnrollment: p.DiscountApplyOnEnrollment,
-		CreatedAt:                 p.CreatedAt,
-		UpdatedAt:                 p.UpdatedAt,
-		Features:                  features,
+	return PlanDTO{
+		ID:        p.ID,
+		Name:      p.Name,
+		Type:      string(p.Type),
+		IsActive:  p.IsActive,
+		Features:  features,
+		CreatedAt: p.CreatedAt,
+		UpdatedAt: p.UpdatedAt,
 	}
-	return dto
 }
 
 func toPlanDTOSlice(plans []models.Plan) []PlanDTO {
@@ -82,48 +69,20 @@ func toPlanDTOSlice(plans []models.Plan) []PlanDTO {
 }
 
 type createPlanRequest struct {
-	Name        string   `json:"name" binding:"required,min=2,max=255"`
-	Description string   `json:"description" binding:"omitempty,max=1000"`
-	PriceCents  int64    `json:"price_cents" binding:"required,gt=0"`
-	Interval    string   `json:"interval" binding:"required,oneof=monthly yearly"`
-	Type        string   `json:"type" binding:"omitempty,max=50"`
-	IsActive    *bool    `json:"is_active" binding:"omitempty"`
-	MaxUsers                  *int     `json:"max_users" binding:"omitempty"`
-	DiscountPercent           *float64 `json:"discount_percent" binding:"omitempty"`
-	DiscountApplyOnEnrollment *bool    `json:"discount_apply_on_enrollment" binding:"omitempty"`
-	Features                  []string `json:"features" binding:"omitempty,dive,required"`
+	Name     string   `json:"name" binding:"required,min=2,max=255"`
+	Type     string   `json:"type" binding:"required,oneof=MONTHLY YEARLY SINGLE_SESSION COURSE"`
+	IsActive *bool    `json:"is_active" binding:"omitempty"`
+	Features []string `json:"features" binding:"omitempty,dive,required"`
 }
 
 type updatePlanRequest struct {
-	Name        *string   `json:"name" binding:"omitempty,min=2,max=255"`
-	Description *string   `json:"description" binding:"omitempty,max=1000"`
-	PriceCents  *int64    `json:"price_cents" binding:"omitempty,gt=0"`
-	Interval    *string   `json:"interval" binding:"omitempty,oneof=monthly yearly"`
-	Type        *string   `json:"type" binding:"omitempty,max=50"`
-	IsActive    *bool     `json:"is_active" binding:"omitempty"`
-	MaxUsers                  *int      `json:"max_users" binding:"omitempty"`
-	DiscountPercent           *float64  `json:"discount_percent" binding:"omitempty"`
-	DiscountApplyOnEnrollment *bool     `json:"discount_apply_on_enrollment" binding:"omitempty"`
-	Features                  *[]string `json:"features" binding:"omitempty,dive,required"`
+	Name     *string   `json:"name" binding:"omitempty,min=2,max=255"`
+	Type     *string   `json:"type" binding:"omitempty,oneof=MONTHLY YEARLY SINGLE_SESSION COURSE"`
+	IsActive *bool     `json:"is_active" binding:"omitempty"`
+	Features *[]string `json:"features" binding:"omitempty,dive,required"`
 }
 
 // List handles GET /plans
-// @Summary      List plans
-// @Description  List plans with pagination and optional search/filters (admin only)
-// @Tags         plans
-// @Security     BearerAuth
-// @Produce      json
-// @Param        page       query     int     false "Page number (1-based)" default(1)
-// @Param        page_size  query     int     false "Page size" default(20)
-// @Param        search     query     string  false "Search by name or description"
-// @Param        type       query     string  false "Filter by type (e.g. MONTHLY, YEARLY)"
-// @Param        status     query     string  false "Filter by status: active, inactive, archived"
-// @Success      200        {object}  map[string]interface{}
-// @Failure      400        {object}  map[string]string
-// @Failure      401        {object}  map[string]string
-// @Failure      403        {object}  map[string]string
-// @Failure      500        {object}  map[string]string
-// @Router       /plans [get]
 func (h *PlanHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	pageSizeStr := c.DefaultQuery("page_size", "20")
@@ -131,8 +90,8 @@ func (h *PlanHandler) List(c *gin.Context) {
 	planType := c.DefaultQuery("type", "")
 	status := c.DefaultQuery("status", "")
 
-	if status != "" && status != "active" && status != "inactive" && status != "archived" {
-		planError(c, http.StatusBadRequest, "invalid status; must be 'active', 'inactive', or 'archived'")
+	if status != "" && status != "active" && status != "inactive" {
+		planError(c, http.StatusBadRequest, "invalid status; must be 'active' or 'inactive'")
 		return
 	}
 
@@ -170,18 +129,6 @@ func (h *PlanHandler) List(c *gin.Context) {
 }
 
 // Get handles GET /plans/:id
-// @Summary      Get plan
-// @Description  Get plan by ID (admin only)
-// @Tags         plans
-// @Security     BearerAuth
-// @Produce      json
-// @Param        id   path      int  true "Plan ID"
-// @Success      200  {object}  PlanDTO
-// @Failure      400  {object}  map[string]string
-// @Failure      401  {object}  map[string]string
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /plans/{id} [get]
 func (h *PlanHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -209,20 +156,6 @@ func (h *PlanHandler) Get(c *gin.Context) {
 }
 
 // Create handles POST /plans
-// @Summary      Create plan
-// @Description  Create a new plan (admin only)
-// @Tags         plans
-// @Security     BearerAuth
-// @Accept       json
-// @Produce      json
-// @Param        body  body      createPlanRequest true "Plan data"
-// @Success      201   {object}  PlanDTO
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      409   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /plans [post]
 func (h *PlanHandler) Create(c *gin.Context) {
 	var req createPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -231,16 +164,10 @@ func (h *PlanHandler) Create(c *gin.Context) {
 	}
 
 	params := services.CreatePlanParams{
-		Name:                      req.Name,
-		Description:               req.Description,
-		PriceCents:                req.PriceCents,
-		Interval:                  req.Interval,
-		Type:                      req.Type,
-		IsActive:                  req.IsActive,
-		MaxUsers:                  req.MaxUsers,
-		Features:                  req.Features,
-		DiscountPercent:           req.DiscountPercent,
-		DiscountApplyOnEnrollment: req.DiscountApplyOnEnrollment,
+		Name:     req.Name,
+		Type:     req.Type,
+		IsActive: req.IsActive,
+		Features: req.Features,
 	}
 
 	p, err := h.service.Create(c.Request.Context(), params)
@@ -248,35 +175,16 @@ func (h *PlanHandler) Create(c *gin.Context) {
 		switch err {
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
-		case services.ErrInvalidPlanDiscount:
-			planError(c, http.StatusBadRequest, err.Error())
 		default:
 			planError(c, http.StatusInternalServerError, "failed to create plan")
 		}
 		return
 	}
 
-	features := req.Features
-	c.JSON(http.StatusCreated, toPlanDTO(p, features))
+	c.JSON(http.StatusCreated, toPlanDTO(p, req.Features))
 }
 
 // Update handles PUT /plans/:id
-// @Summary      Update plan
-// @Description  Update an existing plan (admin only)
-// @Tags         plans
-// @Security     BearerAuth
-// @Accept       json
-// @Produce      json
-// @Param        id    path      int               true  "Plan ID"
-// @Param        body  body      updatePlanRequest true  "Plan data"
-// @Success      200   {object}  PlanDTO
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      404   {object}  map[string]string
-// @Failure      409   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /plans/{id} [put]
 func (h *PlanHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -297,16 +205,10 @@ func (h *PlanHandler) Update(c *gin.Context) {
 	}
 
 	params := services.UpdatePlanParams{
-		Name:                      req.Name,
-		Description:               req.Description,
-		PriceCents:                req.PriceCents,
-		Interval:                  req.Interval,
-		Type:                      req.Type,
-		IsActive:                  req.IsActive,
-		MaxUsers:                  req.MaxUsers,
-		Features:                  &features,
-		DiscountPercent:           req.DiscountPercent,
-		DiscountApplyOnEnrollment: req.DiscountApplyOnEnrollment,
+		Name:     req.Name,
+		Type:     req.Type,
+		IsActive: req.IsActive,
+		Features: &features,
 	}
 
 	p, err := h.service.Update(c.Request.Context(), uint(id), params)
@@ -316,8 +218,6 @@ func (h *PlanHandler) Update(c *gin.Context) {
 			planError(c, http.StatusNotFound, "plan not found")
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
-		case services.ErrInvalidPlanDiscount:
-			planError(c, http.StatusBadRequest, err.Error())
 		default:
 			planError(c, http.StatusInternalServerError, "failed to update plan")
 		}
@@ -335,20 +235,6 @@ func (h *PlanHandler) Update(c *gin.Context) {
 }
 
 // Deactivate handles DELETE /plans/:id
-// @Summary      Deactivate plan
-// @Description  Soft deactivate a plan by setting is_active=false (admin only). Optionally prevents deactivation when enrollments exist.
-// @Tags         plans
-// @Security     BearerAuth
-// @Produce      json
-// @Param        id   path      int  true "Plan ID"
-// @Success      200  {object}  map[string]string
-// @Failure      400  {object}  map[string]string
-// @Failure      401  {object}  map[string]string
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Failure      409  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /plans/{id} [delete]
 func (h *PlanHandler) Deactivate(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -376,16 +262,6 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 }
 
 // Summary handles GET /plans/summary
-// @Summary      Plans summary
-// @Description  Summary stats for plans: total, active, active enrollments, monthly revenue
-// @Tags         plans
-// @Security     BearerAuth
-// @Produce      json
-// @Success      200  {object}  PlanSummaryDTO
-// @Failure      401  {object}  map[string]string
-// @Failure      403  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /plans/summary [get]
 func (h *PlanHandler) Summary(c *gin.Context) {
 	summary, err := h.service.Summary(c.Request.Context())
 	if err != nil {
@@ -394,10 +270,8 @@ func (h *PlanHandler) Summary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, PlanSummaryDTO{
-		TotalPlans:          summary.TotalPlans,
-		ActivePlans:         summary.ActivePlans,
-		ActiveEnrollments:   summary.ActiveEnrollments,
-		MonthlyRevenueCents: summary.MonthlyRevenueCents,
+		TotalPlans:        summary.TotalPlans,
+		ActivePlans:       summary.ActivePlans,
+		ActiveEnrollments: summary.ActiveEnrollments,
 	})
 }
-

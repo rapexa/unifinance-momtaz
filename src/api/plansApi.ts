@@ -11,16 +11,20 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export type PlanType = "MONTHLY" | "YEARLY" | "SINGLE_SESSION" | "COURSE";
+
+export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
+  MONTHLY: "ماهانه",
+  YEARLY: "سالانه",
+  SINGLE_SESSION: "تک‌جلسه",
+  COURSE: "دوره‌ای",
+};
+
 export interface PlanApi {
   id: number;
   name: string;
-  price_cents: number;
-  type?: string;
+  type: PlanType;
   is_active: boolean;
-  /** درصد تخفیف از قیمت پلن (۱۰ = ده درصد) */
-  discount_percent?: number | null;
-  /** اگر true باشد، مبلغ ثبت‌نام/ثبت enrollment با تخفیف محاسبه می‌شود */
-  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
@@ -38,7 +42,6 @@ export interface PlanSummary {
   total_plans: number;
   active_plans: number;
   active_enrollments: number;
-  monthly_revenue_cents: number;
 }
 
 export async function listActivePlans(): Promise<PlanApi[]> {
@@ -48,18 +51,11 @@ export async function listActivePlans(): Promise<PlanApi[]> {
   url.searchParams.set("page_size", "100");
 
   const res = await fetch(url.toString(), {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت لیست پلن‌ها";
-    throw new Error(message);
-  }
+  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لیست پلن‌ها");
 
   const typed = data as PaginatedPlansResponse;
   return typed.data ?? [];
@@ -84,94 +80,55 @@ export async function listPlans(
   url.searchParams.set("page_size", String(params.page_size ?? 50));
 
   const res = await fetch(url.toString(), {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت لیست پلن‌ها";
-    throw new Error(message);
-  }
+  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لیست پلن‌ها");
 
   return data as PaginatedPlansResponse;
 }
 
 export async function getPlansSummary(): Promise<PlanSummary> {
   const res = await fetch(`${API_BASE}/plans/summary`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت خلاصه پلن‌ها";
-    throw new Error(message);
-  }
+  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت خلاصه پلن‌ها");
 
   return data as PlanSummary;
 }
 
 export interface CreatePlanPayload {
   name: string;
-  price_cents: number;
-  interval: "monthly" | "yearly";
-  type?: string;
+  type: PlanType;
   is_active?: boolean;
-  max_users?: number;
-  discount_percent?: number;
-  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
-export async function createPlan(
-  payload: CreatePlanPayload,
-): Promise<PlanApi> {
+export async function createPlan(payload: CreatePlanPayload): Promise<PlanApi> {
   const res = await fetch(`${API_BASE}/plans`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({
       name: payload.name,
-      description: "",
-      price_cents: payload.price_cents,
-      interval: payload.interval,
       type: payload.type,
       is_active: payload.is_active,
-      max_users: payload.max_users,
-      discount_percent: payload.discount_percent,
-      discount_apply_on_enrollment: payload.discount_apply_on_enrollment,
       features: payload.features ?? [],
     }),
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "ثبت پلن جدید با خطا مواجه شد";
-    throw new Error(message);
-  }
+  if (!res.ok) throw new Error((data && data.error) || "ثبت پلن جدید با خطا مواجه شد");
 
   return data as PlanApi;
 }
 
 export interface UpdatePlanPayload {
   name?: string;
-  price_cents?: number;
-  interval?: "monthly" | "yearly";
-  type?: string;
+  type?: PlanType;
   is_active?: boolean;
-  max_users?: number;
-  discount_percent?: number | null;
-  discount_apply_on_enrollment?: boolean;
   features?: string[];
 }
 
@@ -181,29 +138,17 @@ export async function updatePlan(
 ): Promise<PlanApi> {
   const res = await fetch(`${API_BASE}/plans/${id}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({
       name: payload.name,
-      price_cents: payload.price_cents,
-      interval: payload.interval,
       type: payload.type,
       is_active: payload.is_active,
-      max_users: payload.max_users,
-      discount_percent: payload.discount_percent,
-      discount_apply_on_enrollment: payload.discount_apply_on_enrollment,
       features: payload.features,
     }),
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "ویرایش پلن با خطا مواجه شد";
-    throw new Error(message);
-  }
+  if (!res.ok) throw new Error((data && data.error) || "ویرایش پلن با خطا مواجه شد");
 
   return data as PlanApi;
 }
@@ -211,16 +156,11 @@ export async function updatePlan(
 export async function deactivatePlan(id: number): Promise<void> {
   const res = await fetch(`${API_BASE}/plans/${id}`, {
     method: "DELETE",
-    headers: {
-      ...getAuthHeaders(),
-    },
+    headers: { ...getAuthHeaders() },
   });
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const message =
-      data?.error || "غیرفعال کردن پلن با خطا مواجه شد";
-    throw new Error(message);
+    throw new Error(data?.error || "غیرفعال کردن پلن با خطا مواجه شد");
   }
 }
-

@@ -115,10 +115,9 @@ function mapUser(u: UserApi): UserRow {
   } as UserRow;
 }
 
-const COMP_KIND_LABELS: Record<CompensationKind, string> = {
-  FIXED: "مبلغ ثابت (پایه)",
-  PERCENT: "درصد از پرداخت‌های دانش‌آموزان",
-  PER_UNIT: "مبلغ به‌ازای هر واحد حجم پرداخت",
+const COMP_KIND_LABELS: Record<string, string> = {
+  FIXED: "حقوق ثابت ماهانه",
+  VARIABLE: "متغیر (بر اساس دانش‌آموزان)",
 };
 
 const ALL_PERMISSION_CODES: PermissionCode[] = [
@@ -276,11 +275,7 @@ const Users = () => {
   const [newRoleFullAccess, setNewRoleFullAccess] = useState(false);
   const [newCompKind, setNewCompKind] = useState<CompensationKind>("FIXED");
   const [newFixedTomans, setNewFixedTomans] = useState("");
-  const [newPercent, setNewPercent] = useState("10");
-  const [newUnitTomans, setNewUnitTomans] = useState("1000000");
-  const [newPerUnitTomans, setNewPerUnitTomans] = useState("50000");
   /** درصد از مبلغ کل هر پرداخت دانش‌آموز (اختیاری، مثلاً برای مدیر اجرایی) */
-  const [newGrossPercent, setNewGrossPercent] = useState("");
   const [newRolePerms, setNewRolePerms] = useState<string[]>([PERMISSIONS.STUDENTS]);
 
   const queryClient = useQueryClient();
@@ -334,10 +329,6 @@ const Users = () => {
       setNewRoleFullAccess(false);
       setNewCompKind("FIXED");
       setNewFixedTomans("");
-      setNewPercent("10");
-      setNewUnitTomans("1000000");
-      setNewPerUnitTomans("50000");
-      setNewGrossPercent("");
       setNewRolePerms([PERMISSIONS.STUDENTS]);
     },
   });
@@ -563,22 +554,10 @@ const Users = () => {
                   <td className="p-3 font-mono text-xs">{r.code}</td>
                   <td className="p-3">{COMP_KIND_LABELS[r.compensation_kind] ?? r.compensation_kind}</td>
                   <td className="p-3 text-muted-foreground text-xs">
-                    {r.compensation_kind === "FIXED" &&
-                      r.fixed_cents != null &&
-                      `${Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR")} تومان پایه`}
-                    {r.compensation_kind === "PERCENT" &&
-                      r.percent_of_student_payments != null &&
-                      `${r.percent_of_student_payments}% از جمع پرداخت‌های دانش‌آموزان`}
-                    {r.compensation_kind === "PER_UNIT" &&
-                      r.revenue_unit_cents != null &&
-                      r.amount_per_unit_cents != null &&
-                      `${Math.floor(r.amount_per_unit_cents / 10).toLocaleString("fa-IR")} تومان به‌ازای هر ${Math.floor(r.revenue_unit_cents / 10).toLocaleString("fa-IR")} تومان حجم`}
-                    {r.percent_of_gross_student_payment != null &&
-                      r.percent_of_gross_student_payment > 0 && (
-                        <span className="mt-1 block text-primary">
-                          +{r.percent_of_gross_student_payment}% از مبلغ کل هر پرداخت دانش‌آموز
-                        </span>
-                      )}
+                    {r.compensation_kind === "FIXED" && r.fixed_cents != null &&
+                      `${Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR")} تومان ماهانه`}
+                    {r.compensation_kind === "VARIABLE" &&
+                      "بر اساس سهم‌های ثبت‌نام دانش‌آموزان"}
                   </td>
                   <td className="p-3">
                     {!r.is_system && (
@@ -968,64 +947,25 @@ const Users = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(COMP_KIND_LABELS) as CompensationKind[]).map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {COMP_KIND_LABELS[k]}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="FIXED">حقوق ثابت ماهانه (مثلاً منشی)</SelectItem>
+                  <SelectItem value="VARIABLE">متغیر — بر اساس دانش‌آموزان (مثلاً مشاور)</SelectItem>
                 </SelectContent>
               </Select>
+              {newCompKind === "VARIABLE" && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  میزان سهم این نقش از هر دانش‌آموز هنگام ثبت‌نام دانش‌آموز مشخص می‌شود.
+                </p>
+              )}
             </div>
-            {(newCompKind === "FIXED" || newCompKind === "PERCENT") && (
+            {newCompKind === "FIXED" && (
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان) - اختیاری برای درصدی</label>
+                <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان)</label>
                 <Input
                   inputMode="numeric"
                   value={newFixedTomans}
                   onChange={(e) => setNewFixedTomans(formatGroupedFaIntInput(e.target.value))}
+                  placeholder="مثلاً 10,000,000"
                 />
-              </div>
-            )}
-            {(newCompKind === "PERCENT" || newCompKind === "FIXED") && (
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">درصد از جمع پرداخت‌های دانش‌آموزان - اختیاری برای ثابت</label>
-                <Input
-                  inputMode="decimal"
-                  value={newPercent}
-                  onChange={(e) => setNewPercent(e.target.value)}
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  برای ترکیب روی دانش‌آموزهای متفاوت (مثلا ۱و۲ درصدی و ۳و۴ ثابت)، بعد از ساخت نقش از «قوانین تسهیم» با Scope = دانش‌آموزهای انتخابی استفاده کنید.
-                </p>
-              </div>
-            )}
-            {newCompKind === "PER_UNIT" && (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">واحد حجم (تومان)</label>
-                  <Input inputMode="numeric" value={newUnitTomans} onChange={(e) => setNewUnitTomans(formatGroupedFaIntInput(e.target.value))} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">مبلغ هر واحد (تومان)</label>
-                  <Input inputMode="numeric" value={newPerUnitTomans} onChange={(e) => setNewPerUnitTomans(formatGroupedFaIntInput(e.target.value))} />
-                </div>
-              </div>
-            )}
-            {!newRoleFullAccess && (
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  درصد از مبلغ کل هر پرداخت دانش‌آموز (اختیاری)
-                </label>
-                <Input
-                  inputMode="decimal"
-                  dir="ltr"
-                  placeholder="مثال: 2 برای ۲٪ از هر پرداخت PAID"
-                  value={newGrossPercent}
-                  onChange={(e) => setNewGrossPercent(e.target.value)}
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  جدا از فرمول بالا؛ برای هر کاربر با این نقش از مبلغ کل پرداخت‌های پرداخت‌شدهٔ دانش‌آموزان در همان ماه سهم محاسبه می‌شود.
-                </p>
               </div>
             )}
           </div>
@@ -1049,29 +989,8 @@ const Users = () => {
                   compensation_kind: newRoleFullAccess ? "FIXED" : newCompKind,
                   permissions: newRoleFullAccess ? [...ALL_PERMISSION_CODES] : newRolePerms,
                 };
-                if (newRoleFullAccess) {
-                  payload.fixed_cents = 0;
-                } else if (newCompKind === "FIXED") {
-                  payload.fixed_cents = tomansToCents(newFixedTomans);
-                  const pct = parseLocalizedFloat(newPercent);
-                  if (pct > 0) {
-                    payload.percent_of_student_payments = pct;
-                  }
-                } else if (newCompKind === "PERCENT") {
-                  payload.percent_of_student_payments = parseLocalizedFloat(newPercent) || 0;
-                  const fixed = tomansToCents(newFixedTomans);
-                  if (fixed > 0) {
-                    payload.fixed_cents = fixed;
-                  }
-                } else {
-                  payload.revenue_unit_cents = tomansToCents(newUnitTomans);
-                  payload.amount_per_unit_cents = tomansToCents(newPerUnitTomans);
-                }
-                if (!newRoleFullAccess && newGrossPercent.trim() !== "") {
-                  const g = parseLocalizedFloat(newGrossPercent);
-                  if (Number.isFinite(g)) {
-                    payload.percent_of_gross_student_payment = g;
-                  }
+                if (newCompKind === "FIXED" || newRoleFullAccess) {
+                  payload.fixed_cents = newRoleFullAccess ? 0 : tomansToCents(newFixedTomans);
                 }
                 createRoleMutation.mutate(payload);
               }}

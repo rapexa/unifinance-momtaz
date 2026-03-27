@@ -10,11 +10,11 @@ interface MainLayoutProps {
 
 export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
   return (
-    <div className="flex min-h-screen w-full overflow-x-hidden">
+    <div className="flex h-screen w-full overflow-hidden">
       <AppSidebar />
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <AppHeader title={title} subtitle={subtitle} />
-        <div className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-6">
           {children}
         </div>
       </main>

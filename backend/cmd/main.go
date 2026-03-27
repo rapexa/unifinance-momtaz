@@ -57,7 +57,6 @@ func main() {
 	payrollService := services.NewPayrollService(db)
 	reportService := services.NewReportService(db)
 	settingsService := services.NewSettingsService(db, userService)
-	compRuleService := services.NewCompensationRuleService(db)
 	reminderService := services.NewReminderService(db)
 
 	// Handlers (Controllers)
@@ -71,7 +70,6 @@ func main() {
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService)
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
-	compRuleHandler := handlers.NewCompensationRuleHandler(compRuleService, paymentService)
 	reminderHandler := handlers.NewReminderHandler(reminderService)
 
 	// Gin engine
@@ -257,16 +255,6 @@ func main() {
 	{
 		paymentsSettings.GET("", settingsHandler.GetPaymentSettings)
 		paymentsSettings.PUT("", settingsHandler.UpdatePaymentSettings)
-	}
-
-	compRules := settings.Group("/compensation-rules")
-	compRules.Use(middleware.PermissionMiddleware(permService, models.PermSettings))
-	{
-		compRules.GET("", compRuleHandler.List)
-		compRules.POST("", compRuleHandler.Create)
-		compRules.PUT("/:id", compRuleHandler.Update)
-		compRules.DELETE("/:id", compRuleHandler.Delete)
-		compRules.POST("/:id/students", compRuleHandler.ReplaceStudents)
 	}
 
 	// Profile, security and notifications for current user

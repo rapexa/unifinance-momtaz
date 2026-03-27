@@ -30,6 +30,8 @@ type StudentDoc struct {
 	Email         string `json:"email,omitempty"`
 	Phone         string `json:"phone,omitempty"`
 	Status        string `json:"status"`
+	FatherName    string `json:"father_name,omitempty"`
+	MotherName    string `json:"mother_name,omitempty"`
 	FatherPhone   string `json:"father_phone,omitempty"`
 	MotherPhone   string `json:"mother_phone,omitempty"`
 	FatherJob     string `json:"father_job,omitempty"`
@@ -45,7 +47,9 @@ type StudentDoc struct {
 	AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents,omitempty"`
 	CurrentPlanName             string   `json:"current_plan_name,omitempty"`
 	CurrentPlanID               *uint    `json:"current_plan_id,omitempty"`
-	BalanceCents                int64    `json:"balance_cents"`
+	// EnrollmentAmountCents is the per-student enrollment price for the current plan.
+	EnrollmentAmountCents int64 `json:"enrollment_amount_cents"`
+	BalanceCents          int64 `json:"balance_cents"`
 	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
 	AdvisoryStartDate string                 `json:"advisory_start_date,omitempty"`
 	RolePayouts       []StudentRolePayoutDoc `json:"role_payouts,omitempty"`
@@ -71,6 +75,8 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		Email:                       s.Email,
 		Phone:                       s.Phone,
 		Status:                      string(s.Status),
+		FatherName:                  s.FatherName,
+		MotherName:                  s.MotherName,
 		FatherPhone:                 s.FatherPhone,
 		MotherPhone:                 s.MotherPhone,
 		FatherJob:                   s.FatherJob,
@@ -84,6 +90,10 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		AdvisorCommissionPercent:    s.AdvisorCommissionPercent,
 		AdvisorCommissionFixedCents: s.AdvisorCommissionFixedCents,
 		CurrentPlanID:               s.CurrentPlanID,
+	}
+	// Populate enrollment amount from the active enrollment if available
+	if len(s.Enrollments) > 0 {
+		doc.EnrollmentAmountCents = s.Enrollments[0].PriceCents
 	}
 	if s.Advisor != nil {
 		doc.AdvisorName = s.Advisor.FirstName + " " + s.Advisor.LastName
@@ -261,6 +271,8 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		LastName                    string                     `json:"last_name" binding:"required,min=2,max=100"`
 		Email                       string                     `json:"email" binding:"omitempty,email,max=255"`
 		Phone                       string                     `json:"phone" binding:"omitempty,max=20"`
+		FatherName                  string                     `json:"father_name" binding:"omitempty,max=100"`
+		MotherName                  string                     `json:"mother_name" binding:"omitempty,max=100"`
 		FatherPhone                 string                     `json:"father_phone" binding:"omitempty,max=20"`
 		MotherPhone                 string                     `json:"mother_phone" binding:"omitempty,max=20"`
 		FatherJob                   string                     `json:"father_job" binding:"omitempty,max=120"`
@@ -273,6 +285,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
 		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
 		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
+		EnrollmentAmountCents       int64                      `json:"enrollment_amount_cents" binding:"omitempty,min=0"`
 		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
 		AdvisoryStartDate           string                     `json:"advisory_start_date" binding:"omitempty"`
 		RolePayouts                 []studentRolePayoutPayload `json:"role_payouts"`
@@ -288,6 +301,8 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		LastName:      payload.LastName,
 		Email:         payload.Email,
 		Phone:         payload.Phone,
+		FatherName:    payload.FatherName,
+		MotherName:    payload.MotherName,
 		FatherPhone:   payload.FatherPhone,
 		MotherPhone:   payload.MotherPhone,
 		FatherJob:     payload.FatherJob,
@@ -333,11 +348,15 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID); err != nil {
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID, payload.EnrollmentAmountCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 
+	fresh, _ := h.service.GetByID(c.Request.Context(), student.ID)
+	if fresh != nil {
+		student = fresh
+	}
 	c.JSON(http.StatusCreated, toStudentDoc(student))
 }
 
@@ -370,6 +389,8 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		LastName                    string                     `json:"last_name" binding:"required,min=2,max=100"`
 		Email                       string                     `json:"email" binding:"omitempty,email,max=255"`
 		Phone                       string                     `json:"phone" binding:"omitempty,max=20"`
+		FatherName                  string                     `json:"father_name" binding:"omitempty,max=100"`
+		MotherName                  string                     `json:"mother_name" binding:"omitempty,max=100"`
 		FatherPhone                 string                     `json:"father_phone" binding:"omitempty,max=20"`
 		MotherPhone                 string                     `json:"mother_phone" binding:"omitempty,max=20"`
 		FatherJob                   string                     `json:"father_job" binding:"omitempty,max=120"`
@@ -383,6 +404,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
 		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
 		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
+		EnrollmentAmountCents       int64                      `json:"enrollment_amount_cents" binding:"omitempty,min=0"`
 		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
 		AdvisoryStartDate           *string                    `json:"advisory_start_date,omitempty"`
 		RolePayouts                 []studentRolePayoutPayload `json:"role_payouts"`
@@ -403,6 +425,8 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	student.LastName = payload.LastName
 	student.Email = payload.Email
 	student.Phone = payload.Phone
+	student.FatherName = payload.FatherName
+	student.MotherName = payload.MotherName
 	student.FatherPhone = payload.FatherPhone
 	student.MotherPhone = payload.MotherPhone
 	student.FatherJob = payload.FatherJob
@@ -453,7 +477,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id)); err != nil {
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id), payload.EnrollmentAmountCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}

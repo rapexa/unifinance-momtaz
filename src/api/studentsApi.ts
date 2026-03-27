@@ -18,6 +18,8 @@ export interface StudentApi {
   email?: string;
   phone?: string;
   status: string;
+  father_name?: string;
+  mother_name?: string;
   father_phone?: string;
   mother_phone?: string;
   father_job?: string;
@@ -33,6 +35,7 @@ export interface StudentApi {
   current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
+  enrollment_amount_cents?: number;
   /** YYYY-MM-DD — تاریخ شروع مشاوره */
   advisory_start_date?: string;
   role_payouts?: StudentRolePayoutApi[];
@@ -111,6 +114,8 @@ export interface CreateStudentPayload {
   last_name: string;
   email?: string;
   phone?: string;
+  father_name?: string;
+  mother_name?: string;
   father_phone?: string;
   mother_phone?: string;
   father_job?: string;
@@ -123,6 +128,7 @@ export interface CreateStudentPayload {
   advisor_commission_percent?: number;
   advisor_commission_fixed_cents?: number;
   current_plan_id?: number;
+  enrollment_amount_cents?: number;
   balance_cents?: number;
   advisory_start_date?: string;
   role_payouts?: StudentRolePayoutPayload[];
@@ -199,6 +205,8 @@ export interface UpdateStudentPayload {
   last_name: string;
   email?: string;
   phone?: string;
+  father_name?: string;
+  mother_name?: string;
   father_phone?: string;
   mother_phone?: string;
   father_job?: string;
@@ -212,6 +220,7 @@ export interface UpdateStudentPayload {
   advisor_commission_percent?: number;
   advisor_commission_fixed_cents?: number;
   current_plan_id?: number | null;
+  enrollment_amount_cents?: number;
   balance_cents?: number;
   advisory_start_date?: string;
   role_payouts?: StudentRolePayoutPayload[];

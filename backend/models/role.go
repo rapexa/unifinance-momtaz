@@ -4,24 +4,17 @@ import "gorm.io/gorm"
 
 // CompensationKind defines how payroll is calculated for users with this role.
 // FIXED: monthly base in fixed_cents.
-// PERCENT: variable = percent_of_student_payments × (sum of paid amounts for students assigned to the user in the period).
-// PER_UNIT: variable = floor(student_paid_volume_cents / revenue_unit_cents) × amount_per_unit_cents.
+// VARIABLE: salary is computed from the sum of StudentRolePayout shares attributed to the user's students in the period.
 type CompensationKind string
 
 const (
 	CompFixed    CompensationKind = "FIXED"
-	CompPercent  CompensationKind = "PERCENT"
-	CompPerUnit  CompensationKind = "PER_UNIT"
+	CompVariable CompensationKind = "VARIABLE"
 )
 
 // Canonical role codes (slug). Display name is in Name (Persian).
 const (
-	RoleCodeGeneralManager    = "general_manager"    // مدیرکل
-	RoleCodeAdvisor           = "advisor"            // مشاور
-	RoleCodeSecretary         = "secretary"          // منشی
-	RoleCodeSupport           = "support"            // پشتیبان
-	RoleCodeExecutiveManager  = "executive_manager"  // مدیر اجرایی
-	RoleCodeAdvisorLead       = "advisor_lead"       // سرپرست مشاوران
+	RoleCodeGeneralManager = "general_manager" // مدیرکل — تنها نقش سیستمی
 )
 
 // Role is a configurable job role with RBAC template and compensation rules.
@@ -35,16 +28,8 @@ type Role struct {
 	FullAccess bool `gorm:"not null;default:false"`
 
 	CompensationKind CompensationKind `gorm:"type:varchar(32);not null"`
-	FixedCents       *int64             `gorm:""` // required when FIXED (can be 0)
-	// PercentOfStudentPayments is 0–100 when CompensationKind is PERCENT.
-	PercentOfStudentPayments *float64 `gorm:""`
-	// PercentOfGrossStudentPayment: each user with this role gets this % of every PAID payment's amount_cents
-	// (حقوق متغیر اضافه؛ جدا از نوع حقوق اصلی نقش). Optional; nil or 0 = disabled.
-	PercentOfGrossStudentPayment *float64 `gorm:""`
-	// RevenueUnitCents: volume step (e.g. 10_000_000 = 100M rials) for PER_UNIT.
-	RevenueUnitCents *int64 `gorm:""`
-	// AmountPerUnitCents: pay this many cents per full revenue unit when PER_UNIT.
-	AmountPerUnitCents *int64 `gorm:""`
+	// FixedCents: required when CompensationKind = FIXED (can be 0).
+	FixedCents *int64 `gorm:""`
 
 	Permissions []RolePermission `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Users       []User           `gorm:"constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`

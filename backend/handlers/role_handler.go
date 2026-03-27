@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"math"
 	"net/http"
 	"strconv"
 
@@ -14,63 +13,36 @@ import (
 
 // RoleHandler exposes CRUD for job roles and compensation templates.
 type RoleHandler struct {
-	service  *services.RoleService
-	payments *services.PaymentService
+	service *services.RoleService
 }
 
-func NewRoleHandler(service *services.RoleService, payments *services.PaymentService) *RoleHandler {
-	return &RoleHandler{service: service, payments: payments}
-}
-
-func cloneFloat64Ptr(p *float64) *float64 {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
-func grossPercentChanged(a, b *float64) bool {
-	if a == nil && b == nil {
-		return false
-	}
-	if a == nil || b == nil {
-		return true
-	}
-	return math.Abs(*a-*b) > 1e-9
+func NewRoleHandler(service *services.RoleService, _ *services.PaymentService) *RoleHandler {
+	return &RoleHandler{service: service}
 }
 
 // RoleDTO is the public JSON shape for a role.
 type RoleDTO struct {
-	ID                       uint     `json:"id"`
-	Code                     string   `json:"code"`
-	Name                     string   `json:"name"`
-	Description              string   `json:"description,omitempty"`
-	IsSystem                 bool     `json:"is_system"`
-	FullAccess               bool     `json:"full_access"`
-	CompensationKind         string   `json:"compensation_kind"`
-	FixedCents               *int64   `json:"fixed_cents,omitempty"`
-	PercentOfStudentPayments *float64 `json:"percent_of_student_payments,omitempty"`
-	RevenueUnitCents         *int64   `json:"revenue_unit_cents,omitempty"`
-	AmountPerUnitCents           *int64   `json:"amount_per_unit_cents,omitempty"`
-	PercentOfGrossStudentPayment *float64 `json:"percent_of_gross_student_payment,omitempty"`
-	Permissions                  []string `json:"permissions,omitempty"`
+	ID               uint     `json:"id"`
+	Code             string   `json:"code"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description,omitempty"`
+	IsSystem         bool     `json:"is_system"`
+	FullAccess       bool     `json:"full_access"`
+	CompensationKind string   `json:"compensation_kind"`
+	FixedCents       *int64   `json:"fixed_cents,omitempty"`
+	Permissions      []string `json:"permissions,omitempty"`
 }
 
 func roleToDTO(r *models.Role, perms []models.Permission) RoleDTO {
 	dto := RoleDTO{
-		ID:                       r.ID,
-		Code:                     r.Code,
-		Name:                     r.Name,
-		Description:              r.Description,
-		IsSystem:                 r.IsSystem,
-		FullAccess:               r.FullAccess,
-		CompensationKind:         string(r.CompensationKind),
-		FixedCents:               r.FixedCents,
-		PercentOfStudentPayments: r.PercentOfStudentPayments,
-		RevenueUnitCents:         r.RevenueUnitCents,
-		AmountPerUnitCents:           r.AmountPerUnitCents,
-		PercentOfGrossStudentPayment: r.PercentOfGrossStudentPayment,
+		ID:               r.ID,
+		Code:             r.Code,
+		Name:             r.Name,
+		Description:      r.Description,
+		IsSystem:         r.IsSystem,
+		FullAccess:       r.FullAccess,
+		CompensationKind: string(r.CompensationKind),
+		FixedCents:       r.FixedCents,
 	}
 	for _, p := range perms {
 		dto.Permissions = append(dto.Permissions, string(p))
@@ -79,30 +51,22 @@ func roleToDTO(r *models.Role, perms []models.Permission) RoleDTO {
 }
 
 type createRoleRequest struct {
-	Code                     string   `json:"code" binding:"required"`
-	Name                     string   `json:"name" binding:"required,min=1,max=128"`
-	Description              string   `json:"description" binding:"omitempty,max=500"`
-	FullAccess               bool     `json:"full_access"`
-	CompensationKind         string   `json:"compensation_kind" binding:"required,oneof=FIXED PERCENT PER_UNIT"`
-	FixedCents               *int64   `json:"fixed_cents"`
-	PercentOfStudentPayments *float64 `json:"percent_of_student_payments"`
-	RevenueUnitCents         *int64   `json:"revenue_unit_cents"`
-	AmountPerUnitCents           *int64   `json:"amount_per_unit_cents"`
-	PercentOfGrossStudentPayment *float64 `json:"percent_of_gross_student_payment"`
-	Permissions                  []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
+	Code             string   `json:"code" binding:"required"`
+	Name             string   `json:"name" binding:"required,min=1,max=128"`
+	Description      string   `json:"description" binding:"omitempty,max=500"`
+	FullAccess       bool     `json:"full_access"`
+	CompensationKind string   `json:"compensation_kind" binding:"required,oneof=FIXED VARIABLE"`
+	FixedCents       *int64   `json:"fixed_cents"`
+	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
 type updateRoleRequest struct {
-	Name                     *string  `json:"name" binding:"omitempty,min=1,max=128"`
-	Description              *string  `json:"description" binding:"omitempty,max=500"`
-	FullAccess               *bool    `json:"full_access"`
-	CompensationKind         *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED PERCENT PER_UNIT"`
-	FixedCents               *int64   `json:"fixed_cents"`
-	PercentOfStudentPayments *float64 `json:"percent_of_student_payments"`
-	RevenueUnitCents         *int64   `json:"revenue_unit_cents"`
-	AmountPerUnitCents           *int64   `json:"amount_per_unit_cents"`
-	PercentOfGrossStudentPayment *float64 `json:"percent_of_gross_student_payment"`
-	Permissions                  []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
+	Name             *string  `json:"name" binding:"omitempty,min=1,max=128"`
+	Description      *string  `json:"description" binding:"omitempty,max=500"`
+	FullAccess       *bool    `json:"full_access"`
+	CompensationKind *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED VARIABLE"`
+	FixedCents       *int64   `json:"fixed_cents"`
+	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
 func parsePermissions(ss []string) []models.Permission {
@@ -157,17 +121,13 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		return
 	}
 	params := services.CreateRoleParams{
-		Code:               req.Code,
-		Name:               req.Name,
-		Description:        req.Description,
-		FullAccess:         req.FullAccess,
-		CompensationKind:   models.CompensationKind(req.CompensationKind),
-		FixedCents:         req.FixedCents,
-		Percent:            req.PercentOfStudentPayments,
-		RevenueUnitCents:   req.RevenueUnitCents,
-		AmountPerUnitCents: req.AmountPerUnitCents,
-		GrossPercent:       req.PercentOfGrossStudentPayment,
-		Permissions:        parsePermissions(req.Permissions),
+		Code:             req.Code,
+		Name:             req.Name,
+		Description:      req.Description,
+		FullAccess:       req.FullAccess,
+		CompensationKind: models.CompensationKind(req.CompensationKind),
+		FixedCents:       req.FixedCents,
+		Permissions:      parsePermissions(req.Permissions),
 	}
 	role, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
@@ -182,9 +142,6 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		return
 	}
 	perms, _ := h.service.ListPermissions(c.Request.Context(), role.ID)
-	if h.payments != nil && role.PercentOfGrossStudentPayment != nil && *role.PercentOfGrossStudentPayment > 0 {
-		_ = h.payments.RebuildAllPaidPaymentPayrollShares(c.Request.Context())
-	}
 	c.JSON(http.StatusCreated, roleToDTO(role, perms))
 }
 
@@ -196,16 +153,6 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	before, err := h.service.GetByID(c.Request.Context(), uint(id))
-	if err != nil {
-		if errorsIsNotFound(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load role"})
-		return
-	}
-	oldGross := cloneFloat64Ptr(before.PercentOfGrossStudentPayment)
 
 	var req updateRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -213,14 +160,10 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		return
 	}
 	params := services.UpdateRoleParams{
-		Name:               req.Name,
-		Description:        req.Description,
-		FullAccess:         req.FullAccess,
-		FixedCents:         req.FixedCents,
-		Percent:            req.PercentOfStudentPayments,
-		RevenueUnitCents:   req.RevenueUnitCents,
-		AmountPerUnitCents: req.AmountPerUnitCents,
-		GrossPercent:       req.PercentOfGrossStudentPayment,
+		Name:        req.Name,
+		Description: req.Description,
+		FullAccess:  req.FullAccess,
+		FixedCents:  req.FixedCents,
 	}
 	if req.CompensationKind != nil {
 		k := models.CompensationKind(*req.CompensationKind)
@@ -244,9 +187,6 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		return
 	}
 	perms, _ := h.service.ListPermissions(c.Request.Context(), role.ID)
-	if h.payments != nil && grossPercentChanged(oldGross, role.PercentOfGrossStudentPayment) {
-		_ = h.payments.RebuildAllPaidPaymentPayrollShares(c.Request.Context())
-	}
 	c.JSON(http.StatusOK, roleToDTO(role, perms))
 }
 

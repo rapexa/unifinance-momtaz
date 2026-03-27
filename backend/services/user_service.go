@@ -56,9 +56,9 @@ func parseRoleFilter(s string) (uint, string) {
 	}
 	legacy := map[string]string{
 		"ADMIN":      models.RoleCodeGeneralManager,
-		"ADVISOR":    models.RoleCodeAdvisor,
-		"ACCOUNTANT": models.RoleCodeExecutiveManager,
-		"OPERATOR":   models.RoleCodeSupport,
+		"ADVISOR":    models.RoleCodeGeneralManager,
+		"ACCOUNTANT": models.RoleCodeGeneralManager,
+		"OPERATOR":   models.RoleCodeGeneralManager,
 	}
 	if u := strings.ToUpper(s); legacy[u] != "" {
 		return 0, legacy[u]

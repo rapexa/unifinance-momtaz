@@ -13,17 +13,14 @@ import (
 )
 
 // Run executes all migrations and seeders.
-// Exposed as a function so it can be called from different commands (e.g. cmd/migrate).
 func Run() {
 	cfg := config.MustLoadConfig()
 	log.Printf("migrations: running in %s environment", cfg.AppEnv)
 
 	db := database.MustGetDB()
 	autoMigrate(db)
-	backfillPaymentAdvisorShares(db)
-	seedRolesAndPermissions(db)
-	seedDefaultCompensationRules(db)
 	backfillPaymentPayrollShares(db)
+	seedRolesAndPermissions(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
 	seedOrganizationAndAdmin(db)
@@ -45,9 +42,6 @@ func autoMigrate(db *gorm.DB) {
 		&models.Enrollment{},
 		&models.Payment{},
 		&models.PaymentPayrollShare{},
-		&models.CompensationRule{},
-		&models.CompensationRuleStudent{},
-		&models.CompensationRuleUserStudent{},
 		&models.PayrollEntry{},
 		&models.ReminderRule{},
 		&models.PaymentReminder{},
@@ -57,38 +51,7 @@ func autoMigrate(db *gorm.DB) {
 	log.Println("migrations: AutoMigrate finished successfully")
 }
 
-// backfillPaymentAdvisorShares sets advisor_share_cents on existing PAID rows from current student commission rules.
-func backfillPaymentAdvisorShares(db *gorm.DB) {
-	var ids []uint
-	if err := db.Model(&models.Payment{}).
-		Where("status = ?", models.PaymentStatusPaid).
-		Pluck("id", &ids).Error; err != nil {
-		log.Printf("migrations: backfill advisor shares: list ids: %v", err)
-		return
-	}
-	for _, id := range ids {
-		var p models.Payment
-		if err := db.First(&p, id).Error; err != nil {
-			continue
-		}
-		var st models.Student
-		if err := db.First(&st, p.StudentID).Error; err != nil {
-			continue
-		}
-		share := models.ComputeAdvisorShareCents(&st, p.AmountCents)
-		if p.AdvisorShareCents == share {
-			continue
-		}
-		if err := db.Model(&models.Payment{}).Where("id = ?", id).Update("advisor_share_cents", share).Error; err != nil {
-			log.Printf("migrations: backfill payment %d: %v", id, err)
-		}
-	}
-	if len(ids) > 0 {
-		log.Printf("migrations: backfill advisor_share_cents checked %d paid payments", len(ids))
-	}
-}
-
-// backfillPaymentPayrollShares rebuilds payment split rows (advisor + role % of gross) for all PAID payments.
+// backfillPaymentPayrollShares rebuilds payment split rows for all PAID payments.
 func backfillPaymentPayrollShares(db *gorm.DB) {
 	repo := repositories.NewPaymentRepository(db)
 	ps := services.NewPaymentService(repo, db)
@@ -99,138 +62,22 @@ func backfillPaymentPayrollShares(db *gorm.DB) {
 	log.Println("migrations: payment payroll shares backfill finished")
 }
 
-func seedDefaultCompensationRules(db *gorm.DB) {
-	ensureRule := func(rule models.CompensationRule) {
-		var existing models.CompensationRule
-		err := db.Where("name = ?", rule.Name).First(&existing).Error
-		if err == gorm.ErrRecordNotFound {
-			if err := db.Create(&rule).Error; err != nil {
-				log.Printf("migrations: create compensation rule %s failed: %v", rule.Name, err)
-			}
-		}
-	}
-
-	ensureRule(models.CompensationRule{
-		Name:        "Advisor Contract Share",
-		IsActive:    true,
-		Priority:    10,
-		TargetKind:  models.CompTargetAdvisorContract,
-		AmountKind:  models.CompAmountPercent,
-		ScopeKind:   models.CompScopeAll,
-		PaymentType: models.CompPaymentTypeAll,
-	})
-
-	var roles []models.Role
-	if err := db.Where("percent_of_gross_student_payment IS NOT NULL AND percent_of_gross_student_payment > 0").Find(&roles).Error; err != nil {
-		return
-	}
-	for _, role := range roles {
-		if role.PercentOfGrossStudentPayment == nil || *role.PercentOfGrossStudentPayment <= 0 {
-			continue
-		}
-		pct := *role.PercentOfGrossStudentPayment
-		ensureRule(models.CompensationRule{
-			Name:        "Role Gross Share - " + role.Code,
-			IsActive:    true,
-			Priority:    50,
-			TargetKind:  models.CompTargetRole,
-			AmountKind:  models.CompAmountPercent,
-			ScopeKind:   models.CompScopeAll,
-			PaymentType: models.CompPaymentTypeAll,
-			RoleID:      &role.ID,
-			Percent:     &pct,
-		})
-	}
-}
-
-func ptrI64(v int64) *int64     { return &v }
-func ptrF64(v float64) *float64 { return &v }
+func ptrI64(v int64) *int64 { return &v }
 
 func seedRolesAndPermissions(db *gorm.DB) {
-	type seed struct {
-		role  models.Role
-		perms []models.Permission
-	}
+	// Only the general_manager is a system (built-in) role.
+	// All other roles are created by the organization admin via the UI.
 	z := int64(0)
-	p8 := 8.0
-	unit := int64(10_000_000) // هر ۱۰ میلیون ریال حجم پرداخت دانش‌آموزان
-	perUnit := int64(500_000) // مبلغ به ریال (کوچک‌ترین واحد ذخیره: سنت در مدل = ریال در پروژه فعلی)
-
-	seeds := []seed{
-		{
-			role: models.Role{
-				Code:             models.RoleCodeGeneralManager,
-				Name:             "مدیرکل",
-				Description:      "دسترسی کامل",
-				IsSystem:         true,
-				FullAccess:       true,
-				CompensationKind: models.CompFixed,
-				FixedCents:       ptrI64(z),
-			},
-			perms: models.AllPermissions,
-		},
-		{
-			role: models.Role{
-				Code:                     models.RoleCodeAdvisor,
-				Name:                     "مشاور",
-				IsSystem:                 true,
-				FullAccess:               false,
-				CompensationKind:         models.CompPercent,
-				PercentOfStudentPayments: ptrF64(p8),
-			},
-			perms: []models.Permission{models.PermStudents, models.PermPayments, models.PermPlans},
-		},
-		{
-			role: models.Role{
-				Code:             models.RoleCodeSecretary,
-				Name:             "منشی",
-				IsSystem:         true,
-				FullAccess:       false,
-				CompensationKind: models.CompFixed,
-				FixedCents:       ptrI64(50_000_000),
-			},
-			perms: []models.Permission{models.PermStudents, models.PermPayments, models.PermPlans, models.PermReminders},
-		},
-		{
-			role: models.Role{
-				Code:             models.RoleCodeSupport,
-				Name:             "پشتیبان",
-				IsSystem:         true,
-				FullAccess:       false,
-				CompensationKind: models.CompFixed,
-				FixedCents:       ptrI64(40_000_000),
-			},
-			perms: []models.Permission{models.PermStudents, models.PermSettings},
-		},
-		{
-			role: models.Role{
-				Code:                         models.RoleCodeExecutiveManager,
-				Name:                         "مدیر اجرایی",
-				IsSystem:                     true,
-				FullAccess:                   false,
-				CompensationKind:             models.CompFixed,
-				FixedCents:                   ptrI64(80_000_000),
-				PercentOfGrossStudentPayment: ptrF64(2), // ۲٪ از هر پرداخت دانش‌آموز (قابل تغییر در نقش‌ها)
-			},
-			perms: []models.Permission{models.PermDashboard, models.PermPayments, models.PermPayroll, models.PermPlans, models.PermReports},
-		},
-		{
-			role: models.Role{
-				Code:               models.RoleCodeAdvisorLead,
-				Name:               "سرپرست مشاوران",
-				IsSystem:           true,
-				FullAccess:         false,
-				CompensationKind:   models.CompPerUnit,
-				RevenueUnitCents:   ptrI64(unit),
-				AmountPerUnitCents: ptrI64(perUnit),
-			},
-			perms: []models.Permission{models.PermStudents, models.PermPayments, models.PermPlans, models.PermReports},
-		},
+	gm := models.Role{
+		Code:             models.RoleCodeGeneralManager,
+		Name:             "مدیرکل",
+		Description:      "مدیرکل مجموعه — دسترسی کامل",
+		IsSystem:         true,
+		FullAccess:       true,
+		CompensationKind: models.CompFixed,
+		FixedCents:       ptrI64(z),
 	}
-
-	for i := range seeds {
-		ensureRole(db, &seeds[i].role, seeds[i].perms)
-	}
+	ensureRole(db, &gm, models.AllPermissions)
 	log.Println("migrations: roles and role_permissions seeded")
 }
 
@@ -251,10 +98,6 @@ func ensureRole(db *gorm.DB, r *models.Role, perms []models.Permission) {
 		existing.FullAccess = r.FullAccess
 		existing.CompensationKind = r.CompensationKind
 		existing.FixedCents = r.FixedCents
-		existing.PercentOfStudentPayments = r.PercentOfStudentPayments
-		existing.RevenueUnitCents = r.RevenueUnitCents
-		existing.AmountPerUnitCents = r.AmountPerUnitCents
-		existing.PercentOfGrossStudentPayment = r.PercentOfGrossStudentPayment
 		if err := db.Save(&existing).Error; err != nil {
 			log.Fatalf("migrations: update role %s: %v", r.Code, err)
 		}
@@ -276,9 +119,9 @@ func migrateLegacyUserRoleColumn(db *gorm.DB) {
 	}
 	mapping := map[string]string{
 		"ADMIN":      models.RoleCodeGeneralManager,
-		"ADVISOR":    models.RoleCodeAdvisor,
-		"ACCOUNTANT": models.RoleCodeExecutiveManager,
-		"OPERATOR":   models.RoleCodeSupport,
+		"ADVISOR":    models.RoleCodeGeneralManager,
+		"ACCOUNTANT": models.RoleCodeGeneralManager,
+		"OPERATOR":   models.RoleCodeGeneralManager,
 	}
 	for old, code := range mapping {
 		if err := db.Exec(`
@@ -294,11 +137,11 @@ func migrateLegacyUserRoleColumn(db *gorm.DB) {
 }
 
 func fixUsersWithoutRole(db *gorm.DB) {
-	var adv models.Role
-	if err := db.Where("code = ?", models.RoleCodeAdvisor).First(&adv).Error; err != nil {
-		log.Fatalf("migrations: advisor role missing: %v", err)
+	var gm models.Role
+	if err := db.Where("code = ?", models.RoleCodeGeneralManager).First(&gm).Error; err != nil {
+		log.Fatalf("migrations: general_manager role missing: %v", err)
 	}
-	if err := db.Model(&models.User{}).Where("role_id = ? OR role_id IS NULL", 0).Update("role_id", adv.ID).Error; err != nil {
+	if err := db.Model(&models.User{}).Where("role_id = ? OR role_id IS NULL", 0).Update("role_id", gm.ID).Error; err != nil {
 		log.Printf("migrations: warning fixUsersWithoutRole: %v", err)
 	}
 }
@@ -352,7 +195,6 @@ func seedOrganizationAndAdmin(db *gorm.DB) {
 		return
 	}
 
-	// Ensure existing admin has general_manager role and permissions
 	var adminUser models.User
 	if err := db.Where("email = ?", adminEmail).First(&adminUser).Error; err == nil {
 		if adminUser.RoleID != gm.ID {
