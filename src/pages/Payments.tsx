@@ -36,6 +36,7 @@ import {
   Eye,
   Pencil,
   ChevronsUpDown,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
@@ -395,6 +396,24 @@ const Payments = () => {
     },
   });
 
+  const quickPaidMutation = useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      updatePayment(id, {
+        status: "PAID",
+        paid_at: new Date().toISOString().slice(0, 10),
+      }),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payment", id] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+    },
+  });
+
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
@@ -625,7 +644,19 @@ const Payments = () => {
               <p className="mt-1 text-xs text-muted-foreground">
                 {methodLabels[payment.method] ?? payment.method} | {formatDate(payment.due_date)} {payment.student_phone ? `| ${payment.student_phone}` : ""}
               </p>
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
+                {payment.status !== "PAID" && (
+                  <Button
+                    size="sm"
+                    className="flex-1 gap-1 bg-success/10 text-success hover:bg-success/20 border-0"
+                    variant="outline"
+                    onClick={() => quickPaidMutation.mutate({ id: payment.id })}
+                    disabled={quickPaidMutation.isPending}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    پرداخت شد
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => setDetailPaymentId(payment.id)}>
                   <Eye className="ml-1 h-4 w-4" />
                   جزئیات
@@ -731,6 +762,19 @@ const Payments = () => {
                         </td>
                         <td className="p-4">
                           <div className="flex gap-1 flex-wrap">
+                            {payment.status !== "PAID" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1 text-success hover:text-success hover:bg-success/10"
+                                onClick={() => quickPaidMutation.mutate({ id: payment.id })}
+                                disabled={quickPaidMutation.isPending}
+                                title="تأیید پرداخت"
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                پرداخت شد
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -759,7 +803,7 @@ const Payments = () => {
                               title="لینک پرداخت"
                             >
                               <Link2 className="h-4 w-4" />
-                              لینک پرداخت
+                              لینک
                             </Button>
                           </div>
                         </td>
@@ -991,17 +1035,19 @@ const Payments = () => {
       <Dialog open={isLinkOpen} onOpenChange={setIsLinkOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>لینک پرداخت</DialogTitle>
+            <DialogTitle>لینک پرداخت آنلاین</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             {linkResult?.payment_link ? (
               <>
-                <p className="text-sm text-muted-foreground break-all">
-                  {linkResult.payment_link}
-                </p>
-                <Button variant="outline" size="sm" onClick={handleCopyLink} className="gap-2">
+                <div className="rounded-lg border bg-muted/50 p-3">
+                  <p className="text-sm break-all font-mono text-foreground">
+                    {linkResult.payment_link}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleCopyLink} className="gap-2 w-full">
                   <Copy className="h-4 w-4" />
-                  کپی لینک
+                  کپی لینک و ارسال به دانش‌آموز
                 </Button>
               </>
             ) : linkPaymentId !== null && !linkResult ? (
@@ -1009,6 +1055,14 @@ const Payments = () => {
             ) : (
               <p className="text-sm text-destructive">خطا در ایجاد لینک.</p>
             )}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-3">
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-400 mb-1">یادداشت — اتصال به درگاه پرداخت</p>
+              <p className="text-xs text-amber-700 dark:text-amber-500 leading-relaxed">
+                برای فعال‌سازی پرداخت آنلاین، سیستم باید به <span className="font-semibold">درگاه زرین‌پال</span> متصل شود.
+                لطفاً کد پذیرنده (Merchant ID) زرین‌پال خود را به تیم فنی بدهید تا API پرداخت در بک‌اند تنظیم شود.
+                پس از اتصال، دانش‌آموزان می‌توانند مستقیماً از طریق این لینک پرداخت آنلاین انجام دهند.
+              </p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

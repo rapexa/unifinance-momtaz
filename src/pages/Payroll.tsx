@@ -25,6 +25,9 @@ import {
   Settings,
   Download,
   Eye,
+  CheckCircle2,
+  RefreshCw,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
@@ -279,6 +282,25 @@ const Payroll = () => {
     },
   });
 
+  const quickMarkPaidMutation = useMutation({
+    mutationFn: (id: number) => updatePayrollEntry(id, { status: "PAID" }),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+    },
+  });
+
+  const recalculateMutation = useMutation({
+    mutationFn: (id: number) => updatePayrollEntry(id, { recalculate_from_role_rules: true }),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
+    },
+  });
+
   function resetCreateForm() {
     setCreateUserId("");
     setCreateAutoFromRole(true);
@@ -416,6 +438,15 @@ const Payroll = () => {
         </div>
 
         <TabsContent value="payslips">
+          <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
+            <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
+              {" "}
+              <span className="font-medium text-foreground">حقوق متغیر</span> با هر پرداخت دانش‌آموز به‌صورت خودکار انباشته می‌شود — برای بروزرسانی از دکمه «بروزرسانی» استفاده کنید.
+              {" "}پس از پرداخت حقوق، وضعیت را با «پرداخت شد» ثبت کنید.
+            </div>
+          </div>
           <div className="card-elevated overflow-hidden">
             <div className="overflow-x-auto">
               {isEntriesLoading && (
@@ -433,9 +464,9 @@ const Payroll = () => {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">سمت</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">سمت / نوع حقوق</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
-                        دانش‌آموزان (کل ماه)
+                        دانش‌آموزان
                       </th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
@@ -454,6 +485,8 @@ const Payroll = () => {
                     ) : (
                       entries.map((entry) => {
                         const name = [entry.user_first_name, entry.user_last_name].filter(Boolean).join(" ") || "—";
+                        const isVariable = entry.variable_salary_cents > 0 && entry.base_salary_cents === 0;
+                        const isFixed = entry.base_salary_cents > 0 && entry.variable_salary_cents === 0;
                         return (
                           <tr
                             key={entry.id}
@@ -467,17 +500,31 @@ const Payroll = () => {
                                 <span className="font-medium text-foreground">{name}</span>
                               </div>
                             </td>
-                            <td className="p-4 text-muted-foreground">
-                              {roleLabels[entry.user_role] ?? entry.user_role}
+                            <td className="p-4">
+                              <p className="text-muted-foreground">
+                                {roleLabels[entry.user_role] ?? entry.user_role}
+                              </p>
+                              <span
+                                className={cn(
+                                  "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                                  isFixed
+                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                    : isVariable
+                                    ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                                    : "bg-muted text-muted-foreground"
+                                )}
+                              >
+                                {isFixed ? "ثابت" : isVariable ? "متغیر" : "ترکیبی"}
+                              </span>
                             </td>
                             <td className="p-4 text-foreground">
                               {entry.students_count > 0 ? `${entry.students_count} نفر` : "—"}
                             </td>
                             <td className="p-4 number-display text-foreground">
-                              {formatCentsToToman(entry.base_salary_cents)}
+                              {entry.base_salary_cents > 0 ? formatCentsToToman(entry.base_salary_cents) : "—"}
                             </td>
                             <td className="p-4 number-display text-primary">
-                              {formatCentsToToman(entry.variable_salary_cents)}
+                              {entry.variable_salary_cents > 0 ? formatCentsToToman(entry.variable_salary_cents) : "—"}
                             </td>
                             <td className="p-4 font-bold number-display text-foreground">
                               {formatCentsToToman(entry.total_salary_cents)}
@@ -494,6 +541,32 @@ const Payroll = () => {
                             </td>
                             <td className="p-4">
                               <div className="flex gap-1 flex-wrap">
+                                {entry.status !== "PAID" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-1 text-success hover:text-success hover:bg-success/10"
+                                    onClick={() => quickMarkPaidMutation.mutate(entry.id)}
+                                    disabled={quickMarkPaidMutation.isPending}
+                                    title="تأیید پرداخت حقوق"
+                                  >
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    پرداخت شد
+                                  </Button>
+                                )}
+                                {isVariable && entry.status !== "PAID" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-1 text-muted-foreground"
+                                    onClick={() => recalculateMutation.mutate(entry.id)}
+                                    disabled={recalculateMutation.isPending}
+                                    title="محاسبه مجدد از پرداخت‌های دانش‌آموزان"
+                                  >
+                                    <RefreshCw className="h-4 w-4" />
+                                    بروزرسانی
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -540,24 +613,38 @@ const Payroll = () => {
         <TabsContent value="structure">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="card-elevated p-5">
-              <h3 className="font-bold text-foreground mb-4">ساختار حقوق ثابت</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                ساختار بر اساس نقش از تب فیش حقوقی و فیش‌های ثبت‌شده استخراج می‌شود. برای تنظیم به تنظیمات سیستم مراجعه کنید.
+              <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                  حقوق ثابت
+                </span>
+                <h3 className="font-bold text-foreground">کارکنان با حقوق ثابت ماهانه</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                مبلغ ثابت ماهانه از تعریف نقش آن‌ها در سیستم گرفته می‌شود.
+                این مبلغ در ابتدای هر ماه به صورت خودکار در فیش حقوقی درج و در انتظار پرداخت مدیر قرار می‌گیرد.
               </p>
-              <Button variant="outline" className="w-full" disabled>
-                <Settings className="ml-2 h-4 w-4" />
-                ویرایش ساختار (از API schemes)
-              </Button>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground">مثال: منشی با حقوق ثابت ۱۰ میلیون تومان در ماه — مبلغ از ابتدای ماه مشخص است و نیازی به محاسبه ندارد.</p>
+              </div>
             </div>
             <div className="card-elevated p-5">
-              <h3 className="font-bold text-foreground mb-4">ساختار حقوق متغیر</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                به ازای هر دانش‌آموز، درصد از دریافتی و پاداش ماهانه در سرویس schemes تعریف شده است.
+              <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-400">
+                  حقوق متغیر
+                </span>
+                <h3 className="font-bold text-foreground">کارکنان با حقوق متغیر</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                حقوق متغیر به‌صورت خودکار از پرداخت‌های دانش‌آموزان محاسبه می‌شود.
+                هر بار که پرداخت دانش‌آموزی تأیید شود، سهم این کارمند بر اساس درصد یا مبلغ تعریف‌شده در ثبت‌نام دانش‌آموز، به صورت خودکار انباشته می‌شود.
               </p>
-              <Button variant="outline" className="w-full" disabled>
-                <Settings className="ml-2 h-4 w-4" />
-                ویرایش ساختار (از API schemes)
-              </Button>
+              <div className="rounded-lg bg-muted/50 p-3 mb-3">
+                <p className="text-xs text-muted-foreground">مثال: مشاور — با هر پرداخت دانش‌آموز، سهم مشاور محاسبه و به جمع حقوق ماه اضافه می‌شود.</p>
+              </div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Info className="h-3.5 w-3.5 shrink-0" />
+                برای بروزرسانی مبلغ، از دکمه «بروزرسانی» در ردیف فیش حقوقی استفاده کنید.
+              </p>
             </div>
           </div>
         </TabsContent>
