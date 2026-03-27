@@ -10,7 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { getNotificationCount, getUploadsBase } from "@/api/settingsApi";
+import { getUploadsBase } from "@/api/settingsApi";
+import { listReminderLogs } from "@/api/remindersApi";
 
 const ROLE_LABELS: Record<string, string> = {
   general_manager: "مدیرکل",
@@ -34,8 +35,11 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const navigate = useNavigate();
   const { profile, isLoading, isError, logout } = useCurrentUser();
   const { data: notificationCount = 0 } = useQuery({
-    queryKey: ["notification-count"],
-    queryFn: getNotificationCount,
+    queryKey: ["reminder-logs-pending-count"],
+    queryFn: async () => {
+      const logs = await listReminderLogs();
+      return logs.filter((l) => l.status === "PENDING").length;
+    },
     staleTime: 60 * 1000,
   });
 
@@ -59,7 +63,7 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-3">
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/reminders")}>
           <Bell className="h-5 w-5" />
           {notificationCount > 0 && (
             <span className="absolute -top-0.5 -left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
