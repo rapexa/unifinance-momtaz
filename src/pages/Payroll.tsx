@@ -4,7 +4,6 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -417,18 +416,9 @@ const Payroll = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="payslips" className="space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="overflow-x-auto">
-          <TabsList className="min-w-max bg-muted/50">
-            <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
-              فیش حقوقی
-            </TabsTrigger>
-            <TabsTrigger value="structure" className="data-[state=active]:bg-background">
-              ساختار حقوق
-            </TabsTrigger>
-          </TabsList>
-          </div>
+          <div />
           <div className="flex w-full gap-2 sm:w-auto">
             <Button size="sm" className="w-full sm:w-auto" onClick={() => setIsCreateOpen(true)}>
               <Plus className="ml-2 h-4 w-4" />
@@ -437,17 +427,16 @@ const Payroll = () => {
           </div>
         </div>
 
-        <TabsContent value="payslips">
-          <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
-            <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-            <div className="text-xs text-muted-foreground leading-relaxed">
-              <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
-              {" "}
-              <span className="font-medium text-foreground">حقوق متغیر</span> با هر پرداخت دانش‌آموز به‌صورت خودکار انباشته می‌شود — برای بروزرسانی از دکمه «بروزرسانی» استفاده کنید.
-              {" "}پس از پرداخت حقوق، وضعیت را با «پرداخت شد» ثبت کنید.
-            </div>
+        <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
+          <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
+            {" "}
+            <span className="font-medium text-foreground">حقوق متغیر</span> با هر پرداخت دانش‌آموز به‌صورت خودکار انباشته می‌شود — برای بروزرسانی از دکمه «بروزرسانی» استفاده کنید.
+            {" "}پس از پرداخت حقوق، وضعیت را با «پرداخت شد» ثبت کنید.
           </div>
-          <div className="card-elevated overflow-hidden">
+        </div>
+        <div className="card-elevated overflow-hidden">
             <div className="overflow-x-auto">
               {isEntriesLoading && (
                 <div className="p-6 text-sm text-muted-foreground">
@@ -608,47 +597,8 @@ const Payroll = () => {
               )}
             </div>
           </div>
-        </TabsContent>
 
-        <TabsContent value="structure">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="card-elevated p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
-                  حقوق ثابت
-                </span>
-                <h3 className="font-bold text-foreground">کارکنان با حقوق ثابت ماهانه</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                مبلغ ثابت ماهانه از تعریف نقش آن‌ها در سیستم گرفته می‌شود.
-                این مبلغ در ابتدای هر ماه به صورت خودکار در فیش حقوقی درج و در انتظار پرداخت مدیر قرار می‌گیرد.
-              </p>
-              <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground">مثال: منشی با حقوق ثابت ۱۰ میلیون تومان در ماه — مبلغ از ابتدای ماه مشخص است و نیازی به محاسبه ندارد.</p>
-              </div>
-            </div>
-            <div className="card-elevated p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-400">
-                  حقوق متغیر
-                </span>
-                <h3 className="font-bold text-foreground">کارکنان با حقوق متغیر</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                حقوق متغیر به‌صورت خودکار از پرداخت‌های دانش‌آموزان محاسبه می‌شود.
-                هر بار که پرداخت دانش‌آموزی تأیید شود، سهم این کارمند بر اساس درصد یا مبلغ تعریف‌شده در ثبت‌نام دانش‌آموز، به صورت خودکار انباشته می‌شود.
-              </p>
-              <div className="rounded-lg bg-muted/50 p-3 mb-3">
-                <p className="text-xs text-muted-foreground">مثال: مشاور — با هر پرداخت دانش‌آموز، سهم مشاور محاسبه و به جمع حقوق ماه اضافه می‌شود.</p>
-              </div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Info className="h-3.5 w-3.5 shrink-0" />
-                برای بروزرسانی مبلغ، از دکمه «بروزرسانی» در ردیف فیش حقوقی استفاده کنید.
-              </p>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       {/* Register Payroll Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
