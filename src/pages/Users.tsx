@@ -517,7 +517,6 @@ const Users = () => {
               </div>
               <div>
                 <p className="font-bold text-foreground">{row.name}</p>
-                <p className="text-xs text-muted-foreground font-mono">{row.code}</p>
                 <p className="text-sm text-muted-foreground">
                   {isSummaryLoading || isSummaryError ? "—" : row.count} کاربر
                 </p>
