@@ -42,6 +42,8 @@ import {
   type UpdatePayrollEntryPayload,
 } from "@/api/payrollApi";
 import { listUsers } from "@/api/usersApi";
+import { getPaymentsSummary } from "@/api/paymentsApi";
+import { listRoles } from "@/api/rolesApi";
 
 const roleLabels: Record<string, string> = {
   general_manager: "مدیرکل",
@@ -228,6 +230,18 @@ const Payroll = () => {
     enabled: isCreateOpen,
   });
 
+  const { data: rolesData = [] } = useQuery({
+    queryKey: ["roles"],
+    queryFn: listRoles,
+    enabled: isCreateOpen,
+  });
+
+  const { data: paymentsSummary } = useQuery({
+    queryKey: ["payments-summary"],
+    queryFn: getPaymentsSummary,
+    enabled: isCreateOpen,
+  });
+
   const createUserIdNum = parseInt(createUserId, 10);
   const { data: payrollPreview, isError: isPreviewError, error: previewError } = useQuery({
     queryKey: ["payroll-preview", createUserIdNum, createPeriodYear, createPeriodMonth],
@@ -325,7 +339,12 @@ const Payroll = () => {
       period_month: createPeriodMonth,
       status: createStatus,
     };
-    if (createAutoFromRole) {
+    if (createAutoFromRole && isGmRole) {
+      // مدیرکل: حقوق = مجموع دریافت ماه - مجموع حقوق سایر کارمندان
+      payload.base_salary_cents = gmSalaryCents;
+      payload.variable_salary_cents = 0;
+      payload.students_count = 0;
+    } else if (createAutoFromRole) {
       payload.apply_role_rules = true;
     } else {
       const baseTomans = parseLocalizedInt(createBaseTomans);
@@ -381,6 +400,24 @@ const Payroll = () => {
 
   const entries: PayrollEntryApi[] = entriesData?.data ?? [];
   const users = usersData?.data ?? [];
+
+  // تشخیص مدیرکل: نقشی با compensation_kind === "NET_REVENUE" یا full_access
+  const selectedUser = users.find((u) => u.id === createUserIdNum);
+  const selectedUserRole = rolesData.find((r) => r.id === selectedUser?.role_id);
+  const isGmRole =
+    selectedUserRole?.full_access === true ||
+    selectedUserRole?.compensation_kind === "NET_REVENUE" ||
+    payrollPreview?.compensation_kind === "NET_REVENUE";
+
+  // حقوق مدیرکل = مجموع دریافت ماه − مجموع حقوق سایر کارمندان
+  const gmSalaryCents =
+    isGmRole && paymentsSummary && summary
+      ? Math.max(
+          0,
+          paymentsSummary.this_month_received_cents -
+            (summary.total_base_cents + summary.total_variable_cents)
+        )
+      : 0;
 
   return (
     <MainLayout title="حقوق و دستمزد" subtitle="مدیریت ساختار حقوق و محاسبات">
@@ -661,7 +698,33 @@ const Payroll = () => {
               </div>
               <Switch checked={createAutoFromRole} onCheckedChange={setCreateAutoFromRole} />
             </div>
-            {createAutoFromRole && (
+            {createAutoFromRole && isGmRole && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm space-y-2">
+                <p className="font-medium text-primary">محاسبه حقوق مدیرکل (درآمد خالص)</p>
+                <p className="text-xs text-muted-foreground">
+                  حقوق مدیرکل = مجموع پرداخت‌های دریافتی این ماه − مجموع حقوق سایر کارمندان
+                </p>
+                <div className="space-y-1 pt-1">
+                  <p>
+                    <span className="text-muted-foreground">مجموع دریافت این ماه:</span>{" "}
+                    <span className="font-medium">{formatCentsToToman(paymentsSummary?.this_month_received_cents ?? 0)} تومان</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">مجموع حقوق سایر کارمندان این ماه:</span>{" "}
+                    <span className="font-medium text-destructive">
+                      − {formatCentsToToman((summary?.total_base_cents ?? 0) + (summary?.total_variable_cents ?? 0))} تومان
+                    </span>
+                  </p>
+                  <div className="border-t border-primary/20 pt-1">
+                    <p className="font-semibold">
+                      <span className="text-muted-foreground">حقوق مدیرکل:</span>{" "}
+                      <span className="text-primary">{formatCentsToToman(gmSalaryCents)} تومان</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {createAutoFromRole && !isGmRole && (
               <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
                 {!createUserId ? (
                   <p className="text-muted-foreground">ابتدا کارمند را انتخاب کنید.</p>
@@ -690,8 +753,7 @@ const Payroll = () => {
                       )}
                     <p className="text-xs text-muted-foreground pt-1">
                       حجم پرداخت دانش‌آموزان در دوره:{" "}
-                      {formatCentsToToman(payrollPreview.revenue_volume_cents)} تومان — نوع:{" "}
-                      {payrollPreview.compensation_kind}
+                      {formatCentsToToman(payrollPreview.revenue_volume_cents)} تومان
                     </p>
                   </>
                 ) : (

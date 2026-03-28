@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
+import { Bell, ChevronDown, User, Settings, LogOut, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { getUploadsBase } from "@/api/settingsApi";
+import { getUploadsBase, getCurrentFiscalYear } from "@/api/settingsApi";
 import { listReminderLogs } from "@/api/remindersApi";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -42,6 +43,11 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
     },
     staleTime: 60 * 1000,
   });
+  const { data: currentFY } = useQuery({
+    queryKey: ["fiscal-year-current"],
+    queryFn: getCurrentFiscalYear,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "کاربر"
@@ -63,6 +69,17 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-3">
+        {currentFY && (
+          <Link to="/settings">
+            <Badge
+              variant="outline"
+              className="hidden sm:flex items-center gap-1 text-xs cursor-pointer hover:bg-muted transition-colors border-green-500 text-green-700 dark:text-green-400"
+            >
+              <CalendarDays className="h-3 w-3" />
+              {currentFY.name}
+            </Badge>
+          </Link>
+        )}
         <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/reminders")}>
           <Bell className="h-5 w-5" />
           {notificationCount > 0 && (

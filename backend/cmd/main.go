@@ -58,6 +58,7 @@ func main() {
 	reportService := services.NewReportService(db)
 	settingsService := services.NewSettingsService(db, userService)
 	reminderService := services.NewReminderService(db)
+	fiscalYearService := services.NewFiscalYearService(db)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -71,6 +72,7 @@ func main() {
 	reportHandler := handlers.NewReportHandler(reportService)
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
 	reminderHandler := handlers.NewReminderHandler(reminderService)
+	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
 
 	// Gin engine
 	r := gin.Default()
@@ -282,6 +284,16 @@ func main() {
 		reminders.PUT("/rules", reminderHandler.ReplaceRules)
 		reminders.GET("/logs", reminderHandler.ListLogs)
 		reminders.POST("/run", reminderHandler.RunNow)
+	}
+
+	// Fiscal year (requires SETTINGS permission)
+	fiscalYears := protected.Group("/fiscal-years")
+	fiscalYears.Use(middleware.PermissionMiddleware(permService, models.PermSettings))
+	{
+		fiscalYears.GET("", fiscalYearHandler.List)
+		fiscalYears.GET("/current", fiscalYearHandler.GetCurrent)
+		fiscalYears.POST("", fiscalYearHandler.Create)
+		fiscalYears.POST("/:id/close", fiscalYearHandler.Close)
 	}
 
 	// Auto scheduler: run reminder dispatch periodically.

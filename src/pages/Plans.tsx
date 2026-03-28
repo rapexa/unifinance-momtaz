@@ -133,7 +133,7 @@ const Plans = () => {
     });
   };
 
-  const PlanFormFields = () => (
+  const planFormFields = (
     <div className="space-y-4 py-2">
       <div>
         <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -328,7 +328,7 @@ const Plans = () => {
           <DialogHeader>
             <DialogTitle>پلن جدید</DialogTitle>
           </DialogHeader>
-          <PlanFormFields />
+          {planFormFields}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={createMutation.isPending}>
               انصراف
@@ -346,7 +346,7 @@ const Plans = () => {
           <DialogHeader>
             <DialogTitle>ویرایش پلن</DialogTitle>
           </DialogHeader>
-          <PlanFormFields />
+          {planFormFields}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={updateMutation.isPending}>
               انصراف

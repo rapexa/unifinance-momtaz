@@ -118,6 +118,7 @@ function mapUser(u: UserApi): UserRow {
 const COMP_KIND_LABELS: Record<string, string> = {
   FIXED: "حقوق ثابت ماهانه",
   VARIABLE: "متغیر (بر اساس دانش‌آموزان)",
+  NET_REVENUE: "درآمد خالص (مجموع پرداخت‌ها − حقوق کارمندان)",
 };
 
 const ALL_PERMISSION_CODES: PermissionCode[] = [
@@ -269,6 +270,7 @@ const Users = () => {
   const [isActive, setIsActive] = useState(true);
 
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [deleteRoleTarget, setDeleteRoleTarget] = useState<RoleApi | null>(null);
   const [newRoleCode, setNewRoleCode] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDesc, setNewRoleDesc] = useState("");
@@ -316,6 +318,15 @@ const Users = () => {
       queryClient.invalidateQueries({ queryKey: ["user", id] });
       queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setEditUserId(null);
+    },
+  });
+
+  const deleteRoleMutation = useMutation({
+    mutationFn: (id: number) => deleteRole(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["users-summary"] });
+      setDeleteRoleTarget(null);
     },
   });
 
@@ -555,28 +566,26 @@ const Users = () => {
                   </td>
                   <td className="p-3">{COMP_KIND_LABELS[r.compensation_kind] ?? r.compensation_kind}</td>
                   <td className="p-3 text-muted-foreground text-xs">
-                    {r.compensation_kind === "FIXED" && r.fixed_cents != null &&
+                    {r.compensation_kind === "FIXED" && r.fixed_cents != null && r.fixed_cents > 0 &&
                       `${Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR")} تومان ماهانه`}
+                    {r.compensation_kind === "FIXED" && (r.fixed_cents == null || r.fixed_cents === 0) &&
+                      "۰ تومان ماهانه"}
                     {r.compensation_kind === "VARIABLE" &&
                       "بر اساس سهم‌های ثبت‌نام دانش‌آموزان"}
+                    {r.compensation_kind === "NET_REVENUE" &&
+                      "مجموع پرداخت‌های ماه − مجموع حقوق سایر کارمندان"}
+                    {(r.full_access && r.compensation_kind !== "NET_REVENUE") &&
+                      " — مدیرکل: درآمد خالص"}
                   </td>
                   <td className="p-3">
                     {!r.is_system && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-destructive"
-                        onClick={async () => {
-                          if (!confirm(`حذف نقش «${r.name}»؟ فقط در صورت نداشتن کاربر امکان‌پذیر است.`)) return;
-                          try {
-                            await deleteRole(r.id);
-                            queryClient.invalidateQueries({ queryKey: ["roles"] });
-                            queryClient.invalidateQueries({ queryKey: ["users-summary"] });
-                          } catch (e) {
-                            alert((e as Error).message);
-                          }
-                        }}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteRoleTarget(r)}
                       >
+                        <Trash2 className="ml-1 h-3.5 w-3.5" />
                         حذف
                       </Button>
                     )}
@@ -916,8 +925,22 @@ const Users = () => {
               <Input value={newRoleDesc} onChange={(e) => setNewRoleDesc(e.target.value)} />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">دسترسی کامل (مثل مدیرکل)</span>
-              <Switch checked={newRoleFullAccess} onCheckedChange={setNewRoleFullAccess} />
+              <div>
+                <span className="text-xs text-muted-foreground">دسترسی کامل (مثل مدیرکل)</span>
+                {newRoleFullAccess && (
+                  <p className="mt-0.5 text-[11px] text-primary">
+                    حقوق = مجموع پرداخت‌های ماه − مجموع حقوق سایر کارمندان
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={newRoleFullAccess}
+                onCheckedChange={(v) => {
+                  setNewRoleFullAccess(v);
+                  if (v) setNewCompKind("NET_REVENUE");
+                  else setNewCompKind("FIXED");
+                }}
+              />
             </div>
             {!newRoleFullAccess && (
               <div>
@@ -958,7 +981,7 @@ const Users = () => {
                 </p>
               )}
             </div>
-            {newCompKind === "FIXED" && (
+            {!newRoleFullAccess && newCompKind === "FIXED" && (
               <div>
                 <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان)</label>
                 <Input
@@ -987,11 +1010,11 @@ const Users = () => {
                   name: newRoleName.trim(),
                   description: newRoleDesc.trim() || undefined,
                   full_access: newRoleFullAccess,
-                  compensation_kind: newRoleFullAccess ? "FIXED" : newCompKind,
+                  compensation_kind: newRoleFullAccess ? "NET_REVENUE" : newCompKind,
                   permissions: newRoleFullAccess ? [...ALL_PERMISSION_CODES] : newRolePerms,
                 };
-                if (newCompKind === "FIXED" || newRoleFullAccess) {
-                  payload.fixed_cents = newRoleFullAccess ? 0 : tomansToCents(newFixedTomans);
+                if (!newRoleFullAccess && newCompKind === "FIXED") {
+                  payload.fixed_cents = tomansToCents(newFixedTomans);
                 }
                 createRoleMutation.mutate(payload);
               }}
@@ -1004,6 +1027,36 @@ const Users = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete role confirm */}
+      <AlertDialog open={deleteRoleTarget != null} onOpenChange={(open) => !open && setDeleteRoleTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف نقش</AlertDialogTitle>
+            <AlertDialogDescription>
+              آیا از حذف نقش «{deleteRoleTarget?.name}» اطمینان دارید؟ این نقش فقط در صورتی حذف می‌شود که هیچ کاربری به آن تعلق نداشته باشد.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteRoleMutation.isError && (
+            <p className="text-xs text-destructive px-1">
+              {(deleteRoleMutation.error as Error)?.message || "حذف نقش با خطا مواجه شد"}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => deleteRoleMutation.reset()}>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteRoleTarget) deleteRoleMutation.mutate(deleteRoleTarget.id);
+              }}
+              disabled={deleteRoleMutation.isPending}
+            >
+              {deleteRoleMutation.isPending ? "در حال حذف..." : "حذف نقش"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete (deactivate) confirm */}
       <AlertDialog open={deleteUser != null} onOpenChange={(open) => !open && setDeleteUser(null)}>

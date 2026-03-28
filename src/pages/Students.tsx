@@ -73,7 +73,7 @@ interface StudentRow {
 }
 
 function formatBalance(cents: number | undefined): string {
-  const n = cents ?? 0;
+  const n = Math.round((cents ?? 0) / 10);
   const s = Math.abs(n).toLocaleString("fa-IR");
   return n < 0 ? `-${s}` : s;
 }
@@ -125,7 +125,9 @@ function mapApiRolePayoutsToRows(student: StudentApi): RolePayoutFormRow[] {
       userId: String(p.user_id),
       amountKind: p.amount_kind,
       percent: p.percent != null ? String(p.percent) : "",
-      fixedCents: p.fixed_cents != null ? String(p.fixed_cents) : "",
+      fixedCents: p.fixed_cents != null && p.fixed_cents > 0
+        ? formatGroupedFaIntInput(String(Math.round(p.fixed_cents / 10)))
+        : "",
     })
   );
 }
@@ -138,7 +140,7 @@ function buildRolePayoutPayload(rows: RolePayoutFormRow[]): StudentRolePayoutPay
       user_id: Number(r.userId),
       amount_kind: r.amountKind,
       ...(r.amountKind === "PERCENT" ? { percent: parseLocalizedFloat(r.percent) } : {}),
-      ...(r.amountKind === "FIXED_PER_PAYMENT" ? { fixed_cents: parseLocalizedInt(r.fixedCents) } : {}),
+      ...(r.amountKind === "FIXED_PER_PAYMENT" ? { fixed_cents: parseLocalizedInt(r.fixedCents) * 10 } : {}),
     }));
 }
 
@@ -216,7 +218,9 @@ function EditStudentForm({
     student.advisor_commission_percent != null ? String(student.advisor_commission_percent) : ""
   );
   const [commFixed, setCommFixed] = useState(
-    student.advisor_commission_fixed_cents != null ? String(student.advisor_commission_fixed_cents) : ""
+    student.advisor_commission_fixed_cents != null && student.advisor_commission_fixed_cents > 0
+      ? formatGroupedFaIntInput(String(Math.round(student.advisor_commission_fixed_cents / 10)))
+      : ""
   );
   const [advisoryStartDate, setAdvisoryStartDate] = useState(
     gregorianIsoToJalali(student.advisory_start_date) || ""
@@ -514,7 +518,7 @@ function EditStudentForm({
                 payload.advisor_commission_percent = parseLocalizedFloat(commPercent);
               }
               if (advisorCommKind === "FIXED_PER_PAYMENT") {
-                payload.advisor_commission_fixed_cents = parseLocalizedInt(commFixed);
+                payload.advisor_commission_fixed_cents = parseLocalizedInt(commFixed) * 10;
               }
             }
             payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
@@ -1037,7 +1041,7 @@ const Students = () => {
                     ? `${detailsStudentData.advisor_commission_percent}٪ از مبلغ`
                     : detailsStudentData.advisor_commission_kind === "FIXED_PER_PAYMENT" &&
                         detailsStudentData.advisor_commission_fixed_cents != null
-                      ? `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} ریال ثابت`
+                      ? `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} تومان ثابت`
                       : "بدون سهم"}
                 </p>
               )}
@@ -1050,7 +1054,7 @@ const Students = () => {
                         {(rp.role_name || `نقش #${rp.role_id}`)} / {(rp.user_name || `کاربر #${rp.user_id}`)}:{" "}
                         {rp.amount_kind === "PERCENT"
                           ? `${rp.percent ?? 0}٪`
-                          : `${formatBalance(rp.fixed_cents)} ریال`}
+                          : `${formatBalance(rp.fixed_cents)} تومان`}
                       </li>
                     ))}
                   </ul>
@@ -1231,9 +1235,9 @@ const Students = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">بدون مشاور</SelectItem>
-                    {(advisors || []).map((advisor: UserApi) => (
+                    {users.map((advisor: UserApi) => (
                       <SelectItem key={advisor.id} value={String(advisor.id)}>
-                        {advisor.first_name} {advisor.last_name}
+                        {advisor.first_name} {advisor.last_name} — {advisor.role_name}
                       </SelectItem>
                     ))}
                   </SelectContent>

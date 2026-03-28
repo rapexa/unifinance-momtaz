@@ -11,7 +11,7 @@ function getAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type CompensationKind = "FIXED" | "VARIABLE";
+export type CompensationKind = "FIXED" | "VARIABLE" | "NET_REVENUE";
 
 export interface RoleApi {
   id: number;

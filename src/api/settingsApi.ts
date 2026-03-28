@@ -167,6 +167,63 @@ export async function updateNotifications(settings: NotificationSettingItem[]): 
   if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره اعلان‌ها");
 }
 
+// --- Fiscal Year ---
+export interface FiscalYear {
+  id: number;
+  name: string;
+  start_date: string;
+  end_date: string | null;
+  status: "OPEN" | "CLOSED";
+  created_at: string;
+  closed_at: string | null;
+  export_url: string | null;
+}
+
+export interface CreateFiscalYearPayload {
+  name: string;
+  start_date: string;
+}
+
+export async function listFiscalYears(): Promise<FiscalYear[]> {
+  const res = await fetch(`${API_BASE}/fiscal-years`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت سال‌های مالی");
+  return (data as FiscalYear[]) ?? [];
+}
+
+export async function getCurrentFiscalYear(): Promise<FiscalYear | null> {
+  const res = await fetch(`${API_BASE}/fiscal-years/current`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  if (res.status === 404) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت سال مالی جاری");
+  return data as FiscalYear;
+}
+
+export async function createFiscalYear(payload: CreateFiscalYearPayload): Promise<FiscalYear> {
+  const res = await fetch(`${API_BASE}/fiscal-years`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در ایجاد سال مالی");
+  return data as FiscalYear;
+}
+
+export async function closeFiscalYear(id: number): Promise<FiscalYear> {
+  const res = await fetch(`${API_BASE}/fiscal-years/${id}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در بستن سال مالی");
+  return data as FiscalYear;
+}
+
 // --- Payment settings ---
 export interface PaymentSettings {
   card_number: string;

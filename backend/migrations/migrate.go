@@ -45,6 +45,7 @@ func autoMigrate(db *gorm.DB) {
 		&models.PayrollEntry{},
 		&models.ReminderRule{},
 		&models.PaymentReminder{},
+		&models.FiscalYear{},
 	); err != nil {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}
