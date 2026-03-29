@@ -57,8 +57,10 @@ func main() {
 	payrollService := services.NewPayrollService(db)
 	reportService := services.NewReportService(db)
 	settingsService := services.NewSettingsService(db, userService)
-	reminderService := services.NewReminderService(db)
+	melipayamakService := services.NewMelipayamakService(cfg.MelipayamakUsername, cfg.MelipayamakAPIKey)
+	reminderService := services.NewReminderService(db, melipayamakService)
 	fiscalYearService := services.NewFiscalYearService(db)
+	zarinpalService := services.NewZarinpalService(cfg.ZarinpalMerchantID, cfg.ZarinpalSandbox, cfg.ZarinpalCallbackURL)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -73,6 +75,7 @@ func main() {
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
 	reminderHandler := handlers.NewReminderHandler(reminderService)
 	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
+	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
 	// Gin engine
 	r := gin.Default()
@@ -87,6 +90,7 @@ func main() {
 			"http://130.185.75.183:8081",
 			"https://mali-momtazisho.ir",
 			"https://api.mali-momtazisho.ir",
+			"https://checkout.momtaz-team.ir",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
@@ -106,7 +110,18 @@ func main() {
 	// Serve uploaded files (e.g. profile avatars)
 	r.Static("/uploads", "uploads")
 
+	// ZarinPal callback – browser is redirected here by ZarinPal after payment.
+	// Must be at root level (checkout.momtaz-team.ir/payment/callback).
+	r.GET("/payment/callback", paymentGatewayHandler.Callback)
+
 	api := r.Group("/api/v1")
+
+	// Public payment endpoints – no auth required (student visits pay link)
+	publicPayments := api.Group("/public/payments")
+	{
+		publicPayments.GET("/:id", paymentGatewayHandler.GetPublicPayment)
+		publicPayments.POST("/:id/pay", paymentGatewayHandler.InitiatePayment)
+	}
 
 	// Public auth routes
 	authGroup := api.Group("/auth")

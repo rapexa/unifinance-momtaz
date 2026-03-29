@@ -211,7 +211,6 @@ function EditStudentForm({
       ? formatGroupedFaIntInput(String(Math.round(student.enrollment_amount_cents / 10)))
       : ""
   );
-  const [balance, setBalance] = useState(student.balance_cents != null ? String(student.balance_cents) : "0");
   const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>(
     parseCommKind(student.advisor_commission_kind)
   );
@@ -506,7 +505,6 @@ function EditStudentForm({
               advisor_id: advisorId === "none" ? null : Number(advisorId),
               current_plan_id: planId === "none" ? null : Number(planId),
               enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0,
-              balance_cents: parseLocalizedInt(balance) || 0,
             };
             if (advTrim && advGregorian) {
               payload.advisory_start_date = advGregorian;
@@ -567,7 +565,6 @@ const Students = () => {
   const [advisorId, setAdvisorId] = useState("");
   const [planId, setPlanId] = useState("");
   const [enrollmentAmount, setEnrollmentAmount] = useState("");
-  const [balance, setBalance] = useState("");
   const [fatherPhone, setFatherPhone] = useState("");
   const [motherPhone, setMotherPhone] = useState("");
   const [fatherJob, setFatherJob] = useState("");
@@ -706,7 +703,6 @@ const Students = () => {
       setAdvisorId("");
       setPlanId("");
       setEnrollmentAmount("");
-      setBalance("");
       setFatherPhone("");
       setMotherPhone("");
       setFatherJob("");

@@ -91,8 +91,10 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		AdvisorCommissionFixedCents: s.AdvisorCommissionFixedCents,
 		CurrentPlanID:               s.CurrentPlanID,
 	}
-	// Populate enrollment amount from the active enrollment if available
-	if len(s.Enrollments) > 0 {
+	// Enrollment amount stored directly on student; fall back to active enrollment record.
+	if s.EnrollmentAmountCents > 0 {
+		doc.EnrollmentAmountCents = s.EnrollmentAmountCents
+	} else if len(s.Enrollments) > 0 {
 		doc.EnrollmentAmountCents = s.Enrollments[0].PriceCents
 	}
 	if s.Advisor != nil {
@@ -320,6 +322,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	if payload.BalanceCents != nil {
 		student.BalanceCents = *payload.BalanceCents
 	}
+	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
 	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
 
 	joinDate, err := advisoryStartDateForCreate(payload.AdvisoryStartDate)
@@ -450,6 +453,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	if payload.BalanceCents != nil {
 		student.BalanceCents = *payload.BalanceCents
 	}
+	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
 	if payload.AdvisoryStartDate != nil {
 		if err := applyAdvisoryStartDateUpdate(student, *payload.AdvisoryStartDate); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

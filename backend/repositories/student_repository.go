@@ -34,6 +34,7 @@ func (r *GormStudentRepository) FindByID(ctx context.Context, id uint) (*models.
 	if err := r.db.WithContext(ctx).
 		Preload("Advisor").
 		Preload("CurrentPlan").
+		Preload("Enrollments", "status = ?", models.EnrollmentStatusActive).
 		Preload("StudentRolePayouts").
 		Preload("StudentRolePayouts.Role").
 		Preload("StudentRolePayouts.User").
@@ -132,7 +133,9 @@ func (r *GormStudentRepository) ReplaceActiveEnrollment(ctx context.Context, stu
 
 func (r *GormStudentRepository) ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("student_id = ?", studentID).Delete(&models.StudentRolePayout{}).Error; err != nil {
+		// Hard-delete (Unscoped) so the unique index on (student_id, role_id, user_id)
+		// does not block subsequent inserts with the same keys.
+		if err := tx.Unscoped().Where("student_id = ?", studentID).Delete(&models.StudentRolePayout{}).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
@@ -140,6 +143,7 @@ func (r *GormStudentRepository) ReplaceStudentRolePayouts(ctx context.Context, s
 		}
 		for i := range rows {
 			rows[i].StudentID = studentID
+			rows[i].Model = gorm.Model{} // clear any stale ID/timestamps before insert
 		}
 		return tx.Create(&rows).Error
 	})

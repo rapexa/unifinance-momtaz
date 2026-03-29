@@ -59,5 +59,9 @@ type Payment struct {
 
 	// For reconciliation with gateway or offline references
 	ReferenceCode string `gorm:"size:255;index"`
+
+	// ZarinpalAuthority stores the authority token from ZarinPal during an in-flight
+	// payment so the callback can look up the payment record.
+	ZarinpalAuthority string `gorm:"size:100;index"`
 }
 

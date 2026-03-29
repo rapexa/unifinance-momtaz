@@ -88,6 +88,9 @@ type Student struct {
 	// Financial balance (in smallest unit, e.g. rials)
 	BalanceCents int64 `gorm:"not null;default:0"`
 
+	// Enrollment amount stored directly so it persists even without a plan selection.
+	EnrollmentAmountCents int64 `gorm:"not null;default:0"`
+
 	// Advisor is the user responsible for this student.
 	AdvisorID *uint `gorm:"index"`
 	Advisor   *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`

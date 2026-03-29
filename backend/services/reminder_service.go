@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,80 +10,62 @@ import (
 	"gorm.io/gorm"
 )
 
+// hardRule defines a fixed reminder rule. No database table is involved.
+type hardRule struct {
+	Type       models.ReminderType
+	DaysOffset int
+	BodyID     int
+	Label      string
+}
+
+// HardCodedRules are the three fixed SMS reminder rules.
+// These are never stored in – or read from – the database.
+var HardCodedRules = []hardRule{
+	{Type: models.ReminderTypeBeforeDue, DaysOffset: 3, BodyID: PatternBefore3Days, Label: "۳ روز قبل از سررسید"},
+	{Type: models.ReminderTypeBeforeDue, DaysOffset: 1, BodyID: PatternBefore1Day, Label: "۱ روز قبل از سررسید"},
+	{Type: models.ReminderTypeOverdue, DaysOffset: 2, BodyID: PatternOverdue2Days, Label: "۲ روز بعد از سررسید"},
+}
+
+// HardRuleDTO is the JSON shape returned by ListRules.
+type HardRuleDTO struct {
+	Type       string `json:"type"`
+	DaysOffset int    `json:"days_offset"`
+	BodyID     int    `json:"body_id"`
+	Label      string `json:"label"`
+}
+
 type ReminderService struct {
-	db *gorm.DB
+	db  *gorm.DB
+	sms *MelipayamakService
 }
 
-func NewReminderService(db *gorm.DB) *ReminderService {
-	return &ReminderService{db: db}
+func NewReminderService(db *gorm.DB, sms *MelipayamakService) *ReminderService {
+	return &ReminderService{db: db, sms: sms}
 }
 
-func (s *ReminderService) EnsureDefaultRules(ctx context.Context) error {
-	defaults := []models.ReminderRule{
-		{Type: models.ReminderTypeBeforeDue, DaysOffset: 3, Channel: models.ReminderChannelTelegram, Enabled: true},
-		{Type: models.ReminderTypeDueDay, DaysOffset: 0, Channel: models.ReminderChannelTelegram, Enabled: true},
-		{Type: models.ReminderTypeOverdue, DaysOffset: 1, Channel: models.ReminderChannelTelegram, Enabled: true},
+// ListRules returns the hard-coded rules (no DB hit needed).
+func (s *ReminderService) ListRules() []HardRuleDTO {
+	out := make([]HardRuleDTO, 0, len(HardCodedRules))
+	for _, r := range HardCodedRules {
+		out = append(out, HardRuleDTO{
+			Type:       string(r.Type),
+			DaysOffset: r.DaysOffset,
+			BodyID:     r.BodyID,
+			Label:      r.Label,
+		})
 	}
-	for i := range defaults {
-		r := defaults[i]
-		var existing models.ReminderRule
-		err := s.db.WithContext(ctx).
-			Where("type = ? AND days_offset = ? AND channel = ?", r.Type, r.DaysOffset, r.Channel).
-			First(&existing).Error
-		if err == gorm.ErrRecordNotFound {
-			if err := s.db.WithContext(ctx).Create(&r).Error; err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *ReminderService) ListRules(ctx context.Context) ([]models.ReminderRule, error) {
-	if err := s.EnsureDefaultRules(ctx); err != nil {
-		return nil, err
-	}
-	var rules []models.ReminderRule
-	err := s.db.WithContext(ctx).Order("type ASC, days_offset ASC").Find(&rules).Error
-	return rules, err
-}
-
-func (s *ReminderService) ReplaceRules(ctx context.Context, rules []models.ReminderRule) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for i := range rules {
-			r := rules[i]
-			var existing models.ReminderRule
-			err := tx.Where("type = ? AND days_offset = ? AND channel = ?", r.Type, r.DaysOffset, r.Channel).First(&existing).Error
-			if err == gorm.ErrRecordNotFound {
-				if err := tx.Create(&r).Error; err != nil {
-					return err
-				}
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			existing.Enabled = r.Enabled
-			if err := tx.Save(&existing).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return out
 }
 
 type ReminderLogItem struct {
-	ID          uint                   `json:"id"`
-	StudentID   uint                   `json:"student_id"`
-	Student     string                 `json:"student"`
-	Type        models.ReminderType    `json:"type"`
-	DaysOffset  int                    `json:"days_offset"`
-	AmountCents int64                  `json:"amount_cents"`
-	LastSent    *time.Time             `json:"last_sent"`
-	Status      models.ReminderStatus  `json:"status"`
-	Channel     models.ReminderChannel `json:"channel"`
+	ID          uint                  `json:"id"`
+	StudentID   uint                  `json:"student_id"`
+	Student     string                `json:"student"`
+	Type        models.ReminderType   `json:"type"`
+	DaysOffset  int                   `json:"days_offset"`
+	AmountCents int64                 `json:"amount_cents"`
+	LastSent    *time.Time            `json:"last_sent"`
+	Status      models.ReminderStatus `json:"status"`
 }
 
 func (s *ReminderService) ListLogs(ctx context.Context, search string, limit int) ([]ReminderLogItem, error) {
@@ -91,18 +74,16 @@ func (s *ReminderService) ListLogs(ctx context.Context, search string, limit int
 		StudentID   uint
 		FirstName   string
 		LastName    string
-		Type        string
 		DaysOffset  int
+		RuleType    string
 		AmountCents int64
 		LastSent    *time.Time
 		Status      string
-		Channel     string
 	}
 	var rows []row
 	q := s.db.WithContext(ctx).Table("payment_reminders pr").
 		Joins("LEFT JOIN students s ON s.id = pr.student_id").
-		Joins("LEFT JOIN reminder_rules rr ON rr.id = pr.rule_id").
-		Select("pr.id, pr.student_id, s.first_name, s.last_name, rr.type, rr.days_offset, pr.amount_cents, pr.sent_at as last_sent, pr.status, pr.channel").
+		Select("pr.id, pr.student_id, s.first_name, s.last_name, pr.amount_cents, pr.sent_at as last_sent, pr.status, pr.days_offset as days_offset, pr.rule_type as rule_type").
 		Order("pr.created_at DESC").
 		Limit(limit)
 	if strings.TrimSpace(search) != "" {
@@ -118,12 +99,11 @@ func (s *ReminderService) ListLogs(ctx context.Context, search string, limit int
 			ID:          r.ID,
 			StudentID:   r.StudentID,
 			Student:     strings.TrimSpace(r.FirstName + " " + r.LastName),
-			Type:        models.ReminderType(r.Type),
+			Type:        models.ReminderType(r.RuleType),
 			DaysOffset:  r.DaysOffset,
 			AmountCents: r.AmountCents,
 			LastSent:    r.LastSent,
 			Status:      models.ReminderStatus(r.Status),
-			Channel:     models.ReminderChannel(r.Channel),
 		})
 	}
 	return out, nil
@@ -134,13 +114,6 @@ func sameDay(a, b time.Time) bool {
 }
 
 func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
-	if err := s.EnsureDefaultRules(ctx); err != nil {
-		return 0, err
-	}
-	var rules []models.ReminderRule
-	if err := s.db.WithContext(ctx).Where("enabled = ?", true).Find(&rules).Error; err != nil {
-		return 0, err
-	}
 	var payments []models.Payment
 	if err := s.db.WithContext(ctx).
 		Preload("Student").
@@ -157,38 +130,46 @@ func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
 			continue
 		}
 		due := *p.DueDate
-		for j := range rules {
-			r := &rules[j]
+		for _, r := range HardCodedRules {
 			trigger := false
 			switch r.Type {
 			case models.ReminderTypeBeforeDue:
 				trigger = sameDay(now, due.AddDate(0, 0, -r.DaysOffset))
-			case models.ReminderTypeDueDay:
-				trigger = sameDay(now, due)
 			case models.ReminderTypeOverdue:
 				trigger = now.After(due.AddDate(0, 0, r.DaysOffset))
 			}
 			if !trigger {
 				continue
 			}
+
+			// Deduplicate: skip if this payment+rule combo was already sent today.
+			dedupeKey := fmt.Sprintf("%d_%s_%d", p.ID, string(r.Type), r.DaysOffset)
 			var existing models.PaymentReminder
 			err := s.db.WithContext(ctx).
-				Where("payment_id = ? AND rule_id = ? AND DATE(created_at) = CURDATE()", p.ID, r.ID).
+				Where("payment_id = ? AND rule_type = ? AND days_offset = ? AND DATE(created_at) = CURDATE()",
+					p.ID, string(r.Type), r.DaysOffset).
 				First(&existing).Error
 			if err == nil {
-				continue
+				continue // already sent today
 			}
 			if err != gorm.ErrRecordNotFound {
-				return sent, err
+				return sent, fmt.Errorf("reminder dedup check (%s): %w", dedupeKey, err)
 			}
+
+			// Send SMS.
+			if s.sms != nil {
+				s.sms.SendPatternToAll(&p.Student, r.BodyID, nil)
+			}
+
 			pr := models.PaymentReminder{
 				StudentID:   p.StudentID,
 				PaymentID:   &p.ID,
-				RuleID:      &r.ID,
 				AmountCents: p.AmountCents,
 				Status:      models.ReminderStatusSent,
-				Channel:     r.Channel,
+				Channel:     models.ReminderChannelSMS,
 				SentAt:      &now,
+				RuleType:    string(r.Type),
+				DaysOffset:  r.DaysOffset,
 			}
 			if err := s.db.WithContext(ctx).Create(&pr).Error; err != nil {
 				return sent, err

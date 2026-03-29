@@ -14,6 +14,8 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
+import PayPage from "./pages/PayPage";
+import PaymentResult from "./pages/PaymentResult";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +37,9 @@ const App = () => (
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
+          {/* Public payment pages – no auth required */}
+          <Route path="/pay/:id" element={<PayPage />} />
+          <Route path="/paymentResult/:id" element={<PaymentResult />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

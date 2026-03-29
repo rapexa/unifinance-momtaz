@@ -547,16 +547,14 @@ func (h *PaymentHandler) GenerateLink(c *gin.Context) {
 		return
 	}
 
-	link := fmt.Sprintf("https://app.yourdomain.com/pay/%d", id)
-	expiresAt := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	link := fmt.Sprintf("https://mali-momtazisho.ir/pay/%d", id)
 	qrURL := fmt.Sprintf(
-		"https://api.qrserver.com/v1/create-qr-code/?data=%s",
+		"https://api.qrserver.com/v1/create-qr-code/?data=%s&size=200x200",
 		link,
 	)
 
 	c.JSON(http.StatusOK, gin.H{
 		"payment_link": link,
-		"expires_at":   expiresAt,
 		"qr_code_url":  qrURL,
 	})
 }

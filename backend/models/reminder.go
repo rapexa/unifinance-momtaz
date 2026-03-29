@@ -47,11 +47,13 @@ type PaymentReminder struct {
 	StudentID uint    `gorm:"not null;index"`
 	Student   Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	PaymentID *uint `gorm:"index"`
+	PaymentID *uint    `gorm:"index"`
 	Payment   *Payment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	RuleID *uint `gorm:"index"`
-	Rule   *ReminderRule `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	// RuleType + DaysOffset replace the old nullable RuleID foreign key.
+	// Rules are now hard-coded in the service; no reminder_rules table is needed.
+	RuleType   string `gorm:"size:32;index"`
+	DaysOffset int    `gorm:"not null;default:0"`
 
 	AmountCents int64 `gorm:"not null;default:0"`
 
