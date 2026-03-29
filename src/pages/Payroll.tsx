@@ -751,10 +751,6 @@ const Payroll = () => {
                           {formatCentsToToman(payrollPreview.role_gross_share_cents)} تومان
                         </p>
                       )}
-                    <p className="text-xs text-muted-foreground pt-1">
-                      حجم پرداخت دانش‌آموزان در دوره:{" "}
-                      {formatCentsToToman(payrollPreview.revenue_volume_cents)} تومان
-                    </p>
                   </>
                 ) : (
                   <p className="text-muted-foreground">در حال محاسبهٔ پیش‌نمایش...</p>

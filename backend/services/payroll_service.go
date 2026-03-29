@@ -94,6 +94,8 @@ func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int)
 }
 
 // EnsureEntriesForPeriod auto-registers pending payroll rows for active users for a month.
+// Users with NET_REVENUE compensation (مدیرکل) are skipped — their salary is calculated
+// after all other payrolls are finalized and submitted manually from the frontend.
 func (s *PayrollService) EnsureEntriesForPeriod(ctx context.Context, year, month int) error {
 	var users []models.User
 	if err := s.db.WithContext(ctx).
@@ -105,6 +107,10 @@ func (s *PayrollService) EnsureEntriesForPeriod(ctx context.Context, year, month
 	for i := range users {
 		u := &users[i]
 		if u.Role == nil {
+			continue
+		}
+		// Skip NET_REVENUE roles (مدیرکل) — must be entered manually after other salaries are set.
+		if u.Role.CompensationKind == models.CompNetRevenue {
 			continue
 		}
 		if err := s.EnsureEntryForUserPeriod(ctx, u.ID, year, month); err != nil {
@@ -293,6 +299,12 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		out.BaseSalaryCents = derefInt64(r.FixedCents)
 	case models.CompVariable:
 		out.BaseSalaryCents = 0
+	case models.CompNetRevenue:
+		// NET_REVENUE (مدیرکل): calculated as total_payments − other_salaries on the frontend.
+		// Auto-calc returns 0; the actual amount is submitted manually via the payroll dialog.
+		out.BaseSalaryCents = 0
+		out.VariableSalaryCents = 0
+		out.StudentsCount = 0
 	default:
 		out.BaseSalaryCents = 0
 	}

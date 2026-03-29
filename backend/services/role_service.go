@@ -56,6 +56,9 @@ func validateCompensation(kind models.CompensationKind, fixed *int64) error {
 		}
 	case models.CompVariable:
 		// Variable salary comes from per-student role payouts; no extra fields needed.
+	case models.CompNetRevenue:
+		// NET_REVENUE: salary is calculated as total_payments − other_salaries.
+		// No manual fixed_cents required; calculated at payroll time.
 	default:
 		return ErrInvalidCompensation
 	}

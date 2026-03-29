@@ -21,6 +21,7 @@ import {
   TrendingDown,
   Wallet,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import {
   SHAMSI_MONTH_NAMES,
@@ -81,6 +82,18 @@ const SHAMSI_YEARS = shamsiYearOptions();
 const MONTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 const COLORS = ["hsl(175 70% 40%)", "hsl(38 92% 50%)", "hsl(0 72% 51%)", "hsl(260 60% 55%)"];
+
+function downloadCsvBlob(filename: string, rows: string[][]): void {
+  const BOM = "\uFEFF";
+  const csv = BOM + rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CARD_TO_CARD: "کارت به کارت",
@@ -178,6 +191,48 @@ const Reports = () => {
   }, [debtsByAdvisor]);
 
   const filterLabel = `از ${fromShamsi.year}/${SHAMSI_MONTH_NAMES[fromShamsi.month]} تا ${toShamsi.year}/${SHAMSI_MONTH_NAMES[toShamsi.month]}`;
+
+  const exportRevenue = () => {
+    const dateRange = `${fromShamsi.year}-${fromShamsi.month}_${toShamsi.year}-${toShamsi.month}`;
+    // Sheet 1: paid payments detail
+    const h1 = ["شناسه", "تاریخ پرداخت", "مبلغ (تومان)", "روش", "دانش‌آموز", "مشاور", "توضیحات"];
+    const r1 = paidPayments.map((p) => [
+      String(p.id),
+      formatPaidAt(p.paid_at),
+      String(Math.round(p.amount_cents / 10)),
+      PAYMENT_METHOD_LABELS[p.method] ?? p.method,
+      p.student_name,
+      p.advisor_name ?? "",
+      p.description ?? "",
+    ]);
+    downloadCsvBlob(`revenue_payments_${dateRange}.csv`, [h1, ...r1]);
+  };
+
+  const exportPayroll = () => {
+    const dateRange = `${fromShamsi.year}-${fromShamsi.month}_${toShamsi.year}-${toShamsi.month}`;
+    const h1 = ["کارمند", "سال", "ماه", "حقوق ثابت (تومان)", "حقوق متغیر (تومان)", "جمع (تومان)", "وضعیت", "تاریخ پرداخت"];
+    const r1 = payrollLines.map((p) => [
+      p.user_name,
+      String(p.period_year),
+      String(p.period_month),
+      String(Math.round(p.base_salary_cents / 10)),
+      String(Math.round(p.variable_salary_cents / 10)),
+      String(Math.round(p.total_salary_cents / 10)),
+      p.status === "PAID" ? "پرداخت شده" : "در انتظار",
+      p.paid_at ? formatPaidAt(p.paid_at) : "",
+    ]);
+    downloadCsvBlob(`payroll_lines_${dateRange}.csv`, [h1, ...r1]);
+  };
+
+  const exportDebts = () => {
+    const h1 = ["دانش‌آموز", "مشاور", "بدهی (تومان)"];
+    const r1 = studentDebts.map((d) => [
+      d.student_name,
+      d.advisor_name ?? "",
+      String(Math.round(Math.abs(d.balance_cents) / 10)),
+    ]);
+    downloadCsvBlob(`student_debts_${new Date().toISOString().slice(0, 10)}.csv`, [h1, ...r1]);
+  };
 
   return (
     <MainLayout title="گزارش‌ها" subtitle="گزارش‌های مالی و تحلیلی">
@@ -340,6 +395,12 @@ const Reports = () => {
         </div>
 
         <TabsContent value="revenue">
+          <div className="flex justify-end mb-3">
+            <Button variant="outline" size="sm" onClick={exportRevenue} disabled={paidPayments.length === 0}>
+              <Download className="ml-2 h-4 w-4" />
+              خروجی اکسل پرداخت‌ها
+            </Button>
+          </div>
           <div className="card-elevated p-5">
             <h3 className="font-bold text-foreground mb-4">روند درآمد ماهانه</h3>
             {isRevenueLoading && (
@@ -456,6 +517,12 @@ const Reports = () => {
         </TabsContent>
 
         <TabsContent value="payroll">
+          <div className="flex justify-end mb-3">
+            <Button variant="outline" size="sm" onClick={exportPayroll} disabled={payrollLines.length === 0}>
+              <Download className="ml-2 h-4 w-4" />
+              خروجی اکسل حقوق
+            </Button>
+          </div>
           <div className="card-elevated p-5">
             <h3 className="font-bold text-foreground mb-4">حقوق پرداختی (بازه انتخاب‌شده)</h3>
             {isPayrollLoading && (
@@ -575,6 +642,12 @@ const Reports = () => {
         </TabsContent>
 
         <TabsContent value="debts">
+          <div className="flex justify-end mb-3">
+            <Button variant="outline" size="sm" onClick={exportDebts} disabled={studentDebts.length === 0}>
+              <Download className="ml-2 h-4 w-4" />
+              خروجی اکسل بدهی‌ها
+            </Button>
+          </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="card-elevated p-5">
               <h3 className="font-bold text-foreground mb-4">بدهی به تفکیک مشاور</h3>

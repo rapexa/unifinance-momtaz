@@ -5,11 +5,13 @@ import "gorm.io/gorm"
 // CompensationKind defines how payroll is calculated for users with this role.
 // FIXED: monthly base in fixed_cents.
 // VARIABLE: salary is computed from the sum of StudentRolePayout shares attributed to the user's students in the period.
+// NET_REVENUE: salary = total student payments this month − sum of all other employees' salaries (مدیرکل).
 type CompensationKind string
 
 const (
-	CompFixed    CompensationKind = "FIXED"
-	CompVariable CompensationKind = "VARIABLE"
+	CompFixed      CompensationKind = "FIXED"
+	CompVariable   CompensationKind = "VARIABLE"
+	CompNetRevenue CompensationKind = "NET_REVENUE"
 )
 
 // Canonical role codes (slug). Display name is in Name (Persian).

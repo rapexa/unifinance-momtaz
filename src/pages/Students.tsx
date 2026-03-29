@@ -30,6 +30,7 @@ import {
   Pencil,
   Trash2,
   Eye,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
@@ -45,7 +46,7 @@ import {
   UpdateStudentPayload,
   StudentRolePayoutPayload,
 } from "@/api/studentsApi";
-import { listAdvisors, listUsers, UserApi } from "@/api/usersApi";
+import { listUsers, UserApi } from "@/api/usersApi";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
 import { listRoles, RoleApi } from "@/api/rolesApi";
 import {
@@ -347,7 +348,7 @@ function EditStudentForm({
               <SelectItem value="none">بدون مشاور</SelectItem>
               {advisors.map((a) => (
                 <SelectItem key={a.id} value={String(a.id)}>
-                  {a.first_name} {a.last_name}
+                  {a.first_name} {a.last_name}{a.role_name ? ` — ${a.role_name}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -536,11 +537,24 @@ function EditStudentForm({
   );
 }
 
+function downloadCsvBlob(filename: string, rows: string[][]): void {
+  const BOM = "\uFEFF";
+  const csv = BOM + rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
   const [editStudentId, setEditStudentId] = useState<number | null>(null);
   const [deleteStudent, setDeleteStudent] = useState<StudentRow | null>(null);
@@ -635,10 +649,6 @@ const Students = () => {
     queryFn: getStudentsSummary,
   });
 
-  const { data: advisors } = useQuery({
-    queryKey: ["advisors"],
-    queryFn: listAdvisors,
-  });
   const { data: usersData } = useQuery({
     queryKey: ["users", "student-role-payouts"],
     queryFn: () => listUsers({ status: "active", page: 1, page_size: 300 }),
@@ -653,6 +663,31 @@ const Students = () => {
     queryKey: ["plans-active"],
     queryFn: listActivePlans,
   });
+
+  const handleExportStudents = async () => {
+    setIsExporting(true);
+    try {
+      const res = await listStudents({ page: 1, page_size: 2000, search: searchQuery || undefined });
+      const allStudents = res.data ?? [];
+      const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "موجودی (تومان)", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
+      const rows = allStudents.map((s) => [
+        String(s.id),
+        s.first_name ?? "",
+        s.last_name ?? "",
+        s.phone ?? "",
+        s.email ?? "",
+        s.advisor_name ?? "",
+        s.current_plan_name ?? "",
+        s.status === "ACTIVE" ? "فعال" : s.status === "INACTIVE" ? "غیرفعال" : "حذف‌شده",
+        String(Math.round((s.balance_cents ?? 0) / 10)),
+        String(Math.round((s.enrollment_amount_cents ?? 0) / 10)),
+        s.advisory_start_date ? gregorianIsoToJalali(s.advisory_start_date) : "",
+      ]);
+      downloadCsvBlob(`students_${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: createStudent,
@@ -762,6 +797,16 @@ const Students = () => {
           <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
             <Filter className="ml-2 h-4 w-4" />
             فیلتر
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 sm:flex-none"
+            onClick={handleExportStudents}
+            disabled={isExporting}
+          >
+            <Download className="ml-2 h-4 w-4" />
+            {isExporting ? "در حال دانلود..." : "خروجی اکسل"}
           </Button>
           <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setIsCreateOpen(true)}>
             <Plus className="ml-2 h-4 w-4" />
@@ -1091,7 +1136,7 @@ const Students = () => {
             <EditStudentForm
               key={editStudentData.id}
               student={editStudentData}
-              advisors={advisors || []}
+              advisors={users}
               users={users}
               roles={roles}
               plans={plans || []}

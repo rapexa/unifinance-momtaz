@@ -55,7 +55,7 @@ type createRoleRequest struct {
 	Name             string   `json:"name" binding:"required,min=1,max=128"`
 	Description      string   `json:"description" binding:"omitempty,max=500"`
 	FullAccess       bool     `json:"full_access"`
-	CompensationKind string   `json:"compensation_kind" binding:"required,oneof=FIXED VARIABLE"`
+	CompensationKind string   `json:"compensation_kind" binding:"required,oneof=FIXED VARIABLE NET_REVENUE"`
 	FixedCents       *int64   `json:"fixed_cents"`
 	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
@@ -64,7 +64,7 @@ type updateRoleRequest struct {
 	Name             *string  `json:"name" binding:"omitempty,min=1,max=128"`
 	Description      *string  `json:"description" binding:"omitempty,max=500"`
 	FullAccess       *bool    `json:"full_access"`
-	CompensationKind *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED VARIABLE"`
+	CompensationKind *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED VARIABLE NET_REVENUE"`
 	FixedCents       *int64   `json:"fixed_cents"`
 	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
