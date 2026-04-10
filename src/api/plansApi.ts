@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders() {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export type PlanType = "MONTHLY" | "YEARLY" | "SINGLE_SESSION" | "COURSE";
 
@@ -50,7 +39,7 @@ export async function listActivePlans(): Promise<PlanApi[]> {
   url.searchParams.set("page", "1");
   url.searchParams.set("page_size", "100");
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -79,7 +68,7 @@ export async function listPlans(
   url.searchParams.set("page", String(params.page ?? 1));
   url.searchParams.set("page_size", String(params.page_size ?? 50));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -90,7 +79,7 @@ export async function listPlans(
 }
 
 export async function getPlansSummary(): Promise<PlanSummary> {
-  const res = await fetch(`${API_BASE}/plans/summary`, {
+  const res = await authFetch(`${API_BASE}/plans/summary`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -108,7 +97,7 @@ export interface CreatePlanPayload {
 }
 
 export async function createPlan(payload: CreatePlanPayload): Promise<PlanApi> {
-  const res = await fetch(`${API_BASE}/plans`, {
+  const res = await authFetch(`${API_BASE}/plans`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({
@@ -136,7 +125,7 @@ export async function updatePlan(
   id: number,
   payload: UpdatePlanPayload,
 ): Promise<PlanApi> {
-  const res = await fetch(`${API_BASE}/plans/${id}`, {
+  const res = await authFetch(`${API_BASE}/plans/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({
@@ -154,7 +143,7 @@ export async function updatePlan(
 }
 
 export async function deactivatePlan(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/plans/${id}`, {
+  const res = await authFetch(`${API_BASE}/plans/${id}`, {
     method: "DELETE",
     headers: { ...getAuthHeaders() },
   });

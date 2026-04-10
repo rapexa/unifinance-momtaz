@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export type CompensationKind = "FIXED" | "VARIABLE" | "NET_REVENUE";
 
@@ -47,7 +36,7 @@ export interface UpdateRolePayload {
 }
 
 export async function listRoles(): Promise<RoleApi[]> {
-  const res = await fetch(`${API_BASE}/roles`, {
+  const res = await authFetch(`${API_BASE}/roles`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -56,7 +45,7 @@ export async function listRoles(): Promise<RoleApi[]> {
 }
 
 export async function createRole(payload: CreateRolePayload): Promise<RoleApi> {
-  const res = await fetch(`${API_BASE}/roles`, {
+  const res = await authFetch(`${API_BASE}/roles`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -70,7 +59,7 @@ export async function updateRole(
   id: number,
   payload: UpdateRolePayload
 ): Promise<RoleApi> {
-  const res = await fetch(`${API_BASE}/roles/${id}`, {
+  const res = await authFetch(`${API_BASE}/roles/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -81,7 +70,7 @@ export async function updateRole(
 }
 
 export async function deleteRole(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/roles/${id}`, {
+  const res = await authFetch(`${API_BASE}/roles/${id}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });

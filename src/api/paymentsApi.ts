@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface PaymentApi {
   id: number;
@@ -72,7 +61,7 @@ export async function listPayments(
   if (params.to_date) url.searchParams.set("to_date", params.to_date);
   if (params.sort) url.searchParams.set("sort", params.sort);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -87,7 +76,7 @@ export async function listPayments(
 }
 
 export async function getPaymentsSummary(): Promise<PaymentsSummary> {
-  const res = await fetch(`${API_BASE}/payments/summary`, {
+  const res = await authFetch(`${API_BASE}/payments/summary`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -114,7 +103,7 @@ export interface CreatePaymentPayload {
 }
 
 export async function getPayment(id: number): Promise<PaymentApi> {
-  const res = await fetch(`${API_BASE}/payments/${id}`, {
+  const res = await authFetch(`${API_BASE}/payments/${id}`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -130,7 +119,7 @@ export async function getPayment(id: number): Promise<PaymentApi> {
 export async function createPayment(
   payload: CreatePaymentPayload
 ): Promise<PaymentApi> {
-  const res = await fetch(`${API_BASE}/payments`, {
+  const res = await authFetch(`${API_BASE}/payments`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -171,7 +160,7 @@ export async function updatePayment(
   if (payload.paid_at !== undefined) body.paid_at = payload.paid_at || null;
   if (payload.enrollment_id !== undefined) body.enrollment_id = payload.enrollment_id ?? null;
 
-  const res = await fetch(`${API_BASE}/payments/${id}`, {
+  const res = await authFetch(`${API_BASE}/payments/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(body),
@@ -195,7 +184,7 @@ export interface PaymentLinkResponse {
 export async function generatePaymentLink(
   paymentId: number
 ): Promise<PaymentLinkResponse> {
-  const res = await fetch(`${API_BASE}/payments/${paymentId}/link`, {
+  const res = await authFetch(`${API_BASE}/payments/${paymentId}/link`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
@@ -224,7 +213,7 @@ export async function exportPayments(
   if (params.to_date) url.searchParams.set("to_date", params.to_date ?? "");
   if (params.sort) url.searchParams.set("sort", params.sort ?? "-created_at");
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: getAuthHeaders(),
   });
 

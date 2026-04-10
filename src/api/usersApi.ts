@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders() {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface UserApi {
   id: number;
@@ -43,7 +32,7 @@ export async function listAdvisors(): Promise<UserApi[]> {
   url.searchParams.set("page", "1");
   url.searchParams.set("page_size", "100");
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -84,7 +73,7 @@ export interface ListUsersParams {
 }
 
 export async function getUsersSummary(): Promise<UsersSummary> {
-  const res = await fetch(`${API_BASE}/users/summary`, {
+  const res = await authFetch(`${API_BASE}/users/summary`, {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -114,7 +103,7 @@ export async function listUsers(
   url.searchParams.set("page", String(params.page ?? 1));
   url.searchParams.set("page_size", String(params.page_size ?? 50));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -132,7 +121,7 @@ export async function listUsers(
 }
 
 export async function getUser(id: number): Promise<UserApi> {
-  const res = await fetch(`${API_BASE}/users/${id}`, {
+  const res = await authFetch(`${API_BASE}/users/${id}`, {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -164,7 +153,7 @@ export async function updateUser(
   id: number,
   payload: UpdateUserPayload,
 ): Promise<UserApi> {
-  const res = await fetch(`${API_BASE}/users/${id}`, {
+  const res = await authFetch(`${API_BASE}/users/${id}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -184,7 +173,7 @@ export async function updateUser(
 }
 
 export async function deactivateUser(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/users/${id}`, {
+  const res = await authFetch(`${API_BASE}/users/${id}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });
@@ -210,7 +199,7 @@ export interface CreateUserPayload {
 export async function createUser(
   payload: CreateUserPayload,
 ): Promise<UserApi> {
-  const res = await fetch(`${API_BASE}/users`, {
+  const res = await authFetch(`${API_BASE}/users`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -243,7 +232,7 @@ export async function exportUsers(params: {
   else if (params.role) url.searchParams.set("role", params.role);
   if (params.status) url.searchParams.set("status", params.status);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: {
       ...getAuthHeaders(),
     },

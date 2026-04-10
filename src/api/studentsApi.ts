@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders() {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface StudentApi {
   id: number;
@@ -93,7 +82,7 @@ export async function listStudents(
     url.searchParams.set("search", params.search);
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -149,7 +138,7 @@ export interface StudentRolePayoutPayload {
 export async function createStudent(
   payload: CreateStudentPayload
 ): Promise<StudentApi> {
-  const res = await fetch(`${API_BASE}/students`, {
+  const res = await authFetch(`${API_BASE}/students`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -169,7 +158,7 @@ export async function createStudent(
 }
 
 export async function getStudentsSummary(): Promise<StudentsSummary> {
-  const res = await fetch(`${API_BASE}/students/summary`, {
+  const res = await authFetch(`${API_BASE}/students/summary`, {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -187,7 +176,7 @@ export async function getStudentsSummary(): Promise<StudentsSummary> {
 }
 
 export async function getStudent(id: number): Promise<StudentApi> {
-  const res = await fetch(`${API_BASE}/students/${id}`, {
+  const res = await authFetch(`${API_BASE}/students/${id}`, {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),
@@ -234,7 +223,7 @@ export async function updateStudent(
   id: number,
   payload: UpdateStudentPayload
 ): Promise<StudentApi> {
-  const res = await fetch(`${API_BASE}/students/${id}`, {
+  const res = await authFetch(`${API_BASE}/students/${id}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -254,7 +243,7 @@ export async function updateStudent(
 }
 
 export async function deleteStudent(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/students/${id}`, {
+  const res = await authFetch(`${API_BASE}/students/${id}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });

@@ -10,12 +10,7 @@ export interface LoginFailure {
 
 export type LoginResult = LoginSuccess | LoginFailure;
 
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
+import { API_BASE } from "./apiClient";
 
 /**
  * Login with email and password against the backend API.

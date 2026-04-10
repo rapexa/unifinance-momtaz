@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface ReportSummary {
   total_revenue_cents: number;
@@ -46,7 +35,7 @@ export async function getReportsSummary(params: ReportFilter): Promise<ReportSum
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -63,7 +52,7 @@ export async function getRevenueSeries(params: ReportFilter): Promise<RevenuePoi
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -80,7 +69,7 @@ export async function getPayrollSeries(params: ReportFilter): Promise<PayrollPoi
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -145,7 +134,7 @@ export async function getReportPaidPayments(params: ReportFilter): Promise<PaidP
   const url = new URL(`${API_BASE}/reports/revenue/payments`);
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -157,7 +146,7 @@ export async function getReportRevenueByStudent(params: ReportFilter): Promise<R
   const url = new URL(`${API_BASE}/reports/revenue/by-student`);
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -169,7 +158,7 @@ export async function getReportPayrollLines(params: ReportFilter): Promise<Payro
   const url = new URL(`${API_BASE}/reports/payroll/lines`);
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -181,7 +170,7 @@ export async function getReportPayrollByUser(params: ReportFilter): Promise<Payr
   const url = new URL(`${API_BASE}/reports/payroll/by-user`);
   url.searchParams.set("from", params.from);
   url.searchParams.set("to", params.to);
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -191,7 +180,7 @@ export async function getReportPayrollByUser(params: ReportFilter): Promise<Payr
 
 export async function getReportStudentDebts(): Promise<StudentDebtDetail[]> {
   const url = new URL(`${API_BASE}/reports/debts/students`);
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -205,7 +194,7 @@ export async function getDebtsByAdvisor(params?: { month?: string }): Promise<Ad
   const month = params?.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   url.searchParams.set("month", month);
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 

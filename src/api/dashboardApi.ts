@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface DashboardKPIs {
   total_revenue_cents: number;
@@ -63,7 +52,7 @@ export async function getDashboardSummary(params?: {
   if (params?.recent_limit != null) url.searchParams.set("recent_limit", String(params.recent_limit));
   if (params?.alerts_limit != null) url.searchParams.set("alerts_limit", String(params.alerts_limit));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -76,7 +65,7 @@ export async function getRevenueTrend(params?: { months?: number }): Promise<Rev
   const url = new URL(`${API_BASE}/dashboard/revenue-trend`);
   if (params?.months != null) url.searchParams.set("months", String(params.months));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 

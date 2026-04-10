@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface CompensationRuleApi {
   id: number;
@@ -44,7 +33,7 @@ export interface UpsertCompensationRulePayload {
 }
 
 export async function listCompensationRules(): Promise<CompensationRuleApi[]> {
-  const res = await fetch(`${API_BASE}/settings/compensation-rules`, {
+  const res = await authFetch(`${API_BASE}/settings/compensation-rules`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -53,7 +42,7 @@ export async function listCompensationRules(): Promise<CompensationRuleApi[]> {
 }
 
 export async function createCompensationRule(payload: UpsertCompensationRulePayload): Promise<CompensationRuleApi> {
-  const res = await fetch(`${API_BASE}/settings/compensation-rules`, {
+  const res = await authFetch(`${API_BASE}/settings/compensation-rules`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -64,7 +53,7 @@ export async function createCompensationRule(payload: UpsertCompensationRulePayl
 }
 
 export async function updateCompensationRule(id: number, payload: UpsertCompensationRulePayload): Promise<CompensationRuleApi> {
-  const res = await fetch(`${API_BASE}/settings/compensation-rules/${id}`, {
+  const res = await authFetch(`${API_BASE}/settings/compensation-rules/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -75,7 +64,7 @@ export async function updateCompensationRule(id: number, payload: UpsertCompensa
 }
 
 export async function deleteCompensationRule(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/compensation-rules/${id}`, {
+  const res = await authFetch(`${API_BASE}/settings/compensation-rules/${id}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });
@@ -84,7 +73,7 @@ export async function deleteCompensationRule(id: number): Promise<void> {
 }
 
 export async function replaceCompensationRuleStudents(id: number, studentIds: number[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/compensation-rules/${id}/students`, {
+  const res = await authFetch(`${API_BASE}/settings/compensation-rules/${id}/students`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ student_ids: studentIds }),

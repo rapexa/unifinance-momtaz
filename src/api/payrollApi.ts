@@ -1,15 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
-
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface PayrollSummary {
   period_year: number;
@@ -64,7 +53,7 @@ export async function getPayrollSummary(params?: {
   if (params?.year != null) url.searchParams.set("year", String(params.year));
   if (params?.month != null) url.searchParams.set("month", String(params.month));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -87,7 +76,7 @@ export async function listPayrollEntries(
   if (params.status) url.searchParams.set("status", params.status);
   if (params.user_id != null) url.searchParams.set("user_id", String(params.user_id));
 
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -100,7 +89,7 @@ export async function listPayrollEntries(
 }
 
 export async function getPayrollEntry(id: number): Promise<PayrollEntryApi> {
-  const res = await fetch(`${API_BASE}/payroll/entries/${id}`, {
+  const res = await authFetch(`${API_BASE}/payroll/entries/${id}`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 
@@ -133,7 +122,7 @@ export async function getPayrollPreview(params: {
   url.searchParams.set("user_id", String(params.user_id));
   url.searchParams.set("year", String(params.year));
   url.searchParams.set("month", String(params.month));
-  const res = await fetch(url.toString(), {
+  const res = await authFetch(url.toString(), {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -158,7 +147,7 @@ export interface CreatePayrollEntryPayload {
 export async function createPayrollEntry(
   payload: CreatePayrollEntryPayload
 ): Promise<PayrollEntryApi> {
-  const res = await fetch(`${API_BASE}/payroll/entries`, {
+  const res = await authFetch(`${API_BASE}/payroll/entries`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -185,7 +174,7 @@ export async function updatePayrollEntry(
   id: number,
   payload: UpdatePayrollEntryPayload
 ): Promise<PayrollEntryApi> {
-  const res = await fetch(`${API_BASE}/payroll/entries/${id}`, {
+  const res = await authFetch(`${API_BASE}/payroll/entries/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),

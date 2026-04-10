@@ -1,9 +1,4 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
-
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
+import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 /** سروری که /uploads روی آن سرو می‌شود (بدون مسیر /api/v1). */
 export function getApiOrigin(): string {
@@ -20,12 +15,6 @@ export function absoluteUploadUrl(path: string | null | undefined): string | nul
   return `${origin}${p.startsWith("/") ? "" : "/"}${p}`;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("accessToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 // --- Organization (General / CMS) ---
 export interface OrganizationSettings {
   id: number;
@@ -36,7 +25,7 @@ export interface OrganizationSettings {
 }
 
 export async function getOrganization(): Promise<OrganizationSettings> {
-  const res = await fetch(`${API_BASE}/settings/organization`, {
+  const res = await authFetch(`${API_BASE}/settings/organization`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -45,7 +34,7 @@ export async function getOrganization(): Promise<OrganizationSettings> {
 }
 
 export async function updateOrganization(payload: Partial<OrganizationSettings>): Promise<OrganizationSettings> {
-  const res = await fetch(`${API_BASE}/settings/organization`, {
+  const res = await authFetch(`${API_BASE}/settings/organization`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -89,7 +78,7 @@ export const PERMISSIONS = {
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export async function getProfile(): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/settings/profile`, {
+  const res = await authFetch(`${API_BASE}/settings/profile`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -98,7 +87,7 @@ export async function getProfile(): Promise<Profile> {
 }
 
 export async function updateProfile(payload: Partial<Profile>): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/settings/profile`, {
+  const res = await authFetch(`${API_BASE}/settings/profile`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -110,14 +99,13 @@ export async function updateProfile(payload: Partial<Profile>): Promise<Profile>
 
 /** Base URL for uploaded files (e.g. avatars). Same origin as API but without /api/v1. */
 export function getUploadsBase(): string {
-  const base = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) || "https://api.mali-momtazisho.ir/api/v1";
-  return base.replace(/\/api\/v1\/?$/, "") || "https://api.mali-momtazisho.ir";
+  return API_BASE.replace(/\/api\/v1\/?$/, "") || "https://api.mali-momtazisho.ir";
 }
 
 export async function uploadProfileAvatar(file: File): Promise<Profile> {
   const formData = new FormData();
   formData.append("avatar", file);
-  const res = await fetch(`${API_BASE}/settings/profile/avatar`, {
+  const res = await authFetch(`${API_BASE}/settings/profile/avatar`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: formData,
@@ -129,7 +117,7 @@ export async function uploadProfileAvatar(file: File): Promise<Profile> {
 
 // --- Security ---
 export async function changePassword(current_password: string, new_password: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/security/password`, {
+  const res = await authFetch(`${API_BASE}/settings/security/password`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ current_password, new_password }),
@@ -139,7 +127,7 @@ export async function changePassword(current_password: string, new_password: str
 }
 
 export async function toggle2FA(enabled: boolean): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/security/2fa`, {
+  const res = await authFetch(`${API_BASE}/settings/security/2fa`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ enabled }),
@@ -155,7 +143,7 @@ export interface NotificationSettingItem {
 }
 
 export async function getNotificationCount(): Promise<number> {
-  const res = await fetch(`${API_BASE}/settings/notifications/count`, {
+  const res = await authFetch(`${API_BASE}/settings/notifications/count`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -164,7 +152,7 @@ export async function getNotificationCount(): Promise<number> {
 }
 
 export async function getNotifications(): Promise<NotificationSettingItem[]> {
-  const res = await fetch(`${API_BASE}/settings/notifications`, {
+  const res = await authFetch(`${API_BASE}/settings/notifications`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -173,7 +161,7 @@ export async function getNotifications(): Promise<NotificationSettingItem[]> {
 }
 
 export async function updateNotifications(settings: NotificationSettingItem[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/notifications`, {
+  const res = await authFetch(`${API_BASE}/settings/notifications`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ settings }),
@@ -200,7 +188,7 @@ export interface CreateFiscalYearPayload {
 }
 
 export async function listFiscalYears(): Promise<FiscalYear[]> {
-  const res = await fetch(`${API_BASE}/fiscal-years`, {
+  const res = await authFetch(`${API_BASE}/fiscal-years`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -209,7 +197,7 @@ export async function listFiscalYears(): Promise<FiscalYear[]> {
 }
 
 export async function getCurrentFiscalYear(): Promise<FiscalYear | null> {
-  const res = await fetch(`${API_BASE}/fiscal-years/current`, {
+  const res = await authFetch(`${API_BASE}/fiscal-years/current`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   if (res.status === 404) return null;
@@ -219,7 +207,7 @@ export async function getCurrentFiscalYear(): Promise<FiscalYear | null> {
 }
 
 export async function createFiscalYear(payload: CreateFiscalYearPayload): Promise<FiscalYear> {
-  const res = await fetch(`${API_BASE}/fiscal-years`, {
+  const res = await authFetch(`${API_BASE}/fiscal-years`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
@@ -230,7 +218,7 @@ export async function createFiscalYear(payload: CreateFiscalYearPayload): Promis
 }
 
 export async function closeFiscalYear(id: number): Promise<FiscalYear> {
-  const res = await fetch(`${API_BASE}/fiscal-years/${id}/close`, {
+  const res = await authFetch(`${API_BASE}/fiscal-years/${id}/close`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
@@ -240,7 +228,7 @@ export async function closeFiscalYear(id: number): Promise<FiscalYear> {
 }
 
 export async function reopenFiscalYear(id: number): Promise<FiscalYear> {
-  const res = await fetch(`${API_BASE}/fiscal-years/${id}/reopen`, {
+  const res = await authFetch(`${API_BASE}/fiscal-years/${id}/reopen`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
@@ -260,7 +248,7 @@ export interface PaymentSettings {
 }
 
 export async function getPaymentSettings(): Promise<PaymentSettings> {
-  const res = await fetch(`${API_BASE}/settings/payments`, {
+  const res = await authFetch(`${API_BASE}/settings/payments`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
@@ -269,7 +257,7 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
 }
 
 export async function updatePaymentSettings(payload: Partial<PaymentSettings>): Promise<PaymentSettings> {
-  const res = await fetch(`${API_BASE}/settings/payments`, {
+  const res = await authFetch(`${API_BASE}/settings/payments`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
