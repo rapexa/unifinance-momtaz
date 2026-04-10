@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 )
@@ -19,6 +20,15 @@ type PaymentHandler struct {
 
 func NewPaymentHandler(service *services.PaymentService) *PaymentHandler {
 	return &PaymentHandler{service: service}
+}
+
+func (h *PaymentHandler) requirePaymentAccess(c *gin.Context, studentID uint) bool {
+	su := middleware.DataScopeUserID(c)
+	if su == nil {
+		return true
+	}
+	ok, err := h.service.IsPaymentVisibleToUser(c.Request.Context(), studentID, *su)
+	return err == nil && ok
 }
 
 type PaymentDTO struct {
@@ -121,7 +131,8 @@ type updatePaymentRequest struct {
 // @Failure      500  {object}  map[string]string
 // @Router       /payments/summary [get]
 func (h *PaymentHandler) Summary(c *gin.Context) {
-	sum, err := h.service.Summary(c.Request.Context())
+	_, _ = h.service.PromotePendingPastDueToOverdue(c.Request.Context())
+	sum, err := h.service.Summary(c.Request.Context(), middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment summary"})
 		return
@@ -177,6 +188,8 @@ func (h *PaymentHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
+	_, _ = h.service.PromotePendingPastDueToOverdue(c.Request.Context())
+
 	var fromDate *time.Time
 	if fromStr != "" {
 		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
@@ -196,7 +209,7 @@ func (h *PaymentHandler) List(c *gin.Context) {
 		}
 	}
 
-	payments, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort)
+	payments, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list payments"})
 		return
@@ -237,6 +250,8 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 		return
 	}
 
+	_, _ = h.service.PromotePendingPastDueToOverdue(c.Request.Context())
+
 	p, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
@@ -244,6 +259,10 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
 		}
+		return
+	}
+	if !h.requirePaymentAccess(c, p.StudentID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
 
@@ -310,6 +329,11 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		Currency:      req.Currency,
 	}
 
+	if !h.requirePaymentAccess(c, req.StudentID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+		return
+	}
+
 	p, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payment"})
@@ -346,6 +370,20 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 	var req updatePaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	existing, err := h.service.GetByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPaymentNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+		}
+		return
+	}
+	if !h.requirePaymentAccess(c, existing.StudentID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
 
@@ -393,6 +431,20 @@ func (h *PaymentHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	p, err := h.service.GetByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPaymentNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+		}
+		return
+	}
+	if !h.requirePaymentAccess(c, p.StudentID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
 
@@ -457,6 +509,8 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
+	_, _ = h.service.PromotePendingPastDueToOverdue(c.Request.Context())
+
 	var fromDate *time.Time
 	if fromStr != "" {
 		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
@@ -476,7 +530,7 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		}
 	}
 
-	payments, _, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort)
+	payments, _, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export payments"})
 		return
@@ -537,13 +591,17 @@ func (h *PaymentHandler) GenerateLink(c *gin.Context) {
 		return
 	}
 
-	// Ensure payment exists
-	if _, err := h.service.GetByID(c.Request.Context(), uint(id)); err != nil {
+	p, err := h.service.GetByID(c.Request.Context(), uint(id))
+	if err != nil {
 		if err == services.ErrPaymentNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
 		}
+		return
+	}
+	if !h.requirePaymentAccess(c, p.StudentID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
 

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ChevronDown, User, Settings, LogOut, CalendarDays } from "lucide-react";
+import { Bell, ChevronDown, Settings, LogOut, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -115,14 +115,8 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuItem asChild>
               <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
-                <User className="h-4 w-4" />
-                پروفایل
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
                 <Settings className="h-4 w-4" />
-                تنظیمات
+                مدیریت سال مالی
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

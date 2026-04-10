@@ -29,6 +29,7 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
 import {
   getPayrollSummary,
@@ -157,7 +158,7 @@ function EditPayrollForm({
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>انصراف</Button>
-        <Button onClick={handleSubmit} disabled={isSaving}>
+        <Button type="button" onClick={handleSubmit} disabled={isSaving}>
           {isSaving ? "در حال ذخیره..." : "ذخیره"}
         </Button>
       </DialogFooter>
@@ -289,9 +290,21 @@ const Payroll = () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      if (payload.recalculate_from_role_rules) {
+        toast({ title: "محاسبه مجدد انجام شد" });
+      } else {
+        toast({ title: "ذخیره شد", description: "فیش حقوقی به‌روزرسانی شد." });
+      }
       if (!payload.recalculate_from_role_rules) {
         setEditEntryId(null);
       }
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا در ذخیره",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
     },
   });
 
@@ -311,6 +324,14 @@ const Payroll = () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
+      toast({ title: "محاسبه مجدد انجام شد" });
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا در محاسبه",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
     },
   });
 
@@ -469,7 +490,7 @@ const Payroll = () => {
           <div className="text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
             {" "}
-            <span className="font-medium text-foreground">حقوق متغیر</span> با هر پرداخت دانش‌آموز به‌صورت خودکار انباشته می‌شود — برای بروزرسانی از دکمه «بروزرسانی» استفاده کنید.
+            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور). <span className="font-medium text-foreground">حقوق مدیرکل</span> با فرمول «دریافتی ماه − حقوق سایر کارمندان» از بک‌اند محاسبه می‌شود؛ پس از پرداخت دانش‌آموز حتماً «بروزرسانی» را بزنید.
             {" "}پس از پرداخت حقوق، وضعیت را با «پرداخت شد» ثبت کنید.
           </div>
         </div>
@@ -580,14 +601,14 @@ const Payroll = () => {
                                     پرداخت شد
                                   </Button>
                                 )}
-                                {isVariable && entry.status !== "PAID" && (
+                                {entry.status !== "PAID" && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     className="gap-1 text-muted-foreground"
                                     onClick={() => recalculateMutation.mutate(entry.id)}
                                     disabled={recalculateMutation.isPending}
-                                    title="محاسبه مجدد از پرداخت‌های دانش‌آموزان"
+                                    title="محاسبه مجدد از پرداخت‌ها و قوانین نقش"
                                   >
                                     <RefreshCw className="h-4 w-4" />
                                     بروزرسانی

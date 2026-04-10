@@ -62,7 +62,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   PAYROLL: "حقوق و دستمزد",
   REMINDERS: "یادآوری‌ها",
   REPORTS: "گزارش‌ها",
-  SETTINGS: "تنظیمات",
+  SETTINGS: "مدیریت سال مالی",
 };
 import {
   AlertDialog,

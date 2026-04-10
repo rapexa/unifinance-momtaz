@@ -6,16 +6,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 )
 
 // DashboardHandler exposes read-only dashboard aggregation endpoints.
 type DashboardHandler struct {
-	service *services.DashboardService
+	service  *services.DashboardService
+	payments *services.PaymentService
 }
 
-func NewDashboardHandler(service *services.DashboardService) *DashboardHandler {
-	return &DashboardHandler{service: service}
+func NewDashboardHandler(service *services.DashboardService, payments *services.PaymentService) *DashboardHandler {
+	return &DashboardHandler{service: service, payments: payments}
 }
 
 // --- Swagger DTOs for dashboard responses ---
@@ -67,24 +69,26 @@ type RevenueTrendPointDTO struct {
 // @Router       /dashboard/summary [get]
 func (h *DashboardHandler) GetSummary(c *gin.Context) {
 	ctx := c.Request.Context()
+	_, _ = h.payments.PromotePendingPastDueToOverdue(ctx)
 	now := time.Now()
 
 	recentLimit := parsePositiveIntDefault(c.Query("recent_limit"), 5, 1, 50)
 	alertsLimit := parsePositiveIntDefault(c.Query("alerts_limit"), 5, 1, 50)
 
-	kpis, err := h.service.GetKPIs(ctx, now)
+	scope := middleware.DataScopeUserID(c)
+	kpis, err := h.service.GetKPIs(ctx, now, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dashboard KPIs"})
 		return
 	}
 
-	payments, err := h.service.GetRecentPayments(ctx, recentLimit)
+	payments, err := h.service.GetRecentPayments(ctx, recentLimit, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load recent payments"})
 		return
 	}
 
-	alerts, err := h.service.GetDebtAlerts(ctx, alertsLimit)
+	alerts, err := h.service.GetDebtAlerts(ctx, alertsLimit, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load debt alerts"})
 		return
@@ -132,9 +136,10 @@ func (h *DashboardHandler) GetSummary(c *gin.Context) {
 // @Router       /dashboard/recent-payments [get]
 func (h *DashboardHandler) GetRecentPayments(c *gin.Context) {
 	ctx := c.Request.Context()
+	_, _ = h.payments.PromotePendingPastDueToOverdue(ctx)
 	limit := parsePositiveIntDefault(c.Query("limit"), 5, 1, 50)
 
-	payments, err := h.service.GetRecentPayments(ctx, limit)
+	payments, err := h.service.GetRecentPayments(ctx, limit, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load recent payments"})
 		return
@@ -156,9 +161,10 @@ func (h *DashboardHandler) GetRecentPayments(c *gin.Context) {
 // @Router       /dashboard/debt-alerts [get]
 func (h *DashboardHandler) GetDebtAlerts(c *gin.Context) {
 	ctx := c.Request.Context()
+	_, _ = h.payments.PromotePendingPastDueToOverdue(ctx)
 	limit := parsePositiveIntDefault(c.Query("limit"), 5, 1, 50)
 
-	alerts, err := h.service.GetDebtAlerts(ctx, limit)
+	alerts, err := h.service.GetDebtAlerts(ctx, limit, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load debt alerts"})
 		return
@@ -193,7 +199,7 @@ func (h *DashboardHandler) GetRevenueTrend(c *gin.Context) {
 	now := time.Now()
 	months := parsePositiveIntDefault(c.Query("months"), 6, 1, 24)
 
-	points, err := h.service.GetRevenueTrend(ctx, months, now)
+	points, err := h.service.GetRevenueTrend(ctx, months, now, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load revenue trend"})
 		return

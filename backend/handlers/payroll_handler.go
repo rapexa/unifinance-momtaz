@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 )
@@ -132,9 +133,14 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 		return
 	}
 
-	_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
+	scope := middleware.DataScopeUserID(c)
+	if scope != nil {
+		_ = h.service.EnsureEntryForUserPeriod(c.Request.Context(), *scope, year, month)
+	} else {
+		_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
+	}
 
-	summary, err := h.service.GetMonthlySummary(c.Request.Context(), year, month)
+	summary, err := h.service.GetMonthlySummary(c.Request.Context(), year, month, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll summary"})
 		return
@@ -179,6 +185,10 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && uint(uid64) != *scope {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -236,7 +246,12 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 		return
 	}
 
-	_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
+	scope := middleware.DataScopeUserID(c)
+	if scope != nil {
+		_ = h.service.EnsureEntryForUserPeriod(c.Request.Context(), *scope, year, month)
+	} else {
+		_ = h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month)
+	}
 
 	pageStr := c.DefaultQuery("page", "1")
 	pageSizeStr := c.DefaultQuery("page_size", "20")
@@ -257,7 +272,9 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var userID *uint
-	if userIDStr != "" {
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		userID = scope
+	} else if userIDStr != "" {
 		id64, err := strconv.ParseUint(userIDStr, 10, 64)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
@@ -351,6 +368,10 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && req.UserID != *scope {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
 
 	status := models.PayrollStatus(req.Status)
 	params := services.CreateEntryParams{
@@ -426,6 +447,10 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payroll entry"})
 		return
 	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && entry.UserID != *scope {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+		return
+	}
 
 	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
 }
@@ -466,6 +491,20 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 	var req updatePayrollEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	existing, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPayrollEntryNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payroll entry"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && existing.UserID != *scope {
+		c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
 		return
 	}
 

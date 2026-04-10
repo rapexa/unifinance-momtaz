@@ -31,6 +31,7 @@ import {
   Trash2,
   Eye,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
@@ -60,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface StudentRow {
   id: number;
@@ -68,7 +70,9 @@ interface StudentRow {
   email: string;
   advisor: string;
   plan: string;
-  balance: string;
+  /** مانده به ریال×۱۰ (هم‌واحد API) — برای بستانکار/بدهکار منفی یعنی پیش‌پرداخت نسبت به ثبت‌نام */
+  remainingCents: number;
+  enrollmentCents: number;
   status: "active" | "inactive" | "deleted";
   advisoryStart: string;
 }
@@ -77,6 +81,91 @@ function formatBalance(cents: number | undefined): string {
   const n = Math.round((cents ?? 0) / 10);
   const s = Math.abs(n).toLocaleString("fa-IR");
   return n < 0 ? `-${s}` : s;
+}
+
+type StudentBalanceKind = "creditor" | "debtor" | "clear" | "open_charges";
+
+function classifyStudentBalance(
+  remainingCents: number,
+  enrollmentCents: number
+): { kind: StudentBalanceKind; amountTomansFa: string } {
+  const tomans = Math.round(remainingCents / 10);
+  const amountTomansFa = Math.abs(tomans).toLocaleString("fa-IR");
+  if (remainingCents < 0) {
+    return { kind: "creditor", amountTomansFa };
+  }
+  if (remainingCents === 0) {
+    return { kind: "clear", amountTomansFa: "۰" };
+  }
+  if (enrollmentCents > 0) {
+    return { kind: "debtor", amountTomansFa };
+  }
+  return { kind: "open_charges", amountTomansFa };
+}
+
+function studentBalanceExportText(remainingCents: number, enrollmentCents: number): string {
+  const { kind, amountTomansFa } = classifyStudentBalance(remainingCents, enrollmentCents);
+  const n = Math.round(remainingCents / 10);
+  const absPlain = String(Math.abs(n));
+  switch (kind) {
+    case "creditor":
+      return `بستانکار ${absPlain}`;
+    case "debtor":
+      return `بدهکار ${absPlain}`;
+    case "clear":
+      return enrollmentCents > 0 ? "تسویه" : "۰";
+    default:
+      return `${absPlain} (قبوض باز)`;
+  }
+}
+
+function StudentBalanceCell({
+  remainingCents,
+  enrollmentCents,
+  align = "end",
+}: {
+  remainingCents: number;
+  enrollmentCents: number;
+  align?: "end" | "start";
+}) {
+  const { kind, amountTomansFa } = classifyStudentBalance(remainingCents, enrollmentCents);
+  const alignCls = align === "end" ? "items-end" : "items-start";
+  if (kind === "clear") {
+    return (
+      <span className="text-sm text-muted-foreground">{enrollmentCents > 0 ? "تسویه" : "۰"}</span>
+    );
+  }
+  if (kind === "creditor") {
+    return (
+      <div className={cn("flex flex-col gap-0.5", alignCls)}>
+        <span className="text-[10px] font-semibold text-sky-600">بستانکار</span>
+        <span className="font-bold number-display text-sky-700">
+          {amountTomansFa}{" "}
+          <span className="text-xs font-normal text-muted-foreground">تومان</span>
+        </span>
+      </div>
+    );
+  }
+  if (kind === "debtor") {
+    return (
+      <div className={cn("flex flex-col gap-0.5", alignCls)}>
+        <span className="text-[10px] font-semibold text-destructive">بدهکار</span>
+        <span className="font-bold number-display text-destructive">
+          {amountTomansFa}{" "}
+          <span className="text-xs font-normal text-muted-foreground">تومان</span>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className={cn("flex flex-col gap-0.5", alignCls)}>
+      <span className="font-bold number-display text-amber-800">
+        {amountTomansFa}{" "}
+        <span className="text-xs font-normal text-muted-foreground">تومان</span>
+      </span>
+      <span className="text-[10px] text-muted-foreground">قبوض باز</span>
+    </div>
+  );
 }
 
 function todayIsoDate(): string {
@@ -93,6 +182,10 @@ function todayJalaliDate(): string {
 
 type AdvisorCommKind = "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
 type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT";
+
+/** سهم «مبلغ ثابت» در backend به ازای هر پرداخت با وضعیت پرداخت‌شده اعمال می‌شود، نه یک‌بار برای کل ثبت‌نام. */
+const ROLE_PAYOUT_FIXED_HINT =
+  "این رقم به ازای هر پرداخت «پرداخت‌شده» جداگانه در حقوق لحاظ می‌شود؛ اگر چند قسط در همان ماه ثبت شده باشد، جمع متغیر چند برابر می‌شود (مثلاً ۲ قسط × ۱۰۰ هزار = ۲۰۰ هزار).";
 
 interface RolePayoutFormRow {
   key: string;
@@ -158,7 +251,8 @@ function mapStudent(api: StudentApi): StudentRow {
     email: api.email || "",
     advisor: api.advisor_name?.trim() || "—",
     plan: api.current_plan_name?.trim() || "—",
-    balance: formatBalance(api.balance_cents),
+    remainingCents: api.remaining_balance_cents ?? api.balance_cents ?? 0,
+    enrollmentCents: api.enrollment_amount_cents ?? 0,
     status:
       api.status === "DELETED"
         ? "deleted"
@@ -244,6 +338,9 @@ function EditStudentForm({
     (r.amountKind === "FIXED_PER_PAYMENT" &&
       (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
   );
+
+  const enrollmentMissingButHasPaidPayments =
+    (student.paid_total_cents ?? 0) > 0 && (student.enrollment_amount_cents ?? 0) === 0;
 
   return (
     <div className="space-y-6 py-2">
@@ -385,6 +482,19 @@ function EditStudentForm({
       <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
         <Separator className="mb-3" />
+        {enrollmentMissingButHasPaidPayments && (
+          <Alert
+            className="mb-3 border-amber-500/40 bg-amber-50/90 text-amber-950 dark:border-amber-600/40 dark:bg-amber-950/25 dark:text-amber-50"
+            dir="rtl"
+          >
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <AlertTitle className="text-sm">مبلغ ثبت‌نامی ثبت نشده است</AlertTitle>
+            <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
+              برای این دانش‌آموز پرداخت ثبت‌شده وجود دارد، اما مبلغ ثبت‌نامی خالی است. لطفاً مبلغ ثبت‌نامی را وارد
+              کنید تا مانده حساب درست محاسبه شود.
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
@@ -421,6 +531,9 @@ function EditStudentForm({
               افزودن نقش
             </Button>
           </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            سهم‌ها هنگام ثبت پرداخت با وضعیت «پرداخت‌شده» محاسبه می‌شوند؛ نوع «مبلغ ثابت» یعنی به ازای هر قسط پرداخت‌شده، نه یک‌بار برای کل ثبت‌نام.
+          </p>
           {rolePayoutRows.length === 0 && (
             <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
           )}
@@ -446,15 +559,18 @@ function EditStudentForm({
                   <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PERCENT">درصدی از مبلغ</SelectItem>
-                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
+                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت پرداخت‌شده</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {row.amountKind === "PERCENT" ? (
                   <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
                 ) : (
-                  <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (تومان)" inputMode="numeric" dir="ltr" />
+                  <div className="space-y-1">
+                    <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="تومان، هر بار پرداخت ثبت شود" inputMode="numeric" dir="ltr" />
+                    <p className="text-[11px] leading-snug text-muted-foreground">{ROLE_PAYOUT_FIXED_HINT}</p>
+                  </div>
                 )}
                 <div className="flex justify-end">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
@@ -666,8 +782,12 @@ const Students = () => {
     try {
       const res = await listStudents({ page: 1, page_size: 2000, search: searchQuery || undefined });
       const allStudents = res.data ?? [];
-      const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "موجودی (تومان)", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
-      const rows = allStudents.map((s) => [
+      const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "مانده / وضعیت", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
+      const rows = allStudents.map((s) => {
+        const remain =
+          s.remaining_balance_cents !== undefined ? s.remaining_balance_cents : s.balance_cents ?? 0;
+        const enc = s.enrollment_amount_cents ?? 0;
+        return [
         String(s.id),
         s.first_name ?? "",
         s.last_name ?? "",
@@ -676,10 +796,11 @@ const Students = () => {
         s.advisor_name ?? "",
         s.current_plan_name ?? "",
         s.status === "ACTIVE" ? "فعال" : s.status === "INACTIVE" ? "غیرفعال" : "حذف‌شده",
-        String(Math.round((s.balance_cents ?? 0) / 10)),
-        String(Math.round((s.enrollment_amount_cents ?? 0) / 10)),
+        studentBalanceExportText(remain, enc),
+        String(Math.round(enc / 10)),
         s.advisory_start_date ? gregorianIsoToJalali(s.advisory_start_date) : "",
-      ]);
+      ];
+      });
       downloadCsvBlob(`students_${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
     } finally {
       setIsExporting(false);
@@ -909,18 +1030,13 @@ const Students = () => {
                   <span>شروع مشاوره: {student.advisoryStart}</span>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">مانده حساب</span>
-                <span
-                  className={cn(
-                    "font-bold number-display",
-                    student.balance.startsWith("-")
-                      ? "text-destructive"
-                      : "text-success"
-                  )}
-                >
-                  {student.balance} تومان
-                </span>
+              <div className="mt-4 pt-4 border-t flex items-start justify-between gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">مانده حساب</span>
+                <StudentBalanceCell
+                  remainingCents={student.remainingCents}
+                  enrollmentCents={student.enrollmentCents}
+                  align="end"
+                />
               </div>
             </div>
           ))}
@@ -969,17 +1085,12 @@ const Students = () => {
                         {student.plan}
                       </span>
                     </td>
-                    <td className="p-4">
-                      <span
-                        className={cn(
-                          "font-bold number-display",
-                          student.balance.startsWith("-")
-                            ? "text-destructive"
-                            : "text-success"
-                        )}
-                      >
-                        {student.balance}
-                      </span>
+                    <td className="p-4 text-left">
+                      <StudentBalanceCell
+                        remainingCents={student.remainingCents}
+                        enrollmentCents={student.enrollmentCents}
+                        align="end"
+                      />
                     </td>
                     <td className="p-4">
                       <span
@@ -1094,21 +1205,45 @@ const Students = () => {
                       <li key={rp.id}>
                         {(rp.role_name || `نقش #${rp.role_id}`)} / {(rp.user_name || `کاربر #${rp.user_id}`)}:{" "}
                         {rp.amount_kind === "PERCENT"
-                          ? `${rp.percent ?? 0}٪`
-                          : `${formatBalance(rp.fixed_cents)} تومان`}
+                          ? `${rp.percent ?? 0}٪ از مبلغ هر پرداخت`
+                          : `${formatBalance(rp.fixed_cents)} تومان به ازای هر پرداخت پرداخت‌شده`}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
               <p><span className="text-muted-foreground">پلن:</span> {detailsStudentData.current_plan_name || "—"}</p>
+              {(detailsStudentData.paid_total_cents ?? 0) > 0 &&
+                (detailsStudentData.enrollment_amount_cents ?? 0) === 0 && (
+                  <Alert
+                    className="border-amber-500/40 bg-amber-50/90 text-amber-950 dark:border-amber-600/40 dark:bg-amber-950/25 dark:text-amber-50"
+                    dir="rtl"
+                  >
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <AlertTitle className="text-sm">مبلغ ثبت‌نامی ثبت نشده است</AlertTitle>
+                    <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
+                      پرداخت ثبت‌شده وجود دارد اما مبلغ ثبت‌نامی خالی است؛ از ویرایش دانش‌آموز مبلغ را وارد کنید.
+                    </AlertDescription>
+                  </Alert>
+                )}
               {detailsStudentData.enrollment_amount_cents != null && detailsStudentData.enrollment_amount_cents > 0 && (
                 <p>
                   <span className="text-muted-foreground">مبلغ ثبت‌نامی:</span>{" "}
                   {Math.round(detailsStudentData.enrollment_amount_cents / 10).toLocaleString("fa-IR")} تومان
                 </p>
               )}
-              <p><span className="text-muted-foreground">مانده حساب:</span> {formatBalance(detailsStudentData.balance_cents)}</p>
+              <div className="flex flex-wrap items-start gap-2">
+                <span className="text-muted-foreground shrink-0">مانده حساب:</span>
+                <StudentBalanceCell
+                  remainingCents={
+                    detailsStudentData.remaining_balance_cents !== undefined
+                      ? detailsStudentData.remaining_balance_cents
+                      : detailsStudentData.balance_cents ?? 0
+                  }
+                  enrollmentCents={detailsStudentData.enrollment_amount_cents ?? 0}
+                  align="start"
+                />
+              </div>
               <p>
                 <span className="text-muted-foreground">وضعیت:</span>{" "}
                 {detailsStudentData.status === "DELETED"
@@ -1355,6 +1490,9 @@ const Students = () => {
                     افزودن نقش
                   </Button>
                 </div>
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  سهم‌ها هنگام ثبت پرداخت با وضعیت «پرداخت‌شده» محاسبه می‌شوند؛ نوع «مبلغ ثابت» یعنی به ازای هر قسط پرداخت‌شده، نه یک‌بار برای کل ثبت‌نام.
+                </p>
                 {rolePayoutRows.length === 0 && (
                   <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
                 )}
@@ -1380,15 +1518,18 @@ const Students = () => {
                         <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="PERCENT">درصدی از مبلغ</SelectItem>
-                            <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت</SelectItem>
+                            <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
+                            <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت پرداخت‌شده</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       {row.amountKind === "PERCENT" ? (
                         <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
                       ) : (
-                        <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="مبلغ ثابت (تومان)" inputMode="numeric" dir="ltr" />
+                        <div className="space-y-1">
+                          <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="تومان، هر بار پرداخت ثبت شود" inputMode="numeric" dir="ltr" />
+                          <p className="text-[11px] leading-snug text-muted-foreground">{ROLE_PAYOUT_FIXED_HINT}</p>
+                        </div>
                       )}
                       <div className="flex justify-end">
                         <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>

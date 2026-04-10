@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/soheilsshh/unifinance-momtaz/access"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
 )
@@ -11,11 +12,12 @@ import (
 // StudentRepository encapsulates DB access for students.
 type StudentRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Student, error)
-	List(ctx context.Context, limit, offset int, search string) ([]models.Student, int64, error)
+	List(ctx context.Context, limit, offset int, search string, scopeUser *uint) ([]models.Student, int64, error)
 	Create(ctx context.Context, student *models.Student) error
 	Update(ctx context.Context, student *models.Student) error
 	Delete(ctx context.Context, id uint) error
-	Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error)
+	Stats(ctx context.Context, scopeUser *uint) (total, active, inactive, deleted, debtors int64, err error)
+	IsStudentVisibleToUser(ctx context.Context, studentID uint, userID uint) (bool, error)
 	// ReplaceActiveEnrollment cancels active enrollments for the student; if planID is non-nil, creates a new ACTIVE row.
 	ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error
 	ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error
@@ -44,13 +46,33 @@ func (r *GormStudentRepository) FindByID(ctx context.Context, id uint) (*models.
 	return &s, nil
 }
 
-func (r *GormStudentRepository) List(ctx context.Context, limit, offset int, search string) ([]models.Student, int64, error) {
+func (r *GormStudentRepository) IsStudentVisibleToUser(ctx context.Context, studentID uint, userID uint) (bool, error) {
+	var st models.Student
+	if err := r.db.WithContext(ctx).Select("id", "advisor_id").First(&st, studentID).Error; err != nil {
+		return false, err
+	}
+	if st.AdvisorID != nil && *st.AdvisorID == userID {
+		return true, nil
+	}
+	var n int64
+	if err := r.db.WithContext(ctx).Model(&models.StudentRolePayout{}).
+		Where("student_id = ? AND user_id = ?", studentID, userID).
+		Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (r *GormStudentRepository) List(ctx context.Context, limit, offset int, search string, scopeUser *uint) ([]models.Student, int64, error) {
 	var (
 		students []models.Student
 		count    int64
 	)
 
 	query := r.db.WithContext(ctx).Model(&models.Student{})
+	if scopeUser != nil {
+		query = access.ScopeStudentRows(query, *scopeUser)
+	}
 
 	if search != "" {
 		like := "%" + search + "%"
@@ -64,6 +86,7 @@ func (r *GormStudentRepository) List(ctx context.Context, limit, offset int, sea
 	if err := query.
 		Preload("Advisor").
 		Preload("CurrentPlan").
+		Preload("Enrollments", "status = ?", models.EnrollmentStatusActive).
 		Limit(limit).
 		Offset(offset).
 		Find(&students).Error; err != nil {
@@ -87,23 +110,29 @@ func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 
 // Stats returns aggregate counts for students: total, active, inactive, and debtors (balance < 0).
 // Each count uses a fresh query so Where conditions do not accumulate.
-func (r *GormStudentRepository) Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error) {
+func (r *GormStudentRepository) Stats(ctx context.Context, scopeUser *uint) (total, active, inactive, deleted, debtors int64, err error) {
 	ctxDB := r.db.WithContext(ctx)
-	m := func() *gorm.DB { return ctxDB.Model(&models.Student{}) }
+	scoped := func() *gorm.DB {
+		q := ctxDB.Model(&models.Student{})
+		if scopeUser != nil {
+			q = access.ScopeStudentRows(q, *scopeUser)
+		}
+		return q
+	}
 
-	if err = m().Count(&total).Error; err != nil {
+	if err = scoped().Count(&total).Error; err != nil {
 		return
 	}
-	if err = m().Where("status = ?", models.StudentStatusActive).Count(&active).Error; err != nil {
+	if err = scoped().Where("status = ?", models.StudentStatusActive).Count(&active).Error; err != nil {
 		return
 	}
-	if err = m().Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
+	if err = scoped().Where("status = ?", models.StudentStatusInactive).Count(&inactive).Error; err != nil {
 		return
 	}
-	if err = m().Where("status = ?", models.StudentStatusDeleted).Count(&deleted).Error; err != nil {
+	if err = scoped().Where("status = ?", models.StudentStatusDeleted).Count(&deleted).Error; err != nil {
 		return
 	}
-	if err = m().Where("balance_cents < 0").Count(&debtors).Error; err != nil {
+	if err = scoped().Where("balance_cents < 0").Count(&debtors).Error; err != nil {
 		return
 	}
 	return

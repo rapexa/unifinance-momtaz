@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/soheilsshh/unifinance-momtaz/access"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"gorm.io/gorm"
@@ -48,8 +49,26 @@ func NewDashboardService(db *gorm.DB, paymentRepo repositories.PaymentRepository
 	}
 }
 
+func (s *DashboardService) paymentsQueryScoped(ctx context.Context, scopeUser *uint) *gorm.DB {
+	q := s.db.WithContext(ctx).Model(&models.Payment{})
+	if scopeUser == nil {
+		return q
+	}
+	uid := *scopeUser
+	return q.Joins("INNER JOIN students ON students.id = payments.student_id").
+		Where(access.PaymentJoinStudentVisibleSQL(), uid, uid)
+}
+
+func (s *DashboardService) studentsQueryScoped(ctx context.Context, scopeUser *uint) *gorm.DB {
+	q := s.db.WithContext(ctx).Model(&models.Student{})
+	if scopeUser == nil {
+		return q
+	}
+	return access.ScopeStudentRows(q, *scopeUser)
+}
+
 // GetKPIs returns high-level KPI metrics for the current month.
-func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (DashboardKPIs, error) {
+func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time, scopeUser *uint) (DashboardKPIs, error) {
 	loc := now.Location()
 	year, month, _ := now.Date()
 	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
@@ -63,53 +82,55 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 		monthlyPayroll         int64
 	)
 
+	pq := func() *gorm.DB { return s.paymentsQueryScoped(ctx, scopeUser) }
+
 	// Total revenue for current month (paid payments).
-	if err := s.db.WithContext(ctx).
-		Model(&models.Payment{}).
-		Where("status = ? AND paid_at >= ?", models.PaymentStatusPaid, firstOfMonth).
-		Select("COALESCE(SUM(amount_cents), 0)").
+	if err := pq().
+		Where("payments.status = ? AND payments.paid_at >= ?", models.PaymentStatusPaid, firstOfMonth).
+		Select("COALESCE(SUM(payments.amount_cents), 0)").
 		Scan(&totalRevenue).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
 	// Pending debts (PENDING status).
-	if err := s.db.WithContext(ctx).
-		Model(&models.Payment{}).
-		Where("status = ?", models.PaymentStatusPending).
-		Select("COALESCE(SUM(amount_cents), 0)").
+	if err := pq().
+		Where("payments.status = ?", models.PaymentStatusPending).
+		Select("COALESCE(SUM(payments.amount_cents), 0)").
 		Scan(&pendingDebt).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
 	// Overdue debts (OVERDUE status).
-	if err := s.db.WithContext(ctx).
-		Model(&models.Payment{}).
-		Where("status = ?", models.PaymentStatusOverdue).
-		Select("COALESCE(SUM(amount_cents), 0)").
+	if err := pq().
+		Where("payments.status = ?", models.PaymentStatusOverdue).
+		Select("COALESCE(SUM(payments.amount_cents), 0)").
 		Scan(&overdueDebt).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
+	sq := func() *gorm.DB { return s.studentsQueryScoped(ctx, scopeUser) }
+
 	// Active students count.
-	if err := s.db.WithContext(ctx).
-		Model(&models.Student{}).
-		Where("status = ?", models.StudentStatusActive).
+	if err := sq().
+		Where("students.status = ?", models.StudentStatusActive).
 		Count(&activeStudents).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
 	// Student registrations in current month.
-	if err := s.db.WithContext(ctx).
-		Model(&models.Student{}).
-		Where("created_at >= ?", firstOfMonth).
+	if err := sq().
+		Where("students.created_at >= ?", firstOfMonth).
 		Count(&registrationsThisMonth).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
 	// Monthly payroll paid (only PAID status) for current period.
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ? AND status = ?", year, int(month), models.PayrollStatusPaid).
+	payrollQ := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
+		Where("period_year = ? AND period_month = ? AND status = ?", year, int(month), models.PayrollStatusPaid)
+	if scopeUser != nil {
+		payrollQ = payrollQ.Where("user_id = ?", *scopeUser)
+	}
+	if err := payrollQ.
 		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&monthlyPayroll).Error; err != nil {
 		return DashboardKPIs{}, err
@@ -126,15 +147,15 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time) (Dashboar
 }
 
 // GetRecentPayments returns the N most recent payments (for dashboard and /payments page).
-func (s *DashboardService) GetRecentPayments(ctx context.Context, limit int) ([]models.Payment, error) {
+func (s *DashboardService) GetRecentPayments(ctx context.Context, limit int, scopeUser *uint) ([]models.Payment, error) {
 	if limit <= 0 {
 		limit = 5
 	}
-	return s.paymentRepo.ListRecent(ctx, limit)
+	return s.paymentRepo.ListRecent(ctx, limit, scopeUser)
 }
 
 // GetDebtAlerts returns a list of overdue debt alerts limited by the given size.
-func (s *DashboardService) GetDebtAlerts(ctx context.Context, limit int) ([]DebtAlert, error) {
+func (s *DashboardService) GetDebtAlerts(ctx context.Context, limit int, scopeUser *uint) ([]DebtAlert, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -150,9 +171,14 @@ func (s *DashboardService) GetDebtAlerts(ctx context.Context, limit int) ([]Debt
 	}
 
 	var rows []row
-	if err := s.db.WithContext(ctx).
+	q := s.db.WithContext(ctx).
 		Model(&models.Payment{}).
-		Joins("JOIN students ON students.id = payments.student_id").
+		Joins("JOIN students ON students.id = payments.student_id")
+	if scopeUser != nil {
+		uid := *scopeUser
+		q = q.Where(access.PaymentJoinStudentVisibleSQL(), uid, uid)
+	}
+	if err := q.
 		Where("payments.status = ? AND payments.due_date IS NOT NULL AND payments.due_date < ?", models.PaymentStatusOverdue, now).
 		Order("payments.due_date ASC").
 		Limit(limit).
@@ -183,7 +209,7 @@ func (s *DashboardService) GetDebtAlerts(ctx context.Context, limit int) ([]Debt
 
 // GetRevenueTrend returns monthly revenue (payments) and payroll aggregates
 // for the last N months, including the current month.
-func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now time.Time) ([]MonthlyRevenuePoint, error) {
+func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now time.Time, scopeUser *uint) ([]MonthlyRevenuePoint, error) {
 	if months <= 0 {
 		months = 6
 	}
@@ -201,18 +227,21 @@ func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now 
 		end := start.AddDate(0, 1, 0)
 
 		var revenue int64
-		if err := s.db.WithContext(ctx).
-			Model(&models.Payment{}).
-			Where("status = ? AND paid_at >= ? AND paid_at < ?", models.PaymentStatusPaid, start, end).
-			Select("COALESCE(SUM(amount_cents), 0)").
-			Scan(&revenue).Error; err != nil {
+		rq := s.paymentsQueryScoped(ctx, scopeUser).
+			Where("payments.status = ? AND payments.paid_at >= ? AND payments.paid_at < ?", models.PaymentStatusPaid, start, end).
+			Select("COALESCE(SUM(payments.amount_cents), 0)")
+		if err := rq.Scan(&revenue).Error; err != nil {
 			return nil, err
 		}
 
 		var payroll int64
-		if err := s.db.WithContext(ctx).
+		payrollQ := s.db.WithContext(ctx).
 			Model(&models.PayrollEntry{}).
-			Where("period_year = ? AND period_month = ?", y, int(m)).
+			Where("period_year = ? AND period_month = ?", y, int(m))
+		if scopeUser != nil {
+			payrollQ = payrollQ.Where("user_id = ?", *scopeUser)
+		}
+		if err := payrollQ.
 			Select("COALESCE(SUM(total_salary_cents), 0)").
 			Scan(&payroll).Error; err != nil {
 			return nil, err

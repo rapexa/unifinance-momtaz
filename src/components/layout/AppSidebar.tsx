@@ -13,7 +13,6 @@ import {
   ChevronRight,
   Menu,
   Building2,
-  User,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,7 +56,7 @@ const navItems: NavItem[] = [
   { title: "حقوق و دستمزد", href: "/payroll", icon: Wallet, permission: PERMISSIONS.PAYROLL },
   { title: "یادآوری‌ها", href: "/reminders", icon: Bell, permission: PERMISSIONS.REMINDERS },
   { title: "گزارش‌ها", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS },
-  { title: "تنظیمات", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
+  { title: "مدیریت سال مالی", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
 ];
 
 function hasPermission(permissions: string[] | undefined, permission: PermissionCode): boolean {
@@ -202,14 +201,8 @@ export function AppSidebar() {
             <DropdownMenuContent side="top" align="start" className="w-56">
               <DropdownMenuItem asChild>
                 <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
-                  <User className="h-4 w-4" />
-                  پروفایل
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
                   <Settings className="h-4 w-4" />
-                  تنظیمات
+                  مدیریت سال مالی
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

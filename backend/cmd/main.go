@@ -69,7 +69,7 @@ func main() {
 	roleHandler := handlers.NewRoleHandler(roleService, paymentService)
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
-	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
+	dashboardHandler := handlers.NewDashboardHandler(dashboardService, paymentService)
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService)
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
@@ -309,20 +309,27 @@ func main() {
 		fiscalYears.GET("/current", fiscalYearHandler.GetCurrent)
 		fiscalYears.POST("", fiscalYearHandler.Create)
 		fiscalYears.POST("/:id/close", fiscalYearHandler.Close)
+		fiscalYears.POST("/:id/reopen", fiscalYearHandler.Reopen)
 	}
 
-	// Auto scheduler: run reminder dispatch periodically.
+	// Auto scheduler: promote past-due pending payments to OVERDUE, then SMS reminders.
 	go func() {
 		ctx := context.Background()
-		if _, err := reminderService.RunNow(ctx); err != nil {
-			log.Printf("reminder scheduler initial run failed: %v", err)
-		}
-		ticker := time.NewTicker(15 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
+		runOverdueAndReminders := func() {
+			if n, err := paymentService.PromotePendingPastDueToOverdue(ctx); err != nil {
+				log.Printf("promote overdue payments failed: %v", err)
+			} else if n > 0 {
+				log.Printf("promoted %d pending payment(s) to OVERDUE (past due_date)", n)
+			}
 			if _, err := reminderService.RunNow(ctx); err != nil {
 				log.Printf("reminder scheduler run failed: %v", err)
 			}
+		}
+		runOverdueAndReminders()
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOverdueAndReminders()
 		}
 	}()
 

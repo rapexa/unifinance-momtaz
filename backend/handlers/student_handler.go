@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 )
@@ -49,7 +51,12 @@ type StudentDoc struct {
 	CurrentPlanID               *uint    `json:"current_plan_id,omitempty"`
 	// EnrollmentAmountCents is the per-student enrollment price for the current plan.
 	EnrollmentAmountCents int64 `json:"enrollment_amount_cents"`
-	BalanceCents          int64 `json:"balance_cents"`
+	// BalanceCents is the internal ledger (cumulative adjustment from PAID payments); prefer RemainingBalanceCents for display.
+	BalanceCents int64 `json:"balance_cents"`
+	// RemainingBalanceCents: if enrollment > 0, enrollment − sum(PAID); else sum(PENDING)+sum(OVERDUE).
+	RemainingBalanceCents int64 `json:"remaining_balance_cents"`
+	// PaidTotalCents is sum of PAID payment amounts for this student (for UI hints).
+	PaidTotalCents int64 `json:"paid_total_cents"`
 	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
 	AdvisoryStartDate string                 `json:"advisory_start_date,omitempty"`
 	RolePayouts       []StudentRolePayoutDoc `json:"role_payouts,omitempty"`
@@ -137,6 +144,57 @@ func toStudentDocSlice(students []models.Student) []StudentDoc {
 	return out
 }
 
+func effectiveEnrollmentCents(s *models.Student) int64 {
+	if s.EnrollmentAmountCents > 0 {
+		return s.EnrollmentAmountCents
+	}
+	if len(s.Enrollments) > 0 {
+		return s.Enrollments[0].PriceCents
+	}
+	return 0
+}
+
+func computeRemainingBalanceCents(s *models.Student, paidSum, openSum int64) int64 {
+	enroll := effectiveEnrollmentCents(s)
+	if enroll > 0 {
+		return enroll - paidSum
+	}
+	return openSum
+}
+
+func (h *StudentHandler) studentDocWithRemaining(ctx context.Context, s *models.Student) StudentDoc {
+	doc := toStudentDoc(s)
+	if h.payments == nil {
+		return doc
+	}
+	paid, open, err := h.payments.PaymentTotalsByStudentIDs(ctx, []uint{s.ID})
+	if err != nil {
+		return doc
+	}
+	doc.PaidTotalCents = paid[s.ID]
+	doc.RemainingBalanceCents = computeRemainingBalanceCents(s, paid[s.ID], open[s.ID])
+	return doc
+}
+
+func (h *StudentHandler) applyRemainingToStudentDocs(ctx context.Context, docs []StudentDoc, students []models.Student) {
+	if h.payments == nil || len(docs) != len(students) {
+		return
+	}
+	ids := make([]uint, len(students))
+	for i := range students {
+		ids[i] = students[i].ID
+	}
+	paid, open, err := h.payments.PaymentTotalsByStudentIDs(ctx, ids)
+	if err != nil {
+		return
+	}
+	for i := range docs {
+		id := students[i].ID
+		docs[i].PaidTotalCents = paid[id]
+		docs[i].RemainingBalanceCents = computeRemainingBalanceCents(&students[i], paid[id], open[id])
+	}
+}
+
 // StudentStatsDoc represents summary stats for the Students page.
 type StudentStatsDoc struct {
 	Total    int64 `json:"total"`
@@ -178,13 +236,14 @@ func (h *StudentHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, search)
+	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list students"})
 		return
 	}
 
 	docs := toStudentDocSlice(students)
+	h.applyRemainingToStudentDocs(c.Request.Context(), docs, students)
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -209,7 +268,7 @@ func (h *StudentHandler) List(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /students/summary [get]
 func (h *StudentHandler) Summary(c *gin.Context) {
-	total, active, inactive, deleted, debtors, err := h.service.Stats(c.Request.Context())
+	total, active, inactive, deleted, debtors, err := h.service.Stats(c.Request.Context(), middleware.DataScopeUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students summary"})
 		return
@@ -249,8 +308,15 @@ func (h *StudentHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
 		return
 	}
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
+		if err != nil || !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			return
+		}
+	}
 
-	c.JSON(http.StatusOK, toStudentDoc(student))
+	c.JSON(http.StatusOK, h.studentDocWithRemaining(c.Request.Context(), student))
 }
 
 // Create handles POST /students
@@ -313,7 +379,14 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		SchoolAddress: payload.SchoolAddress,
 		HomeAddress:   payload.HomeAddress,
 	}
-	if payload.AdvisorID != nil {
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		uid := *scope
+		if payload.AdvisorID != nil && *payload.AdvisorID != uid {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cannot assign another advisor"})
+			return
+		}
+		student.AdvisorID = &uid
+	} else if payload.AdvisorID != nil {
 		student.AdvisorID = payload.AdvisorID
 	}
 	if payload.CurrentPlanID != nil {
@@ -360,7 +433,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	if fresh != nil {
 		student = fresh
 	}
-	c.JSON(http.StatusCreated, toStudentDoc(student))
+	c.JSON(http.StatusCreated, h.studentDocWithRemaining(c.Request.Context(), student))
 }
 
 // Update handles PUT /students/:id
@@ -423,6 +496,13 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
 		return
 	}
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
+		if err != nil || !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			return
+		}
+	}
 
 	student.FirstName = payload.FirstName
 	student.LastName = payload.LastName
@@ -440,10 +520,12 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	if payload.Status != "" {
 		student.Status = models.StudentStatus(payload.Status)
 	}
-	if payload.AdvisorID != nil {
-		student.AdvisorID = payload.AdvisorID
-	} else {
-		student.AdvisorID = nil
+	if middleware.DataScopeUserID(c) == nil {
+		if payload.AdvisorID != nil {
+			student.AdvisorID = payload.AdvisorID
+		} else {
+			student.AdvisorID = nil
+		}
 	}
 	if payload.CurrentPlanID != nil {
 		student.CurrentPlanID = payload.CurrentPlanID
@@ -494,7 +576,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	if updated != nil {
 		student = updated
 	}
-	c.JSON(http.StatusOK, toStudentDoc(student))
+	c.JSON(http.StatusOK, h.studentDocWithRemaining(c.Request.Context(), student))
 }
 
 // Delete handles DELETE /students/:id
@@ -516,6 +598,13 @@ func (h *StudentHandler) Delete(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
+		if err != nil || !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			return
+		}
 	}
 
 	if err := h.service.Delete(c.Request.Context(), uint(id)); err != nil {
@@ -626,6 +715,7 @@ func normalizeStudentRolePayoutPayloads(items []studentRolePayoutPayload) ([]mod
 	}
 	rows := make([]models.StudentRolePayout, 0, len(items))
 	seen := map[uint]struct{}{}
+	var sumPercent float64
 	for i, it := range items {
 		if it.RoleID == 0 || it.UserID == 0 {
 			return nil, fmt.Errorf("ردیف %d سهم نقش/کاربر ناقص است", i+1)
@@ -645,6 +735,7 @@ func normalizeStudentRolePayoutPayloads(items []studentRolePayoutPayload) ([]mod
 			if it.Percent == nil || *it.Percent <= 0 || *it.Percent > 100 {
 				return nil, fmt.Errorf("درصد سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
 			}
+			sumPercent += *it.Percent
 			row.Percent = it.Percent
 		case models.StudentAdvisorCommFixed:
 			if it.FixedCents == nil || *it.FixedCents < 0 {
@@ -655,6 +746,9 @@ func normalizeStudentRolePayoutPayloads(items []studentRolePayoutPayload) ([]mod
 			return nil, fmt.Errorf("نوع سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
 		}
 		rows = append(rows, row)
+	}
+	if sumPercent > 100 {
+		return nil, fmt.Errorf("جمع درصد سهم‌های نقش/کاربر نمی‌تواند از ۱۰۰ بیشتر باشد")
 	}
 	return rows, nil
 }

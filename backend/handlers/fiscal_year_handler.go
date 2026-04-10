@@ -131,3 +131,29 @@ func (h *FiscalYearHandler) Close(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, toFiscalYearDTO(fy))
 }
+
+// Reopen opens a previously closed fiscal year (only when no year is currently open).
+func (h *FiscalYearHandler) Reopen(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+
+	fy, err := h.service.Reopen(c.Request.Context(), uint(id))
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrFiscalYearNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearAlreadyOpen):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearNotClosed):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, toFiscalYearDTO(fy))
+}

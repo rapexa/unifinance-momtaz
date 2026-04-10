@@ -43,7 +43,8 @@ func NewPayrollService(db *gorm.DB) *PayrollService {
 }
 
 // GetMonthlySummary aggregates payroll amounts for a given year and month.
-func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int) (PayrollSummary, error) {
+// When scopeUser is set, only that user's payroll entries are included.
+func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int, scopeUser *uint) (PayrollSummary, error) {
 	var (
 		totalBase     int64
 		totalVariable int64
@@ -51,33 +52,36 @@ func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int)
 		totalPending  int64
 	)
 
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ?", year, month).
+	baseQ := func() *gorm.DB {
+		q := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
+			Where("period_year = ? AND period_month = ?", year, month)
+		if scopeUser != nil {
+			q = q.Where("user_id = ?", *scopeUser)
+		}
+		return q
+	}
+
+	if err := baseQ().
 		Select("COALESCE(SUM(base_salary_cents), 0)").
 		Scan(&totalBase).Error; err != nil {
 		return PayrollSummary{}, err
 	}
 
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ?", year, month).
+	if err := baseQ().
 		Select("COALESCE(SUM(variable_salary_cents), 0)").
 		Scan(&totalVariable).Error; err != nil {
 		return PayrollSummary{}, err
 	}
 
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ? AND status = ?", year, month, models.PayrollStatusPaid).
+	if err := baseQ().
+		Where("status = ?", models.PayrollStatusPaid).
 		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&totalPaid).Error; err != nil {
 		return PayrollSummary{}, err
 	}
 
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ? AND status = ?", year, month, models.PayrollStatusPending).
+	if err := baseQ().
+		Where("status = ?", models.PayrollStatusPending).
 		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&totalPending).Error; err != nil {
 		return PayrollSummary{}, err
@@ -127,20 +131,11 @@ func (s *PayrollService) EnsureEntryForUserPeriod(ctx context.Context, userID ui
 		Where("user_id = ? AND period_year = ? AND period_month = ?", userID, year, month).
 		First(&existing).Error
 	if err == nil {
-		// Do not mutate already-paid entries automatically.
-		if existing.Status == models.PayrollStatusPaid {
-			return nil
-		}
-		br, err := s.ComputeCompensationForUser(ctx, userID, year, month)
-		if err != nil {
-			return err
-		}
-		existing.BaseSalaryCents = br.BaseSalaryCents
-		existing.VariableSalaryCents = br.VariableSalaryCents
-		existing.TotalSalaryCents = br.BaseSalaryCents + br.VariableSalaryCents
-		existing.StudentsCount = br.StudentsCount
-		existing.Status = models.PayrollStatusPending
-		return s.db.WithContext(ctx).Save(&existing).Error
+		// Row already exists — do not overwrite amounts here. List/summary call Ensure
+		// only to create missing payslips; recomputing on every GET would wipe manual
+		// edits from PUT and confuse users. Use PUT with recalculate_from_role_rules or
+		// the payroll "بروزرسانی" action to refresh from rules.
+		return nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
@@ -246,6 +241,33 @@ WHERE pps.deleted_at IS NULL
 }
 
 // countStudentsForUserInPeriod counts distinct students whose payments contributed shares to this user in the period.
+// sumPaidPaymentsInPeriod totals PAID payment amounts with paid_at in [start, end) (local month).
+func (s *PayrollService) sumPaidPaymentsInPeriod(ctx context.Context, year, month int) (int64, error) {
+	start, endEx := payrollPeriodBounds(year, month)
+	var sum int64
+	if err := s.db.WithContext(ctx).Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusPaid).
+		Where("paid_at IS NOT NULL").
+		Where("paid_at >= ? AND paid_at < ?", start, endEx).
+		Select("COALESCE(SUM(amount_cents), 0)").
+		Scan(&sum).Error; err != nil {
+		return 0, err
+	}
+	return sum, nil
+}
+
+// sumPayrollTotalsForOthersInPeriod sums total_salary_cents for all payroll rows in the period except one user (مدیرکل = درآمد خالص).
+func (s *PayrollService) sumPayrollTotalsForOthersInPeriod(ctx context.Context, year, month int, excludeUserID uint) (int64, error) {
+	var sum int64
+	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
+		Where("period_year = ? AND period_month = ? AND user_id != ?", year, month, excludeUserID).
+		Select("COALESCE(SUM(total_salary_cents), 0)").
+		Scan(&sum).Error; err != nil {
+		return 0, err
+	}
+	return sum, nil
+}
+
 func (s *PayrollService) countStudentsForUserInPeriod(ctx context.Context, userID uint, year, month int) (int, error) {
 	start, endEx := payrollPeriodBounds(year, month)
 	var cnt int64
@@ -300,9 +322,20 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	case models.CompVariable:
 		out.BaseSalaryCents = 0
 	case models.CompNetRevenue:
-		// NET_REVENUE (مدیرکل): calculated as total_payments − other_salaries on the frontend.
-		// Auto-calc returns 0; the actual amount is submitted manually via the payroll dialog.
-		out.BaseSalaryCents = 0
+		// NET_REVENUE (مدیرکل): مجموع پرداخت‌های دریافتی ماه − مجموع حقوق ثبت‌شده سایر کارمندان همین ماه
+		receipts, err := s.sumPaidPaymentsInPeriod(ctx, year, month)
+		if err != nil {
+			return PayrollCompensationBreakdown{}, err
+		}
+		others, err := s.sumPayrollTotalsForOthersInPeriod(ctx, year, month, userID)
+		if err != nil {
+			return PayrollCompensationBreakdown{}, err
+		}
+		net := receipts - others
+		if net < 0 {
+			net = 0
+		}
+		out.BaseSalaryCents = net
 		out.VariableSalaryCents = 0
 		out.StudentsCount = 0
 	default:

@@ -5,6 +5,21 @@ const API_BASE =
     (import.meta as any).env?.VITE_API_BASE_URL) ||
   DEFAULT_API_BASE;
 
+/** سروری که /uploads روی آن سرو می‌شود (بدون مسیر /api/v1). */
+export function getApiOrigin(): string {
+  const base = API_BASE.replace(/\/api\/v1\/?$/, "");
+  return base.replace(/\/$/, "") || base;
+}
+
+/** لینک نسبی مثل /uploads/exports/x.csv را به URL کامل روی همان دامنهٔ API تبدیل می‌کند تا دانلود به فرانت نرود. */
+export function absoluteUploadUrl(path: string | null | undefined): string | null {
+  if (path == null || String(path).trim() === "") return null;
+  const p = String(path).trim();
+  if (p.startsWith("http://") || p.startsWith("https://")) return p;
+  const origin = getApiOrigin();
+  return `${origin}${p.startsWith("/") ? "" : "/"}${p}`;
+}
+
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const token = window.localStorage.getItem("accessToken");
@@ -221,6 +236,16 @@ export async function closeFiscalYear(id: number): Promise<FiscalYear> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error((data && data.error) || "خطا در بستن سال مالی");
+  return data as FiscalYear;
+}
+
+export async function reopenFiscalYear(id: number): Promise<FiscalYear> {
+  const res = await fetch(`${API_BASE}/fiscal-years/${id}/reopen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در باز کردن سال مالی");
   return data as FiscalYear;
 }
 

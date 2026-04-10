@@ -20,8 +20,13 @@ func (s *StudentService) GetByID(ctx context.Context, id uint) (*models.Student,
 	return s.repo.FindByID(ctx, id)
 }
 
-func (s *StudentService) List(ctx context.Context, limit, offset int, search string) ([]models.Student, int64, error) {
-	return s.repo.List(ctx, limit, offset, search)
+func (s *StudentService) List(ctx context.Context, limit, offset int, search string, scopeUser *uint) ([]models.Student, int64, error) {
+	return s.repo.List(ctx, limit, offset, search, scopeUser)
+}
+
+// IsStudentVisibleToUser is true when the user is the student's advisor or has a student_role_payout row.
+func (s *StudentService) IsStudentVisibleToUser(ctx context.Context, studentID uint, userID uint) (bool, error) {
+	return s.repo.IsStudentVisibleToUser(ctx, studentID, userID)
 }
 
 func (s *StudentService) Create(ctx context.Context, student *models.Student) error {
@@ -46,8 +51,8 @@ func (s *StudentService) Delete(ctx context.Context, id uint) error {
 }
 
 // Stats returns aggregate student counters for use in the Students page stats.
-func (s *StudentService) Stats(ctx context.Context) (total, active, inactive, deleted, debtors int64, err error) {
-	return s.repo.Stats(ctx)
+func (s *StudentService) Stats(ctx context.Context, scopeUser *uint) (total, active, inactive, deleted, debtors int64, err error) {
+	return s.repo.Stats(ctx, scopeUser)
 }
 
 // SyncEnrollmentForStudent aligns ACTIVE enrollment with CurrentPlanID and the provided enrollment amount.

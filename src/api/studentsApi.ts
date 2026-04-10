@@ -35,6 +35,10 @@ export interface StudentApi {
   current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
+  /** مانده واقعی: ثبت‌نامی − پرداخت‌شده، یا جمع قبوض باز */
+  remaining_balance_cents?: number;
+  /** جمع پرداخت‌های وضعیت PAID (ریال×۱۰) */
+  paid_total_cents?: number;
   enrollment_amount_cents?: number;
   /** YYYY-MM-DD — تاریخ شروع مشاوره */
   advisory_start_date?: string;

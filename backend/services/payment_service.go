@@ -24,7 +24,8 @@ func NewPaymentService(repo repositories.PaymentRepository, db *gorm.DB) *Paymen
 	return &PaymentService{repo: repo, db: db}
 }
 
-// rebuildPaymentPayrollShares replaces split rows for a payment using only StudentRolePayout definitions.
+// rebuildPaymentPayrollShares replaces split rows for a payment from StudentRolePayout rows
+// plus optional advisor contract share when advisor commission is set and not overridden by role payouts.
 func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymentID uint) error {
 	var p models.Payment
 	if err := s.db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
@@ -37,7 +38,9 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 		return err
 	}
 	if p.Status != models.PaymentStatusPaid {
-		return nil
+		return s.db.WithContext(ctx).Model(&models.Payment{}).
+			Where("id = ?", paymentID).
+			Update("advisor_share_cents", 0).Error
 	}
 	// Load student with role payouts
 	var st models.Student
@@ -65,7 +68,35 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 			return err
 		}
 	}
-	return nil
+	// سهم مشاور از قرارداد دانش‌آموز — وقتی برای همان کاربر ردیف «سهم نقش» نگذاشته باشند
+	if st.AdvisorID != nil {
+		hasRolePayoutForAdvisor := false
+		for _, rp := range st.StudentRolePayouts {
+			if rp.UserID == *st.AdvisorID {
+				hasRolePayoutForAdvisor = true
+				break
+			}
+		}
+		if !hasRolePayoutForAdvisor {
+			adv := models.ComputeAdvisorShareCents(&st, p.AmountCents)
+			if adv > 0 {
+				row := models.PaymentPayrollShare{
+					PaymentID:        p.ID,
+					UserID:           *st.AdvisorID,
+					Kind:             models.ShareKindAdvisorContract,
+					ShareCents:       adv,
+					BasisAmountCents: p.AmountCents,
+				}
+				if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+					return err
+				}
+			}
+		}
+	}
+	advisorShare := models.ComputeAdvisorShareCents(&st, p.AmountCents)
+	return s.db.WithContext(ctx).Model(&models.Payment{}).
+		Where("id = ?", paymentID).
+		Update("advisor_share_cents", advisorShare).Error
 }
 
 // RebuildAllPaidPaymentPayrollShares recomputes split rows for every PAID payment.
@@ -100,8 +131,8 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 	return nil
 }
 
-func (s *PaymentService) Summary(ctx context.Context) (*repositories.PaymentSummary, error) {
-	return s.repo.Summary(ctx)
+func (s *PaymentService) Summary(ctx context.Context, scopeUser *uint) (*repositories.PaymentSummary, error) {
+	return s.repo.Summary(ctx, scopeUser)
 }
 
 func (s *PaymentService) List(
@@ -110,10 +141,30 @@ func (s *PaymentService) List(
 	search, status, method string,
 	from, to *time.Time,
 	sort string,
+	scopeUser *uint,
 ) ([]models.Payment, int64, error) {
 	status = strings.ToUpper(status)
 	method = strings.ToUpper(method)
-	return s.repo.List(ctx, limit, offset, search, status, method, from, to, sort)
+	return s.repo.List(ctx, limit, offset, search, status, method, from, to, sort, scopeUser)
+}
+
+// IsPaymentVisibleToUser returns true if the payment's student is assigned to this user as advisor
+// or the user has a student_role_payout row for that student.
+func (s *PaymentService) IsPaymentVisibleToUser(ctx context.Context, studentID uint, userID uint) (bool, error) {
+	var st models.Student
+	if err := s.db.WithContext(ctx).Select("id", "advisor_id").First(&st, studentID).Error; err != nil {
+		return false, err
+	}
+	if st.AdvisorID != nil && *st.AdvisorID == userID {
+		return true, nil
+	}
+	var n int64
+	if err := s.db.WithContext(ctx).Model(&models.StudentRolePayout{}).
+		Where("student_id = ? AND user_id = ?", studentID, userID).
+		Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func (s *PaymentService) GetByID(ctx context.Context, id uint) (*models.Payment, error) {
@@ -277,6 +328,9 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 		}
 		return err
 	}
+	if err := s.rebuildPaymentPayrollShares(ctx, id); err != nil {
+		return err
+	}
 	if payment.Status == models.PaymentStatusPaid && payment.AmountCents != 0 {
 		if err := s.adjustStudentBalanceByPaidDelta(ctx, payment.StudentID, -payment.AmountCents); err != nil {
 			return err
@@ -292,4 +346,50 @@ func (s *PaymentService) adjustStudentBalanceByPaidDelta(ctx context.Context, st
 	return s.db.WithContext(ctx).Model(&models.Student{}).
 		Where("id = ?", studentID).
 		Update("balance_cents", gorm.Expr("balance_cents + ?", deltaCents)).Error
+}
+
+// PromotePendingPastDueToOverdue sets PENDING → OVERDUE when due_date is before the start of today
+// in the server's local timezone. The full calendar day of the due date still counts as not overdue;
+// from the first moment of the next calendar day onward the payment is overdue.
+// Payments without due_date are unchanged (stay PENDING until edited or paid).
+func (s *PaymentService) PromotePendingPastDueToOverdue(ctx context.Context) (updated int64, err error) {
+	now := time.Now()
+	loc := now.Location()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	res := s.db.WithContext(ctx).Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusPending).
+		Where("due_date IS NOT NULL").
+		Where("due_date < ?", todayStart).
+		Update("status", models.PaymentStatusOverdue)
+	return res.RowsAffected, res.Error
+}
+
+// PaymentTotalsByStudentIDs returns per student: sum of PAID amounts, and sum of PENDING+OVERDUE (open charges).
+func (s *PaymentService) PaymentTotalsByStudentIDs(ctx context.Context, studentIDs []uint) (paid, open map[uint]int64, err error) {
+	paid, open = make(map[uint]int64), make(map[uint]int64)
+	if len(studentIDs) == 0 {
+		return paid, open, nil
+	}
+	type aggRow struct {
+		StudentID uint  `gorm:"column:student_id"`
+		PaidSum   int64 `gorm:"column:paid_sum"`
+		OpenSum   int64 `gorm:"column:open_sum"`
+	}
+	var rows []aggRow
+	err = s.db.WithContext(ctx).Model(&models.Payment{}).
+		Select(`student_id,
+			COALESCE(SUM(CASE WHEN status = ? THEN amount_cents ELSE 0 END), 0) AS paid_sum,
+			COALESCE(SUM(CASE WHEN status IN (?, ?) THEN amount_cents ELSE 0 END), 0) AS open_sum`,
+			models.PaymentStatusPaid, models.PaymentStatusPending, models.PaymentStatusOverdue).
+		Where("student_id IN ?", studentIDs).
+		Group("student_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, r := range rows {
+		paid[r.StudentID] = r.PaidSum
+		open[r.StudentID] = r.OpenSum
+	}
+	return paid, open, nil
 }

@@ -18,6 +18,7 @@ var (
 	ErrFiscalYearAlreadyOpen = errors.New("یک سال مالی باز وجود دارد. ابتدا آن را ببندید")
 	ErrFiscalYearNotFound    = errors.New("سال مالی یافت نشد")
 	ErrFiscalYearNotOpen     = errors.New("این سال مالی باز نیست")
+	ErrFiscalYearNotClosed   = errors.New("این سال مالی بسته نیست")
 )
 
 type FiscalYearService struct {
@@ -118,6 +119,45 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 	fy.EndDate = &now
 	fy.ClosedAt = &now
 	fy.ExportURL = exportURL
+	return &fy, nil
+}
+
+// Reopen marks a closed fiscal year as OPEN again. Only allowed when no other
+// year is OPEN (same rule as starting a new year). Student balances are not
+// restored to pre-close values — that must be fixed manually if needed.
+func (s *FiscalYearService) Reopen(ctx context.Context, id uint) (*models.FiscalYear, error) {
+	open, err := s.GetCurrent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if open != nil {
+		return nil, ErrFiscalYearAlreadyOpen
+	}
+
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrFiscalYearNotFound
+		}
+		return nil, err
+	}
+	if fy.Status != models.FiscalYearClosed {
+		return nil, ErrFiscalYearNotClosed
+	}
+
+	now := time.Now()
+	// GORM map updates omit nil; use SQL NULL for cleared timestamps.
+	if err := s.db.WithContext(ctx).Model(&fy).Updates(map[string]interface{}{
+		"status":     models.FiscalYearOpen,
+		"end_date":   gorm.Expr("NULL"),
+		"closed_at":  gorm.Expr("NULL"),
+		"updated_at": now,
+	}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		return nil, err
+	}
 	return &fy, nil
 }
 

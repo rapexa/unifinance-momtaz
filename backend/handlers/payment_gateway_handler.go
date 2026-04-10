@@ -55,6 +55,8 @@ func (h *PaymentGatewayHandler) GetPublicPayment(c *gin.Context) {
 		return
 	}
 
+	_, _ = h.paymentService.PromotePendingPastDueToOverdue(c.Request.Context())
+
 	var payment models.Payment
 	if err := h.db.WithContext(c.Request.Context()).
 		Preload("Student").
@@ -87,6 +89,8 @@ func (h *PaymentGatewayHandler) InitiatePayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
+
+	_, _ = h.paymentService.PromotePendingPastDueToOverdue(c.Request.Context())
 
 	var payment models.Payment
 	if err := h.db.WithContext(c.Request.Context()).
@@ -168,18 +172,19 @@ func (h *PaymentGatewayHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// Mark payment as PAID if not already.
+	// Mark payment as PAID via PaymentService so student balance and payroll shares stay in sync.
 	if payment.Status != models.PaymentStatusPaid {
-		now := time.Now()
 		refCodeStr := strconv.FormatInt(refID, 10)
-		if err := h.db.WithContext(c.Request.Context()).
-			Model(&payment).
-			Updates(map[string]interface{}{
-				"status":        models.PaymentStatusPaid,
-				"paid_at":       now,
-				"reference_code": refCodeStr,
-				"method":        models.PaymentMethodGateway,
-			}).Error; err != nil {
+		now := time.Now()
+		paidStatus := "PAID"
+		gatewayMethod := string(models.PaymentMethodGateway)
+		_, err := h.paymentService.Update(c.Request.Context(), payment.ID, services.UpdatePaymentParams{
+			Status:        &paidStatus,
+			PaidAt:        &now,
+			ReferenceCode: &refCodeStr,
+			Method:        &gatewayMethod,
+		})
+		if err != nil {
 			log.Printf("zarinpal: could not update payment %d to PAID: %v", payment.ID, err)
 			c.Redirect(http.StatusFound, resultBase+"?success=false&error=db_error")
 			return
