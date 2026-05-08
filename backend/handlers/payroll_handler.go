@@ -157,6 +157,33 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto)
 }
 
+// RecalculatePeriod handles POST /payroll/recalculate-period
+// Ensures payslip rows exist for the month, then recomputes every PENDING entry from rules + payments.
+// NET_REVENUE (مدیرکل) entries are recalculated last. Full-access admins only.
+func (h *PayrollHandler) RecalculatePeriod(c *gin.Context) {
+	if middleware.DataScopeUserID(c) != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "بازمحاسبه کلی فقط برای مدیر کل مجاز است"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+	if err := h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ensure payroll entries"})
+		return
+	}
+	if err := h.service.RecalculateAllPendingEntriesForPeriod(c.Request.Context(), year, month); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to recalculate payroll"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "year": year, "month": month})
+}
+
 // PreviewCompensation handles GET /payroll/preview
 // @Summary      Preview payroll from role rules
 // @Description  Computes base/variable/students for a user and period without saving

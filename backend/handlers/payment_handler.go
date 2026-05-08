@@ -109,14 +109,14 @@ type createPaymentRequest struct {
 
 type updatePaymentRequest struct {
 	AmountCents   *int64     `json:"amount_cents" binding:"omitempty,gt=0"`
-	PaidAt        *time.Time `json:"paid_at" binding:"omitempty"`
+	PaidAtStr     *string    `json:"paid_at" binding:"omitempty"`
 	Method        *string    `json:"method" binding:"omitempty"`
 	Description   *string    `json:"description" binding:"omitempty,max=500"`
 	ReferenceCode *string    `json:"reference_number" binding:"omitempty,max=255"`
 	Status        *string    `json:"status" binding:"omitempty"`
 	Type          *string    `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
 	EnrollmentID  *uint      `json:"enrollment_id" binding:"omitempty"`
-	DueDate       *time.Time `json:"due_date" binding:"omitempty"`
+	DueDateStr    *string    `json:"due_date" binding:"omitempty"`
 }
 
 // Summary handles GET /payments/summary
@@ -373,6 +373,26 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	var dueDate *time.Time
+	if req.DueDateStr != nil {
+		t, err := parseOptionalDate(*req.DueDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		dueDate = t
+	}
+
+	var paidAt *time.Time
+	if req.PaidAtStr != nil {
+		t, err := parseOptionalDate(*req.PaidAtStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		paidAt = t
+	}
+
 	existing, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
@@ -389,14 +409,14 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 
 	params := services.UpdatePaymentParams{
 		AmountCents:   req.AmountCents,
-		PaidAt:        req.PaidAt,
+		PaidAt:        paidAt,
 		Method:        req.Method,
 		Description:   req.Description,
 		ReferenceCode: req.ReferenceCode,
 		Status:        req.Status,
 		Type:          req.Type,
 		EnrollmentID:  req.EnrollmentID,
-		DueDate:       req.DueDate,
+		DueDate:       dueDate,
 	}
 
 	p, err := h.service.Update(c.Request.Context(), uint(id), params)

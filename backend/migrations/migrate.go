@@ -55,7 +55,7 @@ func autoMigrate(db *gorm.DB) {
 // backfillPaymentPayrollShares rebuilds payment split rows for all PAID payments.
 func backfillPaymentPayrollShares(db *gorm.DB) {
 	repo := repositories.NewPaymentRepository(db)
-	ps := services.NewPaymentService(repo, db)
+	ps := services.NewPaymentService(repo, db, nil)
 	if err := ps.RebuildAllPaidPaymentPayrollShares(context.Background()); err != nil {
 		log.Printf("migrations: backfill payment payroll shares: %v", err)
 		return

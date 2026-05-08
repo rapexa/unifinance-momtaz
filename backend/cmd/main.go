@@ -13,6 +13,7 @@ import (
 	docs "github.com/soheilsshh/unifinance-momtaz/docs"
 	"github.com/soheilsshh/unifinance-momtaz/handlers"
 	"github.com/soheilsshh/unifinance-momtaz/middleware"
+	"github.com/soheilsshh/unifinance-momtaz/migrations"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"github.com/soheilsshh/unifinance-momtaz/services"
@@ -31,6 +32,10 @@ import (
 // main sets up the HTTP server using Gin and wires dependencies (DI).
 // This file lives in backend/cmd/ to keep the module root clean.
 func main() {
+	log.Println("running migrations...")
+	migrations.Run()
+	log.Println("migrations completed successfully")
+
 	cfg := config.MustLoadConfig()
 	db := database.MustGetDB()
 
@@ -52,9 +57,9 @@ func main() {
 	roleService := services.NewRoleService(roleRepo)
 	studentService := services.NewStudentService(studentRepo)
 	planService := services.NewPlanService(planRepo)
-	paymentService := services.NewPaymentService(paymentRepo, db)
-	dashboardService := services.NewDashboardService(db, paymentRepo)
 	payrollService := services.NewPayrollService(db)
+	paymentService := services.NewPaymentService(paymentRepo, db, payrollService)
+	dashboardService := services.NewDashboardService(db, paymentRepo)
 	reportService := services.NewReportService(db)
 	settingsService := services.NewSettingsService(db, userService)
 	melipayamakService := services.NewMelipayamakService(cfg.MelipayamakUsername, cfg.MelipayamakAPIKey)
@@ -234,6 +239,7 @@ func main() {
 	payroll.Use(middleware.PermissionMiddleware(permService, models.PermPayroll))
 	{
 		payroll.GET("/summary", payrollHandler.GetSummary)
+		payroll.POST("/recalculate-period", payrollHandler.RecalculatePeriod)
 		payroll.GET("/preview", payrollHandler.PreviewCompensation)
 		payroll.GET("/entries", payrollHandler.ListEntries)
 		payroll.POST("/entries", payrollHandler.CreateEntry)

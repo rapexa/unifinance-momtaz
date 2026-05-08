@@ -119,10 +119,15 @@ export async function getPayment(id: number): Promise<PaymentApi> {
 export async function createPayment(
   payload: CreatePaymentPayload
 ): Promise<PaymentApi> {
+  const normalized = {
+    ...payload,
+    due_date: toRFC3339(payload.due_date) ?? undefined,
+    paid_at: toRFC3339(payload.paid_at) ?? undefined,
+  };
   const res = await authFetch(`${API_BASE}/payments`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalized),
   });
 
   const data = await res.json().catch(() => null);
@@ -145,6 +150,13 @@ export interface UpdatePaymentPayload {
   enrollment_id?: number | null;
 }
 
+/** Ensures a date string is RFC3339. Passes null/undefined through. */
+function toRFC3339(date: string | null | undefined): string | null {
+  if (!date) return null;
+  if (date.includes("T")) return date;
+  return date + "T00:00:00Z";
+}
+
 export async function updatePayment(
   id: number,
   payload: UpdatePaymentPayload
@@ -156,8 +168,8 @@ export async function updatePayment(
   if (payload.payment_type != null) body.payment_type = payload.payment_type;
   if (payload.description != null) body.description = payload.description;
   if (payload.reference_number != null) body.reference_number = payload.reference_number;
-  if (payload.due_date !== undefined) body.due_date = payload.due_date || null;
-  if (payload.paid_at !== undefined) body.paid_at = payload.paid_at || null;
+  if (payload.due_date !== undefined) body.due_date = toRFC3339(payload.due_date);
+  if (payload.paid_at !== undefined) body.paid_at = toRFC3339(payload.paid_at);
   if (payload.enrollment_id !== undefined) body.enrollment_id = payload.enrollment_id ?? null;
 
   const res = await authFetch(`${API_BASE}/payments/${id}`, {

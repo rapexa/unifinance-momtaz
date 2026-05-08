@@ -16,12 +16,48 @@ var (
 )
 
 type PaymentService struct {
-	repo repositories.PaymentRepository
-	db   *gorm.DB
+	repo    repositories.PaymentRepository
+	db      *gorm.DB
+	payroll *PayrollService // optional: sync pending حقوق when payment shares change
 }
 
-func NewPaymentService(repo repositories.PaymentRepository, db *gorm.DB) *PaymentService {
-	return &PaymentService{repo: repo, db: db}
+func NewPaymentService(repo repositories.PaymentRepository, db *gorm.DB, payroll *PayrollService) *PaymentService {
+	return &PaymentService{repo: repo, db: db, payroll: payroll}
+}
+
+func (s *PaymentService) recalcPendingPayrollForPaidAt(ctx context.Context, paidAt *time.Time) {
+	if s.payroll == nil || paidAt == nil {
+		return
+	}
+	t := paidAt.In(time.Local)
+	y, m, _ := t.Date()
+	_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m))
+}
+
+func (s *PaymentService) recalcPendingPayrollForStudentPaidMonths(ctx context.Context, studentID uint) {
+	if s.payroll == nil {
+		return
+	}
+	var list []models.Payment
+	if err := s.db.WithContext(ctx).Select("paid_at").
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Find(&list).Error; err != nil {
+		return
+	}
+	seen := make(map[[2]int]struct{})
+	for i := range list {
+		if list[i].PaidAt == nil {
+			continue
+		}
+		t := list[i].PaidAt.In(time.Local)
+		y, mo, _ := t.Date()
+		key := [2]int{y, int(mo)}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(mo))
+	}
 }
 
 // rebuildPaymentPayrollShares replaces split rows for a payment from StudentRolePayout rows
@@ -128,6 +164,7 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 			return err
 		}
 	}
+	s.recalcPendingPayrollForStudentPaidMonths(ctx, studentID)
 	return nil
 }
 
@@ -251,6 +288,7 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 			return nil, err
 		}
 	}
+	s.recalcPendingPayrollForPaidAt(ctx, payment.PaidAt)
 	return payment, nil
 }
 
@@ -262,6 +300,12 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	oldPaidContribution := int64(0)
 	if payment.Status == models.PaymentStatusPaid {
 		oldPaidContribution = payment.AmountCents
+	}
+	oldStatus := payment.Status
+	var oldPaidAtCopy *time.Time
+	if payment.PaidAt != nil {
+		t := *payment.PaidAt
+		oldPaidAtCopy = &t
 	}
 
 	now := time.Now()
@@ -313,6 +357,22 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 			return nil, err
 		}
 	}
+	if s.payroll != nil {
+		months := make(map[[2]int]struct{})
+		if oldStatus == models.PaymentStatusPaid && oldPaidAtCopy != nil {
+			t := oldPaidAtCopy.In(time.Local)
+			y, m, _ := t.Date()
+			months[[2]int{y, int(m)}] = struct{}{}
+		}
+		if payment.Status == models.PaymentStatusPaid && payment.PaidAt != nil {
+			t := payment.PaidAt.In(time.Local)
+			y, m, _ := t.Date()
+			months[[2]int{y, int(m)}] = struct{}{}
+		}
+		for k := range months {
+			_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, k[0], k[1])
+		}
+	}
 	return payment, nil
 }
 
@@ -320,6 +380,13 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 	payment, err := s.GetByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	wasPaid := payment.Status == models.PaymentStatusPaid
+	var delYear, delMonth int
+	if wasPaid && payment.PaidAt != nil {
+		t := payment.PaidAt.In(time.Local)
+		y, m, _ := t.Date()
+		delYear, delMonth = y, int(m)
 	}
 	_ = s.db.WithContext(ctx).Unscoped().Where("payment_id = ?", id).Delete(&models.PaymentPayrollShare{})
 	if err := s.repo.SoftDelete(ctx, id); err != nil {
@@ -335,6 +402,9 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 		if err := s.adjustStudentBalanceByPaidDelta(ctx, payment.StudentID, -payment.AmountCents); err != nil {
 			return err
 		}
+	}
+	if wasPaid && s.payroll != nil {
+		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, delYear, delMonth)
 	}
 	return nil
 }

@@ -395,6 +395,41 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 
 var ErrPayrollEntryNotFound = errors.New("payroll entry not found")
 
+// RecalculateAllPendingEntriesForPeriod recomputes base/variable/total for every PENDING payroll row
+// in the given calendar month (local time). Call after payment_payroll_shares change so حقوق matches پرداخت‌ها.
+// NET_REVENUE (مدیرکل) rows are updated last so «دریافتی − حقوق سایرین» sees fresh totals for everyone else.
+func (s *PayrollService) RecalculateAllPendingEntriesForPeriod(ctx context.Context, year, month int) error {
+	if year < 1 || month < 1 || month > 12 {
+		return nil
+	}
+	var entries []models.PayrollEntry
+	if err := s.db.WithContext(ctx).Preload("User.Role").
+		Where("period_year = ? AND period_month = ? AND status = ?", year, month, models.PayrollStatusPending).
+		Find(&entries).Error; err != nil {
+		return err
+	}
+	var firstPass, lastPass []uint
+	for _, e := range entries {
+		if e.User.Role != nil && e.User.Role.CompensationKind == models.CompNetRevenue {
+			lastPass = append(lastPass, e.ID)
+		} else {
+			firstPass = append(firstPass, e.ID)
+		}
+	}
+	recalc := func(ids []uint) error {
+		for _, id := range ids {
+			if _, err := s.UpdateEntry(ctx, id, UpdateEntryParams{RecalculateFromRoleRules: true}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := recalc(firstPass); err != nil {
+		return err
+	}
+	return recalc(lastPass)
+}
+
 // GetEntryByID returns a single payroll entry by ID.
 func (s *PayrollService) GetEntryByID(ctx context.Context, id uint) (*models.PayrollEntry, error) {
 	var entry models.PayrollEntry
@@ -452,7 +487,15 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		}
 	}
 	entry.TotalSalaryCents = entry.BaseSalaryCents + entry.VariableSalaryCents
-	if err := s.db.WithContext(ctx).Save(entry).Error; err != nil {
+	// Do not Save(entry): nested Preload("User.Role") still triggers association writes on some GORM versions (INSERT roles/users).
+	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).Where("id = ?", entry.ID).Updates(map[string]interface{}{
+		"base_salary_cents":     entry.BaseSalaryCents,
+		"variable_salary_cents": entry.VariableSalaryCents,
+		"total_salary_cents":    entry.TotalSalaryCents,
+		"students_count":        entry.StudentsCount,
+		"status":                entry.Status,
+		"paid_at":               entry.PaidAt,
+	}).Error; err != nil {
 		return nil, err
 	}
 	return s.GetEntryByID(ctx, entry.ID)

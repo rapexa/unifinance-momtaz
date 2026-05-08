@@ -38,6 +38,7 @@ import {
   updatePayrollEntry,
   getPayrollEntry,
   getPayrollPreview,
+  recalculatePayrollPeriod,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
@@ -199,9 +200,25 @@ const Payroll = () => {
   const [createStudentsCount, setCreateStudentsCount] = useState("0");
   const [createStatus, setCreateStatus] = useState("PENDING");
 
+  /** هر بار ورود به صفحه: بازمحاسبهٔ فیش‌های در انتظار (مدیر کل)؛ سپس بارگذاری جدول. */
+  const { data: bootstrapAt, isFetching: isBootstrapFetching } = useQuery({
+    queryKey: ["payroll-bootstrap", currentYear, currentMonth],
+    queryFn: async () => {
+      try {
+        await recalculatePayrollPeriod({ year: currentYear, month: currentMonth });
+      } catch {
+        /* کاربر غیرمدیر / خطا — لیست همچنان از GET لود می‌شود */
+      }
+      return Date.now();
+    },
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
   const { data: summary, isLoading: isSummaryLoading } = useQuery({
-    queryKey: ["payroll-summary", currentYear, currentMonth],
+    queryKey: ["payroll-summary", currentYear, currentMonth, bootstrapAt],
     queryFn: () => getPayrollSummary({ year: currentYear, month: currentMonth }),
+    enabled: bootstrapAt != null,
   });
 
   const {
@@ -210,7 +227,7 @@ const Payroll = () => {
     isError: isEntriesError,
     error: entriesError,
   } = useQuery({
-    queryKey: ["payroll-entries", currentYear, currentMonth],
+    queryKey: ["payroll-entries", currentYear, currentMonth, bootstrapAt],
     queryFn: () =>
       listPayrollEntries({
         year: currentYear,
@@ -218,7 +235,13 @@ const Payroll = () => {
         page: 1,
         page_size: 100,
       }),
+    enabled: bootstrapAt != null,
   });
+
+  const summaryCardsLoading =
+    bootstrapAt == null || isBootstrapFetching || isSummaryLoading;
+  const payrollTableLoading =
+    bootstrapAt == null || isBootstrapFetching || isEntriesLoading;
 
   const { data: usersData } = useQuery({
     queryKey: ["users", "active"],
@@ -330,6 +353,27 @@ const Payroll = () => {
       toast({
         variant: "destructive",
         title: "خطا در محاسبه",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
+    },
+  });
+
+  const recalculateAllMutation = useMutation({
+    mutationFn: () => recalculatePayrollPeriod({ year: currentYear, month: currentMonth }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      toast({
+        title: "بازمحاسبه انجام شد",
+        description: "همهٔ فیش‌های در انتظار این ماه از پرداخت‌ها و قوانین به‌روز شدند (مدیرکل در انتها).",
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا در بازمحاسبه کلی",
         description: err?.message ?? "درخواست ناموفق بود",
       });
     },
@@ -447,28 +491,28 @@ const Payroll = () => {
         <div className="card-elevated p-5">
           <p className="text-sm text-muted-foreground">کل حقوق این ماه</p>
           <p className="text-2xl font-bold number-display text-foreground">
-            {isSummaryLoading ? "—" : formatCentsToToman(totalMonthCents)}
+            {summaryCardsLoading ? "—" : formatCentsToToman(totalMonthCents)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">تومان</p>
         </div>
         <div className="card-elevated p-5">
           <p className="text-sm text-muted-foreground">حقوق ثابت</p>
           <p className="text-2xl font-bold number-display text-foreground">
-            {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_base_cents ?? 0)}
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_base_cents ?? 0)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">تومان</p>
         </div>
         <div className="card-elevated p-5">
           <p className="text-sm text-muted-foreground">حقوق متغیر</p>
           <p className="text-2xl font-bold number-display text-primary">
-            {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_variable_cents ?? 0)}
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_variable_cents ?? 0)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">تومان</p>
         </div>
         <div className="card-elevated p-5">
           <p className="text-sm text-muted-foreground">پرداخت شده</p>
           <p className="text-2xl font-bold number-display text-success">
-            {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_paid_cents ?? 0)}
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_paid_cents ?? 0)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">تومان</p>
         </div>
@@ -477,7 +521,25 @@ const Payroll = () => {
       <div className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div />
-          <div className="flex w-full gap-2 sm:w-auto">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="w-full sm:w-auto gap-1.5"
+              onClick={() => recalculateAllMutation.mutate()}
+              disabled={
+                recalculateAllMutation.isPending ||
+                recalculateMutation.isPending ||
+                isBootstrapFetching
+              }
+              title="همان بازمحاسبهٔ خودکار هنگام ورود؛ برای تکرار دستی پس از تغییر پرداخت‌ها."
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${recalculateAllMutation.isPending || isBootstrapFetching ? "animate-spin" : ""}`}
+              />
+              بروزرسانی همه
+            </Button>
             <Button size="sm" className="w-full sm:w-auto" onClick={() => setIsCreateOpen(true)}>
               <Plus className="ml-2 h-4 w-4" />
               ثبت حقوق
@@ -490,15 +552,17 @@ const Payroll = () => {
           <div className="text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
             {" "}
-            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور). <span className="font-medium text-foreground">حقوق مدیرکل</span> با فرمول «دریافتی ماه − حقوق سایر کارمندان» از بک‌اند محاسبه می‌شود؛ پس از پرداخت دانش‌آموز حتماً «بروزرسانی» را بزنید.
-            {" "}پس از پرداخت حقوق، وضعیت را با «پرداخت شد» ثبت کنید.
+            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور).             <span className="font-medium text-foreground">حقوق مدیرکل</span> با فرمول «دریافتی ماه − حقوق سایر کارمندان» محاسبه می‌شود؛ نقش مدیر باید نوع حقوق <span className="font-medium">NET_REVENUE</span> باشد. با هر بار ورود به این صفحه، فیش‌های <span className="font-medium">در انتظار</span> از روی پرداخت‌ها تا همان لحظه به‌روز می‌شوند (مدیرکل در انتها).
+            {" "}
+            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> با این بازمحاسبه عوض نمی‌شود (همان مبلغ تصفیه‌شده می‌ماند). اگر بعد از ثبت «پرداخت شد» هنوز همان ماه پرداخت جدیدی ثبت شد و باید سهم جدید در حقوق دیده شود، یا وضعیت فیش را از ویرایش به «در انتظار» برگردانید و دوباره وارد همین صفحه شوید، یا برای دوره بعد فیش بگیرید.
+            {" "}پس از تسویه واقعی، وضعیت را با «پرداخت شد» ثبت کنید.
           </div>
         </div>
         <div className="card-elevated overflow-hidden">
             <div className="overflow-x-auto">
-              {isEntriesLoading && (
+              {payrollTableLoading && (
                 <div className="p-6 text-sm text-muted-foreground">
-                  در حال بارگذاری...
+                  {isBootstrapFetching ? "همگام‌سازی با پرداخت‌ها…" : "در حال بارگذاری..."}
                 </div>
               )}
               {isEntriesError && (
@@ -506,7 +570,7 @@ const Payroll = () => {
                   {(entriesError as Error)?.message ?? "خطا در دریافت لیست"}
                 </div>
               )}
-              {!isEntriesLoading && !isEntriesError && (
+              {!payrollTableLoading && !isEntriesError && (
                 <table className="w-full">
                   <thead>
                     <tr className="border-b bg-muted/50">

@@ -76,8 +76,10 @@ func (s *FiscalYearService) Create(ctx context.Context, input CreateFiscalYearIn
 	return fy, nil
 }
 
-// Close closes the current fiscal year: generates a CSV export, resets student
-// balances to zero, then marks the year as CLOSED.
+// Close closes the current fiscal year: generates a CSV export, archives data in CSV,
+// then clears all operational payment/payroll state so the next year starts from zero.
+// (Export payment rows are limited to created_at >= StartDate; the DB wipe removes every
+// payment so nothing older than StartDate keeps balances non-zero.)
 func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalYear, error) {
 	var fy models.FiscalYear
 	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
@@ -97,14 +99,43 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 
 	now := time.Now()
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Reset all active students' balance to zero for the new year.
-		if err := tx.Model(&models.Student{}).
-			Where("status = ?", models.StudentStatusActive).
-			Update("balance_cents", 0).Error; err != nil {
+		// Reminder log rows (export is already written).
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.PaymentReminder{}).Error; err != nil {
 			return err
 		}
 
-		// Mark fiscal year as closed.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.PaymentPayrollShare{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.Payment{}).Error; err != nil {
+			return err
+		}
+
+		// Payroll slips: archived in CSV; start the next year with empty payroll.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.PayrollEntry{}).Error; err != nil {
+			return err
+		}
+
+		// Student list “remaining” is derived from payments + enrollment amounts, not only balance_cents.
+		if err := tx.Model(&models.Student{}).
+			Where("status != ?", models.StudentStatusDeleted).
+			Updates(map[string]interface{}{
+				"balance_cents":           0,
+				"enrollment_amount_cents": 0,
+			}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Model(&models.Enrollment{}).
+			Updates(map[string]interface{}{"price_cents": 0}).Error; err != nil {
+			return err
+		}
+
 		return tx.Model(&fy).Updates(map[string]interface{}{
 			"status":     models.FiscalYearClosed,
 			"end_date":   now,

@@ -65,6 +65,26 @@ export async function getPayrollSummary(params?: {
   return data as PayrollSummary;
 }
 
+/** بازمحاسبهٔ همهٔ فیش‌های در انتظار این ماه از پرداخت‌ها و قوانین نقش؛ مدیرکل (NET_REVENUE) در انتها. */
+export async function recalculatePayrollPeriod(params: {
+  year: number;
+  month: number;
+}): Promise<{ ok: boolean; year: number; month: number }> {
+  const url = new URL(`${API_BASE}/payroll/recalculate-period`);
+  url.searchParams.set("year", String(params.year));
+  url.searchParams.set("month", String(params.month));
+  const res = await authFetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data && data.error) || "خطا در بازمحاسبه حقوق";
+    throw new Error(msg);
+  }
+  return data as { ok: boolean; year: number; month: number };
+}
+
 export async function listPayrollEntries(
   params: ListPayrollEntriesParams = {}
 ): Promise<PaginatedPayrollEntriesResponse> {

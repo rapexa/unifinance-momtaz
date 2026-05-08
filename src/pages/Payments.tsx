@@ -400,7 +400,7 @@ const Payments = () => {
     mutationFn: ({ id }: { id: number }) =>
       updatePayment(id, {
         status: "PAID",
-        paid_at: new Date().toISOString().slice(0, 10),
+        paid_at: new Date().toISOString(),
       }),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["payments"] });
