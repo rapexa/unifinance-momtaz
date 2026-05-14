@@ -77,7 +77,9 @@ func (s *FiscalYearService) Create(ctx context.Context, input CreateFiscalYearIn
 }
 
 // Close closes the current fiscal year: generates a CSV export, archives data in CSV,
-// then clears all operational payment/payroll state so the next year starts from zero.
+// then clears operational state so the next year starts from zero: payments/payroll/reminders,
+// all enrollments, per-student role payouts and compensation-rule student links, and every
+// non-deleted student is marked DELETED (same as manual archive) with balances cleared.
 // (Export payment rows are limited to created_at >= StartDate; the DB wipe removes every
 // payment so nothing older than StartDate keeps balances non-zero.)
 func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalYear, error) {
@@ -121,18 +123,37 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 			return err
 		}
 
-		// Student list “remaining” is derived from payments + enrollment amounts, not only balance_cents.
-		if err := tx.Model(&models.Student{}).
-			Where("status != ?", models.StudentStatusDeleted).
-			Updates(map[string]interface{}{
-				"balance_cents":           0,
-				"enrollment_amount_cents": 0,
-			}).Error; err != nil {
+		// Per-student role payouts (سهم نقش‌ها); define again on new students next year.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.StudentRolePayout{}).Error; err != nil {
 			return err
 		}
 
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Model(&models.Enrollment{}).
-			Updates(map[string]interface{}{"price_cents": 0}).Error; err != nil {
+		// Selected-student / capacity compensation links reference old student IDs.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.CompensationRuleStudent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.CompensationRuleUserStudent{}).Error; err != nil {
+			return err
+		}
+
+		// Plan enrollments: archived in export; remove rows for a clean slate.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+			Delete(&models.Enrollment{}).Error; err != nil {
+			return err
+		}
+
+		// Archive cohort (was ACTIVE/INACTIVE): same semantics as Students > حذف‌شده.
+		if err := tx.Model(&models.Student{}).
+			Where("status != ?", models.StudentStatusDeleted).
+			Updates(map[string]interface{}{
+				"status":                  models.StudentStatusDeleted,
+				"balance_cents":           0,
+				"enrollment_amount_cents": 0,
+				"current_plan_id":         gorm.Expr("NULL"),
+			}).Error; err != nil {
 			return err
 		}
 
@@ -154,8 +175,8 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 }
 
 // Reopen marks a closed fiscal year as OPEN again. Only allowed when no other
-// year is OPEN (same rule as starting a new year). Student balances are not
-// restored to pre-close values — that must be fixed manually if needed.
+// year is OPEN (same rule as starting a new year). Student balances, enrollments,
+// role payouts, and DELETED statuses from close are not restored — fix manually if needed.
 func (s *FiscalYearService) Reopen(ctx context.Context, id uint) (*models.FiscalYear, error) {
 	open, err := s.GetCurrent(ctx)
 	if err != nil {

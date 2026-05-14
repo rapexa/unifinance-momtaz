@@ -665,7 +665,7 @@ function downloadCsvBlob(filename: string, rows: string[][]): void {
 
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("active");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
