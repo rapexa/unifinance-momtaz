@@ -16,11 +16,13 @@ type StudentRepository interface {
 	Create(ctx context.Context, student *models.Student) error
 	Update(ctx context.Context, student *models.Student) error
 	Delete(ctx context.Context, id uint) error
+	HardDelete(ctx context.Context, id uint) error
 	Stats(ctx context.Context, scopeUser *uint) (total, active, inactive, deleted, debtors int64, err error)
 	IsStudentVisibleToUser(ctx context.Context, studentID uint, userID uint) (bool, error)
 	// ReplaceActiveEnrollment cancels active enrollments for the student; if planID is non-nil, creates a new ACTIVE row.
 	ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error
 	ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error
+	CountPaidPayments(ctx context.Context, studentID uint) (int64, error)
 }
 
 type GormStudentRepository struct {
@@ -106,6 +108,61 @@ func (r *GormStudentRepository) Update(ctx context.Context, student *models.Stud
 
 func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Student{}, id).Error
+}
+
+// HardDelete permanently removes the student and all dependent rows (payments, enrollments, etc.).
+func (r *GormStudentRepository) HardDelete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("student_id = ?", id).
+			Delete(&models.CompensationRuleStudent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("student_id = ?", id).
+			Delete(&models.CompensationRuleUserStudent{}).Error; err != nil {
+			return err
+		}
+
+		var paymentIDs []uint
+		if err := tx.Unscoped().Model(&models.Payment{}).
+			Where("student_id = ?", id).
+			Pluck("id", &paymentIDs).Error; err != nil {
+			return err
+		}
+		if len(paymentIDs) > 0 {
+			if err := tx.Unscoped().Where("payment_id IN ?", paymentIDs).
+				Delete(&models.PaymentPayrollShare{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Unscoped().Where("student_id = ?", id).Delete(&models.Payment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("student_id = ?", id).Delete(&models.Enrollment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("student_id = ?", id).Delete(&models.PaymentReminder{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("student_id = ?", id).Delete(&models.StudentRolePayout{}).Error; err != nil {
+			return err
+		}
+		res := tx.Unscoped().Delete(&models.Student{}, id)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+}
+
+func (r *GormStudentRepository) CountPaidPayments(ctx context.Context, studentID uint) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&models.Payment{}).
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Count(&n).Error
+	return n, err
 }
 
 // Stats returns aggregate counts for students: total, active, inactive, and debtors (balance < 0).

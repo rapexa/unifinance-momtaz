@@ -445,10 +445,10 @@ PayrollScheme
 
 - **Migrations**:
   - Models are migrated in `migrations.Run()` in a parent-first order (`Organization`, `User`, `Plan`, `Student`, ...).
-  - To apply migrations:
+  - Migrations run automatically when the API server starts (`go run ./cmd` or the built binary).
 
 ```bash
 cd backend
-go run ./cmd/migrate
+go run ./cmd
 ```
 

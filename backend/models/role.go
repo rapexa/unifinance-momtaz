@@ -5,7 +5,7 @@ import "gorm.io/gorm"
 // CompensationKind defines how payroll is calculated for users with this role.
 // FIXED: monthly base in fixed_cents.
 // VARIABLE: salary is computed from the sum of StudentRolePayout shares attributed to the user's students in the period.
-// NET_REVENUE: salary = total student payments this month − sum of all other employees' salaries (مدیرکل).
+// NET_REVENUE: salary variable = total student payments this month − sums allocated to roles on those payments (and monthly advisor accruals).
 type CompensationKind string
 
 const (
@@ -32,9 +32,44 @@ type Role struct {
 	CompensationKind CompensationKind `gorm:"type:varchar(32);not null"`
 	// FixedCents: required when CompensationKind = FIXED (can be 0).
 	FixedCents *int64 `gorm:""`
+	// PayrollMonthsCount: how many months in the fiscal/calendar year this role accrues salary (e.g. 10 advisors, 12 secretaries).
+	PayrollMonthsCount *int `gorm:""`
 
 	Permissions []RolePermission `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Users       []User           `gorm:"constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+}
+
+// DefaultPayrollMonthsForKind returns the usual month count when PayrollMonthsCount is unset.
+func DefaultPayrollMonthsForKind(kind CompensationKind) int {
+	switch kind {
+	case CompVariable:
+		return 10
+	default:
+		return 12
+	}
+}
+
+// PayrollMonthsCountValue returns configured months (1–12) with sensible defaults by compensation kind.
+func (r *Role) PayrollMonthsCountValue() int {
+	if r == nil {
+		return 12
+	}
+	if r.PayrollMonthsCount != nil && *r.PayrollMonthsCount > 0 {
+		n := *r.PayrollMonthsCount
+		if n > 12 {
+			return 12
+		}
+		return n
+	}
+	return DefaultPayrollMonthsForKind(r.CompensationKind)
+}
+
+// RolePaysInPayrollMonth is true when the given 1-based month index within the payroll year is covered.
+func (r *Role) RolePaysInPayrollMonth(monthIndex int) bool {
+	if r == nil || monthIndex < 1 {
+		return false
+	}
+	return monthIndex <= r.PayrollMonthsCountValue()
 }
 
 // RolePermission is the default permission set for a role (copied to users on create / role change).

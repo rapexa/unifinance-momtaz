@@ -187,6 +187,10 @@ export interface CreateFiscalYearPayload {
   start_date: string;
 }
 
+export interface UpdateFiscalYearPayload {
+  name: string;
+}
+
 export async function listFiscalYears(): Promise<FiscalYear[]> {
   const res = await authFetch(`${API_BASE}/fiscal-years`, {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -217,6 +221,17 @@ export async function createFiscalYear(payload: CreateFiscalYearPayload): Promis
   return data as FiscalYear;
 }
 
+export async function updateFiscalYear(id: number, payload: UpdateFiscalYearPayload): Promise<FiscalYear> {
+  const res = await authFetch(`${API_BASE}/fiscal-years/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در ویرایش سال مالی");
+  return data as FiscalYear;
+}
+
 export async function closeFiscalYear(id: number): Promise<FiscalYear> {
   const res = await authFetch(`${API_BASE}/fiscal-years/${id}/close`, {
     method: "POST",
@@ -235,6 +250,28 @@ export async function reopenFiscalYear(id: number): Promise<FiscalYear> {
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error((data && data.error) || "خطا در باز کردن سال مالی");
   return data as FiscalYear;
+}
+
+export async function restoreFiscalYear(id: number): Promise<FiscalYear> {
+  const res = await authFetch(`${API_BASE}/fiscal-years/${id}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || "خطا در بازگردانی سال مالی");
+  return data as FiscalYear;
+}
+
+/** Permanent removal — only for CLOSED fiscal years. */
+export async function purgeFiscalYear(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/fiscal-years/${id}/permanent`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "حذف کامل سال مالی با خطا مواجه شد");
+  }
 }
 
 // --- Payment settings ---

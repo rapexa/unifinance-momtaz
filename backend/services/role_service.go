@@ -16,28 +16,30 @@ var (
 	ErrRoleInUse           = errors.New("role is assigned to users")
 	ErrSystemRoleDelete    = errors.New("cannot delete system role")
 	ErrInvalidCompensation = errors.New("invalid compensation fields for selected kind")
-	ErrInvalidRoleCode     = errors.New("invalid role code; use lowercase letters, numbers and underscores")
+	ErrInvalidRoleCode     = errors.New("invalid role code; use 1-64 lowercase letters, numbers and underscores")
 )
 
-var roleCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,62}$`)
+var roleCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 type CreateRoleParams struct {
-	Code             string
-	Name             string
-	Description      string
-	FullAccess       bool
-	CompensationKind models.CompensationKind
-	FixedCents       *int64
-	Permissions      []models.Permission
+	Code               string
+	Name               string
+	Description        string
+	FullAccess         bool
+	CompensationKind   models.CompensationKind
+	FixedCents         *int64
+	PayrollMonthsCount *int
+	Permissions        []models.Permission
 }
 
 type UpdateRoleParams struct {
-	Name             *string
-	Description      *string
-	FullAccess       *bool
-	CompensationKind *models.CompensationKind
-	FixedCents       *int64
-	Permissions      []models.Permission
+	Name               *string
+	Description        *string
+	FullAccess         *bool
+	CompensationKind   *models.CompensationKind
+	FixedCents         *int64
+	PayrollMonthsCount *int
+	Permissions        []models.Permission
 }
 
 type RoleService struct {
@@ -46,6 +48,28 @@ type RoleService struct {
 
 func NewRoleService(repo repositories.RoleRepository) *RoleService {
 	return &RoleService{repo: repo}
+}
+
+func validatePayrollMonths(n *int) error {
+	if n == nil {
+		return nil
+	}
+	if *n < 1 || *n > 12 {
+		return ErrInvalidCompensation
+	}
+	return nil
+}
+
+func normalizePayrollMonths(kind models.CompensationKind, n *int) *int {
+	if n != nil && *n > 0 {
+		v := *n
+		if v > 12 {
+			v = 12
+		}
+		return &v
+	}
+	d := models.DefaultPayrollMonthsForKind(kind)
+	return &d
 }
 
 func validateCompensation(kind models.CompensationKind, fixed *int64) error {
@@ -57,7 +81,7 @@ func validateCompensation(kind models.CompensationKind, fixed *int64) error {
 	case models.CompVariable:
 		// Variable salary comes from per-student role payouts; no extra fields needed.
 	case models.CompNetRevenue:
-		// NET_REVENUE: salary is calculated as total_payments − other_salaries.
+		// NET_REVENUE: variable salary = total payments − role/advisor shares on those payments.
 		// No manual fixed_cents required; calculated at payroll time.
 	default:
 		return ErrInvalidCompensation
@@ -84,20 +108,25 @@ func (s *RoleService) Create(ctx context.Context, p CreateRoleParams) (*models.R
 	if err := validateCompensation(p.CompensationKind, p.FixedCents); err != nil {
 		return nil, err
 	}
+	if err := validatePayrollMonths(p.PayrollMonthsCount); err != nil {
+		return nil, err
+	}
 
 	perms := p.Permissions
 	if p.FullAccess {
 		perms = models.AllPermissions
 	}
 
+	months := normalizePayrollMonths(p.CompensationKind, p.PayrollMonthsCount)
 	role := &models.Role{
-		Code:             code,
-		Name:             strings.TrimSpace(p.Name),
-		Description:      strings.TrimSpace(p.Description),
-		IsSystem:         false,
-		FullAccess:       p.FullAccess,
-		CompensationKind: p.CompensationKind,
-		FixedCents:       p.FixedCents,
+		Code:               code,
+		Name:               strings.TrimSpace(p.Name),
+		Description:        strings.TrimSpace(p.Description),
+		IsSystem:           false,
+		FullAccess:         p.FullAccess,
+		CompensationKind:   p.CompensationKind,
+		FixedCents:         p.FixedCents,
+		PayrollMonthsCount: months,
 	}
 	if role.Name == "" {
 		return nil, errors.New("name is required")
@@ -144,8 +173,14 @@ func (s *RoleService) Update(ctx context.Context, id uint, p UpdateRoleParams) (
 		role.FixedCents = p.FixedCents
 		fixed = role.FixedCents
 	}
+	if p.PayrollMonthsCount != nil {
+		role.PayrollMonthsCount = normalizePayrollMonths(kind, p.PayrollMonthsCount)
+	}
 
 	if err := validateCompensation(kind, fixed); err != nil {
+		return nil, err
+	}
+	if err := validatePayrollMonths(role.PayrollMonthsCount); err != nil {
 		return nil, err
 	}
 	if role.Name == "" {

@@ -21,6 +21,12 @@ export interface StudentApi {
   advisor_commission_kind?: string;
   advisor_commission_percent?: number;
   advisor_commission_fixed_cents?: number;
+  enrollment_billing_mode?: "SINGLE_SESSION" | "MONTHLY" | "SCHOOL_ENROLLMENT";
+  advisor_accrual_months?: number;
+  /** Bitmask: Jalali months 1–12 (bit0=Farvardin) */
+  advisor_accrual_month_mask?: number;
+  /** پیش‌نمایش سهم ماهانه مشاور (ریال) — ثبت‌نام مدرسه‌ای */
+  advisor_monthly_accrual_cents?: number;
   current_plan_id?: number;
   current_plan_name?: string;
   balance_cents?: number;
@@ -33,6 +39,15 @@ export interface StudentApi {
   advisory_start_date?: string;
   role_payouts?: StudentRolePayoutApi[];
 }
+
+export type AdvisorCommissionKind =
+  | "NONE"
+  | "PERCENT"
+  | "FIXED_PER_PAYMENT"
+  | "PERCENT_OF_CONTRACT"
+  | "FIXED_MONTHLY";
+
+export type EnrollmentBillingMode = "SINGLE_SESSION" | "MONTHLY" | "SCHOOL_ENROLLMENT";
 
 export interface StudentRolePayoutApi {
   id: number;
@@ -117,9 +132,12 @@ export interface CreateStudentPayload {
   school_address?: string;
   home_address?: string;
   advisor_id?: number;
-  advisor_commission_kind?: "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+  advisor_commission_kind?: AdvisorCommissionKind;
   advisor_commission_percent?: number;
   advisor_commission_fixed_cents?: number;
+  enrollment_billing_mode?: EnrollmentBillingMode;
+  advisor_accrual_months?: number;
+  advisor_accrual_month_mask?: number;
   current_plan_id?: number;
   enrollment_amount_cents?: number;
   balance_cents?: number;
@@ -209,9 +227,12 @@ export interface UpdateStudentPayload {
   home_address?: string;
   status?: "ACTIVE" | "INACTIVE" | "DELETED";
   advisor_id?: number | null;
-  advisor_commission_kind?: "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
+  advisor_commission_kind?: AdvisorCommissionKind;
   advisor_commission_percent?: number;
   advisor_commission_fixed_cents?: number;
+  enrollment_billing_mode?: EnrollmentBillingMode;
+  advisor_accrual_months?: number;
+  advisor_accrual_month_mask?: number;
   current_plan_id?: number | null;
   enrollment_amount_cents?: number;
   balance_cents?: number;
@@ -252,6 +273,21 @@ export async function deleteStudent(id: number): Promise<void> {
     const data = await res.json().catch(() => null);
     const message =
       (data && data.error) || "خطا در حذف دانش‌آموز";
+    throw new Error(message);
+  }
+}
+
+/** Permanent removal — only for students already marked DELETED. */
+export async function purgeStudent(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/students/${id}/permanent`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const message =
+      (data && data.error) || "خطا در حذف کامل دانش‌آموز";
     throw new Error(message);
   }
 }

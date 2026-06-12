@@ -159,7 +159,7 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 
 // RecalculatePeriod handles POST /payroll/recalculate-period
 // Ensures payslip rows exist for the month, then recomputes every PENDING entry from rules + payments.
-// NET_REVENUE (مدیرکل) entries are recalculated last. Full-access admins only.
+// NET_REVENUE (مدیرکل) entries are recalculated last after payment shares are applied to other roles.
 func (h *PayrollHandler) RecalculatePeriod(c *gin.Context) {
 	if middleware.DataScopeUserID(c) != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "بازمحاسبه کلی فقط برای مدیر کل مجاز است"})
@@ -489,6 +489,7 @@ type updatePayrollEntryRequest struct {
 	VariableSalaryCents      *int64  `json:"variable_salary_cents" binding:"omitempty,min=0"`
 	StudentsCount            *int    `json:"students_count" binding:"omitempty,min=0"`
 	Status                   *string `json:"status" binding:"omitempty,oneof=PAID PENDING"`
+	PaidAtStr                *string `json:"paid_at" binding:"omitempty"`
 }
 
 // UpdateEntry handles PUT /payroll/entries/:id
@@ -550,6 +551,14 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 	if req.Status != nil {
 		st := models.PayrollStatus(*req.Status)
 		params.Status = &st
+	}
+	if req.PaidAtStr != nil {
+		t, err := parseOptionalDate(*req.PaidAtStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid paid_at date"})
+			return
+		}
+		params.PaidAt = t
 	}
 
 	entry, err := h.service.UpdateEntry(c.Request.Context(), uint(id), params)

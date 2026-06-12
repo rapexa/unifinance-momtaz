@@ -46,6 +46,13 @@ import {
 import { listUsers } from "@/api/usersApi";
 import { getPaymentsSummary } from "@/api/paymentsApi";
 import { listRoles } from "@/api/rolesApi";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
+import {
+  jalaliToGregorianIso,
+  formatIsoDateShamsi,
+  isoToJalaliString,
+  todayJalaliString,
+} from "@/lib/jalaliDate";
 
 const roleLabels: Record<string, string> = {
   general_manager: "مدیرکل",
@@ -77,23 +84,41 @@ function EditPayrollForm({
   const [variableTomans, setVariableTomans] = useState(String(Math.floor(entry.variable_salary_cents / 10)));
   const [studentsCount, setStudentsCount] = useState(String(entry.students_count));
   const [status, setStatus] = useState(entry.status);
+  const [paidAt, setPaidAt] = useState(isoToJalaliString(entry.paid_at) || todayJalaliString());
 
   useEffect(() => {
     setBaseTomans(String(Math.floor(entry.base_salary_cents / 10)));
     setVariableTomans(String(Math.floor(entry.variable_salary_cents / 10)));
     setStudentsCount(String(entry.students_count));
     setStatus(entry.status);
-  }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count, entry.status]);
+    setPaidAt(isoToJalaliString(entry.paid_at) || todayJalaliString());
+  }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count, entry.status, entry.paid_at]);
 
   const handleSubmit = () => {
     const baseCents = parseLocalizedInt(baseTomans) * 10;
     const variableCents = parseLocalizedInt(variableTomans) * 10;
     const count = parseLocalizedInt(studentsCount);
+
+    let paidAtGregorian: string | undefined;
+    if (status === "PAID") {
+      const paidTrimmed = paidAt.trim();
+      if (!paidTrimmed) {
+        toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
+        return;
+      }
+      paidAtGregorian = jalaliToGregorianIso(paidTrimmed) || undefined;
+      if (!paidAtGregorian) {
+        toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
+        return;
+      }
+    }
+
     onSave({
       base_salary_cents: baseCents,
       variable_salary_cents: variableCents,
       students_count: count,
       status,
+      paid_at: status === "PAID" ? paidAtGregorian : null,
     });
   };
 
@@ -143,6 +168,12 @@ function EditPayrollForm({
           </SelectContent>
         </Select>
       </div>
+      {status === "PAID" && (
+        <div className="grid gap-2">
+          <label className="text-sm font-medium">تاریخ پرداخت</label>
+          <JalaliDatePicker value={paidAt} onChange={setPaidAt} clearable={false} />
+        </div>
+      )}
       <div className="flex flex-col gap-2">
         <Button
           type="button"
@@ -189,6 +220,8 @@ const Payroll = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
   const [editEntryId, setEditEntryId] = useState<number | null>(null);
+  const [markPaidEntryId, setMarkPaidEntryId] = useState<number | null>(null);
+  const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString);
 
   // Create form
   const [createUserId, setCreateUserId] = useState("");
@@ -332,14 +365,39 @@ const Payroll = () => {
   });
 
   const quickMarkPaidMutation = useMutation({
-    mutationFn: (id: number) => updatePayrollEntry(id, { status: "PAID" }),
-    onSuccess: (_, id) => {
+    mutationFn: ({ id, paid_at }: { id: number; paid_at: string }) =>
+      updatePayrollEntry(id, { status: "PAID", paid_at }),
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      setMarkPaidEntryId(null);
+      toast({ title: "پرداخت حقوق ثبت شد" });
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا در ثبت پرداخت",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
     },
   });
+
+  const handleConfirmMarkPaid = useCallback(() => {
+    if (markPaidEntryId == null) return;
+    const paidTrimmed = markPaidDate.trim();
+    if (!paidTrimmed) {
+      toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
+      return;
+    }
+    const paidAtGregorian = jalaliToGregorianIso(paidTrimmed);
+    if (!paidAtGregorian) {
+      toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
+      return;
+    }
+    quickMarkPaidMutation.mutate({ id: markPaidEntryId, paid_at: paidAtGregorian });
+  }, [markPaidEntryId, markPaidDate, quickMarkPaidMutation]);
 
   const recalculateMutation = useMutation({
     mutationFn: (id: number) => updatePayrollEntry(id, { recalculate_from_role_rules: true }),
@@ -452,6 +510,7 @@ const Payroll = () => {
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(entry.total_salary_cents)} تومان</p>
         <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
+        ${entry.status === "PAID" && entry.paid_at ? `<p><strong>تاریخ پرداخت:</strong> ${formatIsoDateShamsi(entry.paid_at)}</p>` : ""}
       </body>
       </html>
     `);
@@ -552,7 +611,9 @@ const Payroll = () => {
           <div className="text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
             {" "}
-            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور).             <span className="font-medium text-foreground">حقوق مدیرکل</span> با فرمول «دریافتی ماه − حقوق سایر کارمندان» محاسبه می‌شود؛ نقش مدیر باید نوع حقوق <span className="font-medium">NET_REVENUE</span> باشد. با هر بار ورود به این صفحه، فیش‌های <span className="font-medium">در انتظار</span> از روی پرداخت‌ها تا همان لحظه به‌روز می‌شوند (مدیرکل در انتها).
+            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور).{" "}
+            <span className="font-medium text-foreground">حقوق مدیرکل</span> به‌صورت «مجموع پرداخت‌های ماه − سهم‌های تخصیص‌یافته به نقش‌ها» در ستون حقوق متغیر محاسبه می‌شود. با هر بار ورود به این صفحه، فیش‌های{" "}
+            <span className="font-medium text-foreground">در انتظار</span> از روی پرداخت‌ها تا همان لحظه به‌روز می‌شوند.
             {" "}
             <span className="font-medium text-foreground">فیش پرداخت‌شده</span> با این بازمحاسبه عوض نمی‌شود (همان مبلغ تصفیه‌شده می‌ماند). اگر بعد از ثبت «پرداخت شد» هنوز همان ماه پرداخت جدیدی ثبت شد و باید سهم جدید در حقوق دیده شود، یا وضعیت فیش را از ویرایش به «در انتظار» برگردانید و دوباره وارد همین صفحه شوید، یا برای دوره بعد فیش بگیرید.
             {" "}پس از تسویه واقعی، وضعیت را با «پرداخت شد» ثبت کنید.
@@ -641,14 +702,21 @@ const Payroll = () => {
                               {formatCentsToToman(entry.total_salary_cents)}
                             </td>
                             <td className="p-4">
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                                  entry.status === "PAID" ? "status-paid" : "status-pending"
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  className={cn(
+                                    "inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                                    entry.status === "PAID" ? "status-paid" : "status-pending"
+                                  )}
+                                >
+                                  {entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}
+                                </span>
+                                {entry.status === "PAID" && entry.paid_at && (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {formatIsoDateShamsi(entry.paid_at)}
+                                  </span>
                                 )}
-                              >
-                                {entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}
-                              </span>
+                              </div>
                             </td>
                             <td className="p-4">
                               <div className="flex gap-1 flex-wrap">
@@ -657,7 +725,10 @@ const Payroll = () => {
                                     variant="ghost"
                                     size="sm"
                                     className="gap-1 text-success hover:text-success hover:bg-success/10"
-                                    onClick={() => quickMarkPaidMutation.mutate(entry.id)}
+                                    onClick={() => {
+                                      setMarkPaidDate(todayJalaliString());
+                                      setMarkPaidEntryId(entry.id);
+                                    }}
                                     disabled={quickMarkPaidMutation.isPending}
                                     title="تأیید پرداخت حقوق"
                                   >
@@ -925,8 +996,44 @@ const Payroll = () => {
               <p><strong>دانش‌آموزان یکتا (کل سازمان، این ماه):</strong> {detailEntry.students_count}</p>
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
               <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
+              {detailEntry.status === "PAID" && (
+                <p><strong>تاریخ پرداخت:</strong> {formatIsoDateShamsi(detailEntry.paid_at)}</p>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Mark Paid Dialog */}
+      <Dialog
+        open={markPaidEntryId != null}
+        onOpenChange={(open) => {
+          if (!open) setMarkPaidEntryId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ثبت پرداخت حقوق</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <label className="text-sm font-medium">تاریخ پرداخت</label>
+            <JalaliDatePicker
+              value={markPaidDate}
+              onChange={setMarkPaidDate}
+              clearable={false}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMarkPaidEntryId(null)}>
+              انصراف
+            </Button>
+            <Button
+              onClick={handleConfirmMarkPaid}
+              disabled={quickMarkPaidMutation.isPending}
+            >
+              {quickMarkPaidMutation.isPending ? "در حال ثبت..." : "ثبت پرداخت"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -15,11 +16,15 @@ import (
 )
 
 var (
-	ErrFiscalYearAlreadyOpen = errors.New("یک سال مالی باز وجود دارد. ابتدا آن را ببندید")
-	ErrFiscalYearNotFound    = errors.New("سال مالی یافت نشد")
-	ErrFiscalYearNotOpen     = errors.New("این سال مالی باز نیست")
-	ErrFiscalYearNotClosed   = errors.New("این سال مالی بسته نیست")
+	ErrFiscalYearAlreadyOpen       = errors.New("یک سال مالی باز وجود دارد. ابتدا آن را ببندید")
+	ErrFiscalYearNotFound          = errors.New("سال مالی یافت نشد")
+	ErrFiscalYearNotOpen           = errors.New("این سال مالی باز نیست")
+	ErrFiscalYearNotClosed         = errors.New("این سال مالی بسته نیست")
+	ErrFiscalYearRestoreBlocked    = errors.New("سال مالی جدیدتری ثبت شده؛ بازگردانی امکان‌پذیر نیست")
+	ErrFiscalYearMustBeClosedFirst = errors.New("فقط سال مالی بسته قابل حذف کامل است")
 )
+
+const defaultAdminEmail = "admin@example.com"
 
 type FiscalYearService struct {
 	db *gorm.DB
@@ -56,6 +61,27 @@ type CreateFiscalYearInput struct {
 	StartDate time.Time
 }
 
+func (s *FiscalYearService) UpdateName(ctx context.Context, id uint, name string) (*models.FiscalYear, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("نام سال مالی الزامی است")
+	}
+
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrFiscalYearNotFound
+		}
+		return nil, err
+	}
+
+	if err := s.db.WithContext(ctx).Model(&fy).Update("name", name).Error; err != nil {
+		return nil, err
+	}
+	fy.Name = name
+	return &fy, nil
+}
+
 func (s *FiscalYearService) Create(ctx context.Context, input CreateFiscalYearInput) (*models.FiscalYear, error) {
 	existing, err := s.GetCurrent(ctx)
 	if err != nil {
@@ -76,12 +102,9 @@ func (s *FiscalYearService) Create(ctx context.Context, input CreateFiscalYearIn
 	return fy, nil
 }
 
-// Close closes the current fiscal year: generates a CSV export, archives data in CSV,
-// then clears operational state so the next year starts from zero: payments/payroll/reminders,
-// all enrollments, per-student role payouts and compensation-rule student links, and every
-// non-deleted student is marked DELETED (same as manual archive) with balances cleared.
-// (Export payment rows are limited to created_at >= StartDate; the DB wipe removes every
-// payment so nothing older than StartDate keeps balances non-zero.)
+// Close closes the current fiscal year: generates a CSV snapshot, then soft-deletes
+// all operational data so a full Restore remains possible until a new year is created.
+// The system general-manager role and default admin user are never touched.
 func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalYear, error) {
 	var fy models.FiscalYear
 	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
@@ -101,59 +124,100 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 
 	now := time.Now()
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Reminder log rows (export is already written).
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		var gm models.Role
+		if err := tx.Where("code = ? AND is_system = ?", models.RoleCodeGeneralManager, true).
+			First(&gm).Error; err != nil {
+			return err
+		}
+		var admin models.User
+		if err := tx.Where("email = ?", defaultAdminEmail).First(&admin).Error; err != nil {
+			return err
+		}
+
+		// --- Soft-delete operational data (most-dependent first) ---
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.PaymentReminder{}).Error; err != nil {
 			return err
 		}
-
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.PaymentPayrollShare{}).Error; err != nil {
 			return err
 		}
-
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.Payment{}).Error; err != nil {
 			return err
 		}
-
-		// Payroll slips: archived in CSV; start the next year with empty payroll.
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.PayrollEntry{}).Error; err != nil {
 			return err
 		}
-
-		// Per-student role payouts (سهم نقش‌ها); define again on new students next year.
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.StudentRolePayout{}).Error; err != nil {
 			return err
 		}
-
-		// Selected-student / capacity compensation links reference old student IDs.
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.CompensationRuleStudent{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.CompensationRuleUserStudent{}).Error; err != nil {
 			return err
 		}
-
-		// Plan enrollments: archived in export; remove rows for a clean slate.
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&models.CompensationRule{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.Enrollment{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&models.Student{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&models.PlanFeature{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&models.Plan{}).Error; err != nil {
+			return err
+		}
 
-		// Archive cohort (was ACTIVE/INACTIVE): same semantics as Students > حذف‌شده.
-		if err := tx.Model(&models.Student{}).
-			Where("status != ?", models.StudentStatusDeleted).
-			Updates(map[string]interface{}{
-				"status":                  models.StudentStatusDeleted,
-				"balance_cents":           0,
-				"enrollment_amount_cents": 0,
-				"current_plan_id":         gorm.Expr("NULL"),
-			}).Error; err != nil {
+		// Non-admin users, their permissions and notification settings.
+		if err := tx.Where("user_id != ?", admin.ID).
+			Delete(&models.UserPermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id != ?", admin.ID).
+			Delete(&models.NotificationSetting{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id != ?", admin.ID).
+			Delete(&models.User{}).Error; err != nil {
+			return err
+		}
+
+		// Non-system roles: collect IDs first so we can soft-delete their permissions.
+		var nonSystemIDs []uint
+		if err := tx.Model(&models.Role{}).
+			Where("is_system = ?", false).
+			Pluck("id", &nonSystemIDs).Error; err != nil {
+			return err
+		}
+		if len(nonSystemIDs) > 0 {
+			if err := tx.Where("role_id IN ?", nonSystemIDs).
+				Delete(&models.RolePermission{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id IN ?", nonSystemIDs).
+				Delete(&models.Role{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Ensure admin stays on the system role (safe even if already correct).
+		if err := tx.Model(&admin).Update("role_id", gm.ID).Error; err != nil {
 			return err
 		}
 
@@ -174,9 +238,83 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 	return &fy, nil
 }
 
+// Restore undoes a Close: every row soft-deleted during that close is undeleted and
+// the fiscal year is re-opened. Only allowed when no other year is OPEN and no newer
+// fiscal year has been created after this one.
+func (s *FiscalYearService) Restore(ctx context.Context, id uint) (*models.FiscalYear, error) {
+	open, err := s.GetCurrent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if open != nil {
+		return nil, ErrFiscalYearAlreadyOpen
+	}
+
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrFiscalYearNotFound
+		}
+		return nil, err
+	}
+	if fy.Status != models.FiscalYearClosed {
+		return nil, ErrFiscalYearNotClosed
+	}
+	if fy.ClosedAt == nil {
+		return nil, errors.New("سال مالی تاریخ بستن ندارد")
+	}
+
+	// Block restore if a newer fiscal year exists (user already started a new year).
+	var laterCount int64
+	if err := s.db.WithContext(ctx).Unscoped().Model(&models.FiscalYear{}).
+		Where("id > ?", id).Count(&laterCount).Error; err != nil {
+		return nil, err
+	}
+	if laterCount > 0 {
+		return nil, ErrFiscalYearRestoreBlocked
+	}
+
+	// All rows deleted during Close share a deleted_at within the same second as closed_at.
+	cutoff := fy.ClosedAt.Add(-time.Second)
+
+	// Tables to restore — order doesn't matter for soft-delete recovery.
+	tables := []string{
+		"roles", "role_permissions",
+		"users", "user_permissions", "notification_settings",
+		"plans", "plan_features",
+		"students", "enrollments",
+		"compensation_rules", "compensation_rule_students", "compensation_rule_user_students",
+		"student_role_payouts",
+		"payroll_entries",
+		"payments", "payment_payroll_shares", "payment_reminders",
+	}
+
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, t := range tables {
+			if err := tx.Exec(
+				"UPDATE `"+t+"` SET deleted_at = NULL WHERE deleted_at >= ?", cutoff,
+			).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&fy).Updates(map[string]interface{}{
+			"status":    models.FiscalYearOpen,
+			"end_date":  gorm.Expr("NULL"),
+			"closed_at": gorm.Expr("NULL"),
+		}).Error
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		return nil, err
+	}
+	return &fy, nil
+}
+
 // Reopen marks a closed fiscal year as OPEN again. Only allowed when no other
-// year is OPEN (same rule as starting a new year). Student balances, enrollments,
-// role payouts, and DELETED statuses from close are not restored — fix manually if needed.
+// year is OPEN (same rule as starting a new year). Rows deleted by Close are
+// not restored; the next setup must be recreated manually if needed.
 func (s *FiscalYearService) Reopen(ctx context.Context, id uint) (*models.FiscalYear, error) {
 	open, err := s.GetCurrent(ctx)
 	if err != nil {
@@ -211,6 +349,41 @@ func (s *FiscalYearService) Reopen(ctx context.Context, id uint) (*models.Fiscal
 		return nil, err
 	}
 	return &fy, nil
+}
+
+// HardDelete permanently removes a fiscal year record and its CSV export (if closed).
+// Open years can be deleted directly (e.g. test years) without closing first.
+func (s *FiscalYearService) HardDelete(ctx context.Context, id uint) error {
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).First(&fy, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFiscalYearNotFound
+		}
+		return err
+	}
+	if fy.Status == models.FiscalYearClosed {
+		removeFiscalYearExportFile(fy.ExportURL)
+	}
+	res := s.db.WithContext(ctx).Unscoped().Delete(&models.FiscalYear{}, id)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrFiscalYearNotFound
+	}
+	return nil
+}
+
+func removeFiscalYearExportFile(exportURL string) {
+	exportURL = strings.TrimSpace(exportURL)
+	if exportURL == "" {
+		return
+	}
+	rel := strings.TrimPrefix(exportURL, "/")
+	if rel == exportURL || strings.Contains(rel, "..") {
+		return
+	}
+	_ = os.Remove(rel)
 }
 
 // generateExport writes a multi-section CSV file to uploads/exports/ and

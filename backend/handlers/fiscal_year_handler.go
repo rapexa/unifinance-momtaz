@@ -108,6 +108,40 @@ func (h *FiscalYearHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, toFiscalYearDTO(fy))
 }
 
+// Update changes editable fields of a fiscal year (currently name only).
+func (h *FiscalYearHandler) Update(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+
+	var body struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "نام سال مالی الزامی است"})
+		return
+	}
+
+	fy, err := h.service.UpdateName(c.Request.Context(), uint(id), body.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrFiscalYearNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			if err.Error() == "نام سال مالی الزامی است" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ویرایش سال مالی"})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, toFiscalYearDTO(fy))
+}
+
 // Close closes a fiscal year: exports data to CSV, resets student balances.
 func (h *FiscalYearHandler) Close(c *gin.Context) {
 	idStr := c.Param("id")
@@ -123,6 +157,35 @@ func (h *FiscalYearHandler) Close(c *gin.Context) {
 		case errors.Is(err, services.ErrFiscalYearNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrFiscalYearNotOpen):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, toFiscalYearDTO(fy))
+}
+
+// Restore undoes a Close: all soft-deleted data is recovered and the year is re-opened.
+// Only allowed when no year is OPEN and no newer fiscal year exists.
+func (h *FiscalYearHandler) Restore(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+
+	fy, err := h.service.Restore(c.Request.Context(), uint(id))
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrFiscalYearNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearAlreadyOpen):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearNotClosed):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearRestoreBlocked):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -156,4 +219,27 @@ func (h *FiscalYearHandler) Reopen(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toFiscalYearDTO(fy))
+}
+
+// HardDelete permanently removes a closed fiscal year and its CSV export.
+func (h *FiscalYearHandler) HardDelete(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+
+	if err := h.service.HardDelete(c.Request.Context(), uint(id)); err != nil {
+		switch {
+		case errors.Is(err, services.ErrFiscalYearNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrFiscalYearMustBeClosedFirst):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در حذف کامل سال مالی"})
+		}
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

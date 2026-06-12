@@ -128,25 +128,7 @@ cp .env.example .env
 
 Edit `.env` for your DB host, port, user, password, and database name.
 
-4. **Run migrations**
-
-From the `backend` folder:
-
-```bash
-go run ./cmd/migrate
-```
-
-This will:
-
-- Connect to MySQL using the values from `.env`.
-- Run `AutoMigrate` for all models.
-- Seed:
-  - A default `Organization`.
-  - An admin `User` with email `admin@example.com` and password `change-me-please` (hashed with bcrypt).
-
-> **Important:** Change the seeded admin password in production.
-
-5. **Run API server**
+4. **Run API server**
 
 From the `backend` folder:
 
@@ -154,7 +136,22 @@ From the `backend` folder:
 go run ./cmd
 ```
 
-This starts a Gin server on `:8081` with:
+Or build a single binary:
+
+```bash
+go build -o unifinance-server ./cmd
+./unifinance-server
+```
+
+On startup the server **automatically**:
+
+- Connects to MySQL using `.env`
+- Runs `AutoMigrate` for all models
+- Runs one-time backfills and seeds (default organization, admin user, roles)
+
+Default admin after first run: `admin@example.com` / `change-me-please` — change this in production.
+
+The server listens on `:8081` with:
 
 - `GET /health` – health check
 - `POST /api/v1/auth/login` – login with email/password to receive JWT

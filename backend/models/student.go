@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/soheilsshh/unifinance-momtaz/pkg/jalali"
 	"gorm.io/gorm"
 )
 
@@ -15,18 +16,204 @@ const (
 	StudentStatusDeleted  StudentStatus = "DELETED"
 )
 
-// StudentAdvisorCommissionKind defines how advisor earnings are computed per paid payment.
+// EnrollmentBillingMode distinguishes monthly cash-basis vs annual school enrollment (paid in installments).
+type EnrollmentBillingMode string
+
+const (
+	EnrollmentBillingSingleSession    EnrollmentBillingMode = "SINGLE_SESSION"
+	EnrollmentBillingMonthly          EnrollmentBillingMode = "MONTHLY"
+	EnrollmentBillingSchoolEnrollment EnrollmentBillingMode = "SCHOOL_ENROLLMENT"
+)
+
+// StudentAdvisorCommissionKind defines how advisor earnings are computed.
+// SINGLE_SESSION / MONTHLY billing: PERCENT / FIXED_PER_PAYMENT apply per PAID payment.
+// SCHOOL_ENROLLMENT: PERCENT_OF_CONTRACT / FIXED_MONTHLY accrue in selected Jalali months from join date.
 type StudentAdvisorCommissionKind string
 
 const (
-	StudentAdvisorCommNone    StudentAdvisorCommissionKind = "NONE"
-	StudentAdvisorCommPercent StudentAdvisorCommissionKind = "PERCENT"
-	StudentAdvisorCommFixed   StudentAdvisorCommissionKind = "FIXED_PER_PAYMENT"
+	StudentAdvisorCommNone               StudentAdvisorCommissionKind = "NONE"
+	StudentAdvisorCommPercent              StudentAdvisorCommissionKind = "PERCENT"
+	StudentAdvisorCommFixed                StudentAdvisorCommissionKind = "FIXED_PER_PAYMENT"
+	StudentAdvisorCommPercentOfContract    StudentAdvisorCommissionKind = "PERCENT_OF_CONTRACT"
+	StudentAdvisorCommFixedMonthly         StudentAdvisorCommissionKind = "FIXED_MONTHLY"
 )
 
-// ComputeAdvisorShareCents returns the advisor's share for one payment amount from student contract rules.
+func (st *Student) IsSchoolEnrollment() bool {
+	return st != nil && st.EnrollmentBillingMode == EnrollmentBillingSchoolEnrollment
+}
+
+func (st *Student) IsSingleSession() bool {
+	return st != nil && st.EnrollmentBillingMode == EnrollmentBillingSingleSession
+}
+
+func (st *Student) IsPerPaymentBilling() bool {
+	return st != nil && (st.EnrollmentBillingMode == EnrollmentBillingMonthly || st.EnrollmentBillingMode == EnrollmentBillingSingleSession || st.EnrollmentBillingMode == "")
+}
+
+func popcountMask(mask int) int {
+	n := 0
+	for i := 0; i < 12; i++ {
+		if mask&(1<<i) != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+func isJalaliMonthInMask(mask, jm int) bool {
+	if jm < 1 || jm > 12 {
+		return false
+	}
+	return mask&(1<<(jm-1)) != 0
+}
+
+func (st *Student) advisorAccrualMonthMask() int {
+	if st == nil || st.AdvisorAccrualMonthMask == nil || *st.AdvisorAccrualMonthMask <= 0 {
+		return 0
+	}
+	return *st.AdvisorAccrualMonthMask & 0xFFF
+}
+
+// AdvisorAccrualMonthMaskCount returns how many Jalali months are selected in the mask.
+func AdvisorAccrualMonthMaskCount(mask int) int {
+	return popcountMask(mask & 0xFFF)
+}
+
+func (st *Student) AdvisorAccrualMonthsCount() int {
+	if st == nil {
+		return 10
+	}
+	if mask := st.advisorAccrualMonthMask(); mask > 0 {
+		n := popcountMask(mask)
+		if n > 0 {
+			return n
+		}
+	}
+	if st.AdvisorAccrualMonths != nil && *st.AdvisorAccrualMonths > 0 {
+		return *st.AdvisorAccrualMonths
+	}
+	return 10
+}
+
+func advisorContractTotalShareCents(st *Student) int64 {
+	if st == nil || st.AdvisorID == nil {
+		return 0
+	}
+	switch st.AdvisorCommissionKind {
+	case StudentAdvisorCommPercentOfContract:
+		if st.EnrollmentAmountCents <= 0 || st.AdvisorCommissionPercent == nil {
+			return 0
+		}
+		p := *st.AdvisorCommissionPercent
+		if p <= 0 {
+			return 0
+		}
+		return int64(math.Round(float64(st.EnrollmentAmountCents) * p / 100.0))
+	default:
+		return 0
+	}
+}
+
+// ComputeAdvisorMonthlyAccrualCents is the regular monthly slice (before last-month remainder).
+func ComputeAdvisorMonthlyAccrualCents(st *Student) int64 {
+	if st == nil || st.AdvisorID == nil || !st.IsSchoolEnrollment() {
+		return 0
+	}
+	switch st.AdvisorCommissionKind {
+	case StudentAdvisorCommPercentOfContract:
+		total := advisorContractTotalShareCents(st)
+		if total <= 0 {
+			return 0
+		}
+		months := int64(st.AdvisorAccrualMonthsCount())
+		return total / months
+	case StudentAdvisorCommFixedMonthly:
+		if st.AdvisorCommissionFixedCents == nil || *st.AdvisorCommissionFixedCents <= 0 {
+			return 0
+		}
+		return *st.AdvisorCommissionFixedCents
+	default:
+		return 0
+	}
+}
+
+func accrualMonthIndex(joinDate time.Time, year, month int) (index int, ok bool) {
+	loc := time.Local
+	start := time.Date(joinDate.Year(), joinDate.Month(), 1, 0, 0, 0, 0, loc)
+	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+	if target.Before(start) {
+		return 0, false
+	}
+	idx := (target.Year()-start.Year())*12 + int(target.Month()-start.Month()) + 1
+	if idx < 1 {
+		return 0, false
+	}
+	return idx, true
+}
+
+func accrualMonthIndexWithMask(st *Student, year, month int) (index int, ok bool) {
+	if st == nil || st.JoinDate == nil {
+		return 0, false
+	}
+	mask := st.advisorAccrualMonthMask()
+	if mask == 0 {
+		return accrualMonthIndex(*st.JoinDate, year, month)
+	}
+	loc := time.Local
+	start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, loc)
+	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+	if target.Before(start) {
+		return 0, false
+	}
+	jm := jalali.MonthFromGregorian(year, month)
+	if !isJalaliMonthInMask(mask, jm) {
+		return 0, false
+	}
+	idx := 0
+	for t := start; !t.After(target); t = t.AddDate(0, 1, 0) {
+		y, m, _ := t.Date()
+		jmCur := jalali.MonthFromGregorian(y, int(m))
+		if isJalaliMonthInMask(mask, jmCur) {
+			idx++
+		}
+	}
+	if idx < 1 {
+		return 0, false
+	}
+	return idx, true
+}
+
+// AdvisorAccrualDueForPeriod returns advisor share accrued for one calendar month (school enrollment).
+func AdvisorAccrualDueForPeriod(st *Student, year, month int) int64 {
+	if st == nil || st.AdvisorID == nil || !st.IsSchoolEnrollment() || st.Status != StudentStatusActive {
+		return 0
+	}
+	if st.JoinDate == nil {
+		return 0
+	}
+	months := st.AdvisorAccrualMonthsCount()
+	idx, ok := accrualMonthIndexWithMask(st, year, month)
+	if !ok || idx > months {
+		return 0
+	}
+	monthly := ComputeAdvisorMonthlyAccrualCents(st)
+	if monthly <= 0 {
+		return 0
+	}
+	if st.AdvisorCommissionKind == StudentAdvisorCommPercentOfContract && idx == months {
+		total := advisorContractTotalShareCents(st)
+		prior := monthly * int64(months-1)
+		rem := total - prior
+		if rem > 0 {
+			return rem
+		}
+	}
+	return monthly
+}
+
+// ComputeAdvisorShareCents returns the advisor's share for one payment amount (per-payment billing modes).
 func ComputeAdvisorShareCents(st *Student, amountCents int64) int64 {
-	if st == nil || st.AdvisorID == nil || amountCents <= 0 {
+	if st == nil || st.AdvisorID == nil || amountCents <= 0 || st.IsSchoolEnrollment() {
 		return 0
 	}
 	switch st.AdvisorCommissionKind {
@@ -73,10 +260,17 @@ type Student struct {
 	FatherJob   string `gorm:"size:120"`
 	MotherJob   string `gorm:"size:120"`
 
-	// Per-payment advisor commission (when AdvisorID is set)
+	// SINGLE_SESSION = one payment; MONTHLY = per payment; SCHOOL_ENROLLMENT = annual contract in installments.
+	EnrollmentBillingMode EnrollmentBillingMode `gorm:"type:varchar(32);not null;default:'MONTHLY';index"`
+	// Months to spread advisor contract share (legacy consecutive months when mask is unset).
+	AdvisorAccrualMonths *int `gorm:""`
+	// Bitmask of Jalali months 1–12 (bit0=Farvardin … bit11=Esfand) for school enrollment payroll.
+	AdvisorAccrualMonthMask *int `gorm:""`
+
+	// Advisor commission (when AdvisorID is set)
 	AdvisorCommissionKind       StudentAdvisorCommissionKind `gorm:"type:varchar(32);not null;default:'NONE'"`
-	AdvisorCommissionPercent    *float64                     `gorm:""` // 0–100 when kind = PERCENT
-	AdvisorCommissionFixedCents *int64                       `gorm:""` // per PAID payment when kind = FIXED_PER_PAYMENT
+	AdvisorCommissionPercent    *float64                     `gorm:""` // PERCENT or PERCENT_OF_CONTRACT
+	AdvisorCommissionFixedCents *int64                       `gorm:""` // FIXED_PER_PAYMENT or FIXED_MONTHLY
 
 	// School info
 	SchoolName    string `gorm:"size:200"`

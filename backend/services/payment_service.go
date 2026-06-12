@@ -115,7 +115,7 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 		}
 		if !hasRolePayoutForAdvisor {
 			adv := models.ComputeAdvisorShareCents(&st, p.AmountCents)
-			if adv > 0 {
+			if adv > 0 && !st.IsSchoolEnrollment() {
 				row := models.PaymentPayrollShare{
 					PaymentID:        p.ID,
 					UserID:           *st.AdvisorID,
@@ -165,7 +165,74 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 		}
 	}
 	s.recalcPendingPayrollForStudentPaidMonths(ctx, studentID)
-	return nil
+	return s.recalcAccrualPayrollForStudent(ctx, studentID)
+}
+
+// PayrollPeriodsAffectedByStudent returns distinct local calendar (year, month) pairs
+// that may need payroll recalculation after the student is permanently removed.
+func (s *PaymentService) PayrollPeriodsAffectedByStudent(ctx context.Context, studentID uint) ([][2]int, error) {
+	var st models.Student
+	if err := s.db.WithContext(ctx).First(&st, studentID).Error; err != nil {
+		return nil, err
+	}
+	seen := make(map[[2]int]struct{})
+	var periods [][2]int
+	add := func(y, m int) {
+		key := [2]int{y, m}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		periods = append(periods, key)
+	}
+
+	var list []models.Payment
+	if err := s.db.WithContext(ctx).Select("paid_at").
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].PaidAt == nil {
+			continue
+		}
+		t := list[i].PaidAt.In(time.Local)
+		y, mo, _ := t.Date()
+		add(y, int(mo))
+	}
+
+	if st.JoinDate != nil {
+		start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, time.Local)
+		for i := 0; i < 36; i++ {
+			t := start.AddDate(0, i, 0)
+			y, mo, _ := t.Date()
+			if models.AdvisorAccrualDueForPeriod(&st, y, int(mo)) > 0 {
+				add(y, int(mo))
+			}
+		}
+	}
+	return periods, nil
+}
+
+// RecalculatePayrollPeriods refreshes pending payroll rows for the given calendar months.
+func (s *PaymentService) RecalculatePayrollPeriods(ctx context.Context, periods [][2]int) {
+	if s.payroll == nil {
+		return
+	}
+	for _, p := range periods {
+		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, p[0], p[1])
+	}
+}
+
+func (s *PaymentService) recalcAccrualPayrollForStudent(ctx context.Context, studentID uint) error {
+	if s.payroll == nil {
+		return nil
+	}
+	var st models.Student
+	if err := s.db.WithContext(ctx).First(&st, studentID).Error; err != nil {
+		return err
+	}
+	return s.payroll.RecalculateAccrualForStudent(ctx, &st)
 }
 
 func (s *PaymentService) Summary(ctx context.Context, scopeUser *uint) (*repositories.PaymentSummary, error) {

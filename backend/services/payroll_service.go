@@ -98,8 +98,6 @@ func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int,
 }
 
 // EnsureEntriesForPeriod auto-registers pending payroll rows for active users for a month.
-// Users with NET_REVENUE compensation (مدیرکل) are skipped — their salary is calculated
-// after all other payrolls are finalized and submitted manually from the frontend.
 func (s *PayrollService) EnsureEntriesForPeriod(ctx context.Context, year, month int) error {
 	var users []models.User
 	if err := s.db.WithContext(ctx).
@@ -111,10 +109,6 @@ func (s *PayrollService) EnsureEntriesForPeriod(ctx context.Context, year, month
 	for i := range users {
 		u := &users[i]
 		if u.Role == nil {
-			continue
-		}
-		// Skip NET_REVENUE roles (مدیرکل) — must be entered manually after other salaries are set.
-		if u.Role.CompensationKind == models.CompNetRevenue {
 			continue
 		}
 		if err := s.EnsureEntryForUserPeriod(ctx, u.ID, year, month); err != nil {
@@ -214,6 +208,30 @@ func payrollPeriodBounds(year, month int) (start, endExclusive time.Time) {
 	return start, endExclusive
 }
 
+// payrollMonthIndexInYear returns the 1-based month index within the payroll year.
+// Uses the open fiscal year's start month when available; otherwise calendar year (January = 1).
+func (s *PayrollService) payrollMonthIndexInYear(ctx context.Context, year, month int) int {
+	loc := time.Local
+	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+	yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, loc)
+
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).
+		Where("status = ?", models.FiscalYearOpen).
+		Order("start_date ASC").
+		First(&fy).Error; err == nil {
+		start := time.Date(fy.StartDate.Year(), fy.StartDate.Month(), 1, 0, 0, 0, 0, loc)
+		if !target.Before(start) {
+			yearStart = start
+		}
+	}
+
+	if target.Before(yearStart) {
+		return 0
+	}
+	return (target.Year()-yearStart.Year())*12 + int(target.Month()-yearStart.Month()) + 1
+}
+
 func derefInt64(p *int64) int64 {
 	if p == nil {
 		return 0
@@ -240,8 +258,91 @@ WHERE pps.deleted_at IS NULL
 	return sum, nil
 }
 
-// countStudentsForUserInPeriod counts distinct students whose payments contributed shares to this user in the period.
-// sumPaidPaymentsInPeriod totals PAID payment amounts with paid_at in [start, end) (local month).
+// sumUserAccrualSharesInPeriod sums monthly advisor accruals from school-enrollment students.
+func (s *PayrollService) sumUserAccrualSharesInPeriod(ctx context.Context, userID uint, year, month int) (int64, error) {
+	var students []models.Student
+	if err := s.db.WithContext(ctx).
+		Where("advisor_id = ? AND enrollment_billing_mode = ? AND status = ?",
+			userID, models.EnrollmentBillingSchoolEnrollment, models.StudentStatusActive).
+		Find(&students).Error; err != nil {
+		return 0, err
+	}
+	var sum int64
+	for i := range students {
+		sum += models.AdvisorAccrualDueForPeriod(&students[i], year, month)
+	}
+	return sum, nil
+}
+
+func (s *PayrollService) countAccrualStudentsForUserInPeriod(ctx context.Context, userID uint, year, month int) (int, error) {
+	var students []models.Student
+	if err := s.db.WithContext(ctx).
+		Where("advisor_id = ? AND enrollment_billing_mode = ? AND status = ?",
+			userID, models.EnrollmentBillingSchoolEnrollment, models.StudentStatusActive).
+		Find(&students).Error; err != nil {
+		return 0, err
+	}
+	cnt := 0
+	for i := range students {
+		if models.AdvisorAccrualDueForPeriod(&students[i], year, month) > 0 {
+			cnt++
+		}
+	}
+	return cnt, nil
+}
+
+// RecalculateAccrualForStudent refreshes pending payroll for months affected by this student's accrual schedule.
+func (s *PayrollService) RecalculateAccrualForStudent(ctx context.Context, st *models.Student) error {
+	if st == nil || st.JoinDate == nil {
+		return nil
+	}
+	start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	for i := 0; i < 36; i++ {
+		t := start.AddDate(0, i, 0)
+		y, m, _ := t.Date()
+		if models.AdvisorAccrualDueForPeriod(st, y, int(m)) > 0 {
+			if err := s.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// sumAllPaymentPayrollSharesInPeriod totals role/advisor shares attributed on PAID payments in the month.
+func (s *PayrollService) sumAllPaymentPayrollSharesInPeriod(ctx context.Context, year, month int) (int64, error) {
+	start, endEx := payrollPeriodBounds(year, month)
+	var sum int64
+	if err := s.db.WithContext(ctx).Raw(`
+SELECT COALESCE(SUM(pps.share_cents), 0)
+FROM payment_payroll_shares pps
+INNER JOIN payments ON payments.id = pps.payment_id AND payments.deleted_at IS NULL
+WHERE pps.deleted_at IS NULL
+  AND payments.status = ?
+  AND payments.paid_at IS NOT NULL
+  AND payments.paid_at >= ? AND payments.paid_at < ?
+`, models.PaymentStatusPaid, start, endEx).Scan(&sum).Error; err != nil {
+		return 0, err
+	}
+	return sum, nil
+}
+
+// sumAllAccrualSharesInPeriod totals monthly advisor accruals from school-enrollment students in the period.
+func (s *PayrollService) sumAllAccrualSharesInPeriod(ctx context.Context, year, month int) (int64, error) {
+	var students []models.Student
+	if err := s.db.WithContext(ctx).
+		Where("advisor_id IS NOT NULL AND enrollment_billing_mode = ? AND status = ?",
+			models.EnrollmentBillingSchoolEnrollment, models.StudentStatusActive).
+		Find(&students).Error; err != nil {
+		return 0, err
+	}
+	var sum int64
+	for i := range students {
+		sum += models.AdvisorAccrualDueForPeriod(&students[i], year, month)
+	}
+	return sum, nil
+}
+
 func (s *PayrollService) sumPaidPaymentsInPeriod(ctx context.Context, year, month int) (int64, error) {
 	start, endEx := payrollPeriodBounds(year, month)
 	var sum int64
@@ -250,18 +351,6 @@ func (s *PayrollService) sumPaidPaymentsInPeriod(ctx context.Context, year, mont
 		Where("paid_at IS NOT NULL").
 		Where("paid_at >= ? AND paid_at < ?", start, endEx).
 		Select("COALESCE(SUM(amount_cents), 0)").
-		Scan(&sum).Error; err != nil {
-		return 0, err
-	}
-	return sum, nil
-}
-
-// sumPayrollTotalsForOthersInPeriod sums total_salary_cents for all payroll rows in the period except one user (مدیرکل = درآمد خالص).
-func (s *PayrollService) sumPayrollTotalsForOthersInPeriod(ctx context.Context, year, month int, excludeUserID uint) (int64, error) {
-	var sum int64
-	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ? AND user_id != ?", year, month, excludeUserID).
-		Select("COALESCE(SUM(total_salary_cents), 0)").
 		Scan(&sum).Error; err != nil {
 		return 0, err
 	}
@@ -302,14 +391,32 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	}
 	r := u.Role
 
+	monthIndex := s.payrollMonthIndexInYear(ctx, year, month)
+	if r.CompensationKind != models.CompNetRevenue && !r.RolePaysInPayrollMonth(monthIndex) {
+		return PayrollCompensationBreakdown{
+			CompensationKind: r.CompensationKind,
+			StudentsCount:    0,
+		}, nil
+	}
+
 	variableFromShares, err := s.sumUserSharesInPeriod(ctx, userID, year, month)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
+	accrualShares, err := s.sumUserAccrualSharesInPeriod(ctx, userID, year, month)
+	if err != nil {
+		return PayrollCompensationBreakdown{}, err
+	}
+	variableFromShares += accrualShares
 	studentsCount, err := s.countStudentsForUserInPeriod(ctx, userID, year, month)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
+	accrualStudents, err := s.countAccrualStudentsForUserInPeriod(ctx, userID, year, month)
+	if err != nil {
+		return PayrollCompensationBreakdown{}, err
+	}
+	studentsCount += accrualStudents
 
 	out := PayrollCompensationBreakdown{
 		CompensationKind:    r.CompensationKind,
@@ -322,21 +429,25 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	case models.CompVariable:
 		out.BaseSalaryCents = 0
 	case models.CompNetRevenue:
-		// NET_REVENUE (مدیرکل): مجموع پرداخت‌های دریافتی ماه − مجموع حقوق ثبت‌شده سایر کارمندان همین ماه
+		// NET_REVENUE (مدیرکل): مجموع پرداخت‌های ماه − سهم‌های تخصیص‌یافته به نقش‌ها/مشاور (و اقساط ماهانه قرارداد)
 		receipts, err := s.sumPaidPaymentsInPeriod(ctx, year, month)
 		if err != nil {
 			return PayrollCompensationBreakdown{}, err
 		}
-		others, err := s.sumPayrollTotalsForOthersInPeriod(ctx, year, month, userID)
+		roleShares, err := s.sumAllPaymentPayrollSharesInPeriod(ctx, year, month)
 		if err != nil {
 			return PayrollCompensationBreakdown{}, err
 		}
-		net := receipts - others
+		accruals, err := s.sumAllAccrualSharesInPeriod(ctx, year, month)
+		if err != nil {
+			return PayrollCompensationBreakdown{}, err
+		}
+		net := receipts - roleShares - accruals
 		if net < 0 {
 			net = 0
 		}
-		out.BaseSalaryCents = net
-		out.VariableSalaryCents = 0
+		out.BaseSalaryCents = 0
+		out.VariableSalaryCents = net
 		out.StudentsCount = 0
 	default:
 		out.BaseSalaryCents = 0
@@ -397,7 +508,7 @@ var ErrPayrollEntryNotFound = errors.New("payroll entry not found")
 
 // RecalculateAllPendingEntriesForPeriod recomputes base/variable/total for every PENDING payroll row
 // in the given calendar month (local time). Call after payment_payroll_shares change so حقوق matches پرداخت‌ها.
-// NET_REVENUE (مدیرکل) rows are updated last so «دریافتی − حقوق سایرین» sees fresh totals for everyone else.
+// NET_REVENUE (مدیرکل) rows are updated last so shares from other users are already fresh.
 func (s *PayrollService) RecalculateAllPendingEntriesForPeriod(ctx context.Context, year, month int) error {
 	if year < 1 || month < 1 || month > 12 {
 		return nil
@@ -451,6 +562,7 @@ type UpdateEntryParams struct {
 	VariableSalaryCents      *int64
 	StudentsCount            *int
 	Status                   *models.PayrollStatus
+	PaidAt                   *time.Time
 }
 
 // UpdateEntry updates an existing payroll entry. Total is recalculated from base + variable.
@@ -476,6 +588,9 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 	}
 	if p.StudentsCount != nil {
 		entry.StudentsCount = *p.StudentsCount
+	}
+	if p.PaidAt != nil {
+		entry.PaidAt = p.PaidAt
 	}
 	if p.Status != nil {
 		entry.Status = *p.Status

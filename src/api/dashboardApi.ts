@@ -7,6 +7,8 @@ export interface DashboardKPIs {
   active_students: number;
   student_registrations_this_month: number;
   monthly_payroll_cents: number;
+  /** مجموع مانده بدهی دانش‌آموزان فعال (ثبت‌نامی − پرداخت‌شده) */
+  student_debt_cents: number;
 }
 
 export interface DashboardPayment {

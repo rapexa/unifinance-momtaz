@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 )
+
+var ErrStudentMustBeDeletedFirst = errors.New("student must be marked deleted before permanent removal")
 
 // StudentService encapsulates business logic for students.
 type StudentService struct {
@@ -48,6 +51,26 @@ func (s *StudentService) Delete(ctx context.Context, id uint) error {
 		return err
 	}
 	return s.repo.ReplaceActiveEnrollment(ctx, id, nil, 0)
+}
+
+// HardDelete permanently removes a student and related rows.
+// Allowed when status is DELETED, or when the student has no PAID payments (test / mistaken entry).
+// Students with PAID payments must be soft-deleted first so accounting history is not wiped by accident.
+func (s *StudentService) HardDelete(ctx context.Context, id uint) error {
+	st, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if st.Status != models.StudentStatusDeleted {
+		paidCount, err := s.repo.CountPaidPayments(ctx, id)
+		if err != nil {
+			return err
+		}
+		if paidCount > 0 {
+			return ErrStudentMustBeDeletedFirst
+		}
+	}
+	return s.repo.HardDelete(ctx, id)
 }
 
 // Stats returns aggregate student counters for use in the Students page stats.

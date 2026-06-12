@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/csv"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -36,6 +35,7 @@ type PaymentDTO struct {
 	StudentID         uint       `json:"student_id"`
 	StudentName       string     `json:"student_name"`
 	StudentPhone      string     `json:"student_phone,omitempty"`
+	AdvisorName       string     `json:"advisor_name,omitempty"`
 	EnrollmentID      *uint      `json:"enrollment_id,omitempty"`
 	PlanName          *string    `json:"plan_name,omitempty"`
 	AmountCents       int64      `json:"amount_cents"`
@@ -71,6 +71,9 @@ func toPaymentDTO(p *models.Payment) PaymentDTO {
 	if p.Student.ID != 0 {
 		dto.StudentName = fmt.Sprintf("%s %s", p.Student.FirstName, p.Student.LastName)
 		dto.StudentPhone = p.Student.Phone
+		if p.Student.Advisor != nil && p.Student.Advisor.ID != 0 {
+			dto.AdvisorName = fmt.Sprintf("%s %s", p.Student.Advisor.FirstName, p.Student.Advisor.LastName)
+		}
 	}
 
 	if p.EnrollmentID != nil && p.Enrollment != nil {
@@ -108,15 +111,15 @@ type createPaymentRequest struct {
 }
 
 type updatePaymentRequest struct {
-	AmountCents   *int64     `json:"amount_cents" binding:"omitempty,gt=0"`
-	PaidAtStr     *string    `json:"paid_at" binding:"omitempty"`
-	Method        *string    `json:"method" binding:"omitempty"`
-	Description   *string    `json:"description" binding:"omitempty,max=500"`
-	ReferenceCode *string    `json:"reference_number" binding:"omitempty,max=255"`
-	Status        *string    `json:"status" binding:"omitempty"`
-	Type          *string    `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
-	EnrollmentID  *uint      `json:"enrollment_id" binding:"omitempty"`
-	DueDateStr    *string    `json:"due_date" binding:"omitempty"`
+	AmountCents   *int64  `json:"amount_cents" binding:"omitempty,gt=0"`
+	PaidAtStr     *string `json:"paid_at" binding:"omitempty"`
+	Method        *string `json:"method" binding:"omitempty"`
+	Description   *string `json:"description" binding:"omitempty,max=500"`
+	ReferenceCode *string `json:"reference_number" binding:"omitempty,max=255"`
+	Status        *string `json:"status" binding:"omitempty"`
+	Type          *string `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
+	EnrollmentID  *uint   `json:"enrollment_id" binding:"omitempty"`
+	DueDateStr    *string `json:"due_date" binding:"omitempty"`
 }
 
 // Summary handles GET /payments/summary
@@ -283,18 +286,28 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 // @Failure      403   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /payments [post]
-// parseOptionalDate parses "2006-01-02" or RFC3339 and returns *time.Time or nil.
+// parseOptionalDate parses YYYY-MM-DD or RFC3339 and returns local midnight.
 func parseOptionalDate(s string) (*time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
-	for _, layout := range []string{"2006-01-02", time.RFC3339} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return &t, nil
-		}
+	layouts := []string{
+		"2006-01-02",
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05Z07:00",
 	}
-	return nil, fmt.Errorf("invalid date format: %q (use YYYY-MM-DD or ISO8601)", s)
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, s)
+		if err != nil {
+			continue
+		}
+		loc := time.Local
+		normalized := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		return &normalized, nil
+	}
+	return nil, fmt.Errorf("فرمت تاریخ نامعتبر است. مثال: 2024-04-03")
 }
 
 func (h *PaymentHandler) Create(c *gin.Context) {
@@ -336,7 +349,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 
 	p, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payment"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ثبت پرداخت"})
 		return
 	}
 
@@ -557,37 +570,81 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 	}
 
 	filename := fmt.Sprintf("payments_export_%s.csv", time.Now().Format("20060102"))
-	c.Header("Content-Type", "text/csv")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 
-	w := csv.NewWriter(c.Writer)
-	defer w.Flush()
-
-	_ = w.Write([]string{"ID", "Student", "Amount", "Currency", "Status", "Method", "DueDate", "PaidAt", "Reference", "Description"})
-
+	header := []string{
+		"شناسه پرداخت",
+		"شناسه دانش‌آموز",
+		"نام دانش‌آموز",
+		"مبلغ (تومان)",
+		"وضعیت",
+		"روش پرداخت",
+		"تاریخ سررسید",
+		"تاریخ پرداخت",
+		"کد پیگیری",
+		"توضیحات",
+	}
+	rows := make([][]string, 0, len(payments))
 	for _, p := range payments {
 		dto := toPaymentDTO(&p)
-		row := []string{
+		studentName := strings.TrimSpace(dto.StudentName)
+		if studentName == "" {
+			studentName = fmt.Sprintf("دانش‌آموز #%d", dto.StudentID)
+		}
+		rows = append(rows, []string{
 			strconv.FormatUint(uint64(dto.ID), 10),
-			dto.StudentName,
-			strconv.FormatInt(dto.AmountCents, 10),
-			dto.Currency,
-			dto.Status,
-			dto.Method,
-			formatTime(dto.DueDate),
-			formatTime(dto.PaidAt),
+			strconv.FormatUint(uint64(dto.StudentID), 10),
+			studentName,
+			strconv.FormatInt(dto.AmountCents/10, 10),
+			paymentStatusLabelFa(dto.Status),
+			paymentMethodLabelFa(dto.Method),
+			formatExportDate(dto.DueDate),
+			formatExportDate(dto.PaidAt),
 			dto.ReferenceCode,
 			dto.Description,
-		}
-		_ = w.Write(row)
+		})
+	}
+	if err := writeCSVAttachment(c.Writer, filename, header, rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export payments"})
 	}
 }
 
-func formatTime(t *time.Time) string {
+func paymentStatusLabelFa(status string) string {
+	switch strings.ToUpper(status) {
+	case string(models.PaymentStatusPaid):
+		return "پرداخت شده"
+	case string(models.PaymentStatusPending):
+		return "در انتظار"
+	case string(models.PaymentStatusOverdue):
+		return "سررسید گذشته"
+	case string(models.PaymentStatusCancelled):
+		return "لغو شده"
+	default:
+		return status
+	}
+}
+
+func paymentMethodLabelFa(method string) string {
+	switch strings.ToUpper(method) {
+	case string(models.PaymentMethodCash):
+		return "نقدی"
+	case string(models.PaymentMethodCardToCard):
+		return "کارت به کارت"
+	case string(models.PaymentMethodGateway):
+		return "درگاه"
+	case string(models.PaymentMethodInstallment):
+		return "اقساط"
+	case string(models.PaymentMethodOther):
+		return "سایر"
+	default:
+		return method
+	}
+}
+
+func formatExportDate(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.Format(time.RFC3339)
+	return t.In(time.Local).Format("2006-01-02 15:04")
 }
 
 // GenerateLink handles POST /payments/:id/link

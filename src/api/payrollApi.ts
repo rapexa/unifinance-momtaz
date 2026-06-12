@@ -65,7 +65,7 @@ export async function getPayrollSummary(params?: {
   return data as PayrollSummary;
 }
 
-/** بازمحاسبهٔ همهٔ فیش‌های در انتظار این ماه از پرداخت‌ها و قوانین نقش؛ مدیرکل (NET_REVENUE) در انتها. */
+/** بازمحاسبهٔ همهٔ فیش‌های در انتظار این ماه از پرداخت‌ها و قوانین نقش. */
 export async function recalculatePayrollPeriod(params: {
   year: number;
   month: number;
@@ -188,6 +188,8 @@ export interface UpdatePayrollEntryPayload {
   variable_salary_cents?: number;
   students_count?: number;
   status?: string;
+  /** Gregorian YYYY-MM-DD */
+  paid_at?: string | null;
 }
 
 export async function updatePayrollEntry(

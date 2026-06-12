@@ -19,6 +19,7 @@ func Run() {
 
 	db := database.MustGetDB()
 	autoMigrate(db)
+	backfillRolePayrollMonths(db)
 	backfillPaymentPayrollShares(db)
 	seedRolesAndPermissions(db)
 	migrateLegacyUserRoleColumn(db)
@@ -68,6 +69,27 @@ func backfillPaymentPayrollShares(db *gorm.DB) {
 
 func ptrI64(v int64) *int64 { return &v }
 
+func ptrInt(v int) *int { return &v }
+
+func backfillRolePayrollMonths(db *gorm.DB) {
+	var roles []models.Role
+	if err := db.Find(&roles).Error; err != nil {
+		log.Printf("migrations: backfill role payroll months load: %v", err)
+		return
+	}
+	for _, r := range roles {
+		if r.PayrollMonthsCount != nil && *r.PayrollMonthsCount > 0 {
+			continue
+		}
+		n := models.DefaultPayrollMonthsForKind(r.CompensationKind)
+		if err := db.Model(&models.Role{}).Where("id = ?", r.ID).
+			Update("payroll_months_count", n).Error; err != nil {
+			log.Printf("migrations: backfill payroll_months_count role %d: %v", r.ID, err)
+		}
+	}
+	log.Println("migrations: role payroll_months_count backfill finished")
+}
+
 func seedRolesAndPermissions(db *gorm.DB) {
 	// Only the general_manager is a system (built-in) role.
 	// All other roles are created by the organization admin via the UI.
@@ -78,8 +100,9 @@ func seedRolesAndPermissions(db *gorm.DB) {
 		Description:      "مدیرکل مجموعه — دسترسی کامل",
 		IsSystem:         true,
 		FullAccess:       true,
-		CompensationKind: models.CompFixed,
-		FixedCents:       ptrI64(z),
+		CompensationKind:   models.CompFixed,
+		FixedCents:         ptrI64(z),
+		PayrollMonthsCount: ptrInt(12),
 	}
 	ensureRole(db, &gm, models.AllPermissions)
 	log.Println("migrations: roles and role_permissions seeded")
@@ -102,6 +125,9 @@ func ensureRole(db *gorm.DB, r *models.Role, perms []models.Permission) {
 		existing.FullAccess = r.FullAccess
 		existing.CompensationKind = r.CompensationKind
 		existing.FixedCents = r.FixedCents
+		if existing.PayrollMonthsCount == nil {
+			existing.PayrollMonthsCount = r.PayrollMonthsCount
+		}
 		if err := db.Save(&existing).Error; err != nil {
 			log.Fatalf("migrations: update role %s: %v", r.Code, err)
 		}

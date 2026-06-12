@@ -52,6 +52,16 @@ import {
   type CreateRolePayload,
 } from "@/api/rolesApi";
 import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const PERMISSION_LABELS: Record<string, string> = {
   DASHBOARD: "داشبورد",
@@ -64,16 +74,6 @@ const PERMISSION_LABELS: Record<string, string> = {
   REPORTS: "گزارش‌ها",
   SETTINGS: "مدیریت سال مالی",
 };
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 interface UserRow {
   id: number;
@@ -83,6 +83,7 @@ interface UserRow {
   roleCode: string;
   status: "active" | "inactive";
   createdAt: string;
+  assignedStudentsCount: number;
 }
 
 const ROLE_BADGE_STYLES = [
@@ -111,14 +112,15 @@ function mapUser(u: UserApi): UserRow {
     roleLabel,
     roleCode,
     status: u.is_active ? "active" : "inactive",
-    createdAt: formatIsoDateShamsi((u as any).created_at),
+    createdAt: formatIsoDateShamsi(u.created_at),
+    assignedStudentsCount: u.assigned_students_count ?? 0,
   } as UserRow;
 }
 
 const COMP_KIND_LABELS: Record<string, string> = {
   FIXED: "حقوق ثابت ماهانه",
   VARIABLE: "متغیر (بر اساس دانش‌آموزان)",
-  NET_REVENUE: "درآمد خالص (مجموع پرداخت‌ها − حقوق کارمندان)",
+  NET_REVENUE: "درآمد خالص (مجموع پرداخت‌ها − سهم نقش‌ها)",
 };
 
 const ALL_PERMISSION_CODES: PermissionCode[] = [
@@ -143,10 +145,13 @@ function EditUserForm({
   const [lastName, setLastName] = useState(user.last_name || "");
   const [email, setEmail] = useState(user.email || "");
   const [phone, setPhone] = useState(user.phone || "");
-  const [roleId, setRoleId] = useState(String(user.role_id || ""));
+  const initialRoleId = user.role_id > 0 ? String(user.role_id) : "";
+  const [roleId, setRoleId] = useState(initialRoleId);
   const [isActive, setIsActive] = useState(user.is_active ?? true);
   const [newPassword, setNewPassword] = useState("");
   const [permissions, setPermissions] = useState<string[]>(user.permissions ?? []);
+  const [formError, setFormError] = useState<string | null>(null);
+  const roleMissingFromList = Boolean(roleId && !roles.some((r) => String(r.id) === roleId));
 
   const togglePermission = (code: string) => {
     setPermissions((prev) =>
@@ -187,11 +192,14 @@ function EditUserForm({
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-muted-foreground">نقش</span>
-        <Select value={roleId} onValueChange={setRoleId}>
+        <Select value={roleId || undefined} onValueChange={setRoleId}>
           <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="انتخاب نقش" />
           </SelectTrigger>
           <SelectContent>
+            {roleMissingFromList && (
+              <SelectItem value={roleId}>نقش فعلی (#{roleId})</SelectItem>
+            )}
             {roles.map((r) => (
               <SelectItem key={r.id} value={String(r.id)}>
                 {r.name}
@@ -224,28 +232,41 @@ function EditUserForm({
         <Button variant="outline" onClick={onCancel} disabled={mutation.isPending}>انصراف</Button>
         <Button
           onClick={() => {
+            setFormError(null);
+            const parsedRoleId = parseInt(roleId, 10);
+            if (!Number.isFinite(parsedRoleId) || parsedRoleId <= 0) {
+              setFormError("لطفاً یک نقش معتبر انتخاب کنید.");
+              return;
+            }
             const payload: UpdateUserPayload = {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
               email: email.trim(),
               phone: phone.trim() || undefined,
-              role_id: parseInt(roleId, 10),
+              role_id: parsedRoleId,
               is_active: isActive,
-              permissions,
             };
+            if (user.permissions != null || permissions.length > 0) {
+              payload.permissions = permissions;
+            }
             if (newPassword.trim()) payload.password = newPassword.trim();
             mutation.mutate(
               { id: user.id, payload },
-              { onSuccess: onSuccess }
+              {
+                onSuccess: onSuccess,
+                onError: (err) => setFormError((err as Error)?.message || "ذخیره با خطا مواجه شد"),
+              }
             );
           }}
-          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || !email.trim()}
+          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || !email.trim() || !roleId}
         >
           {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
         </Button>
       </DialogFooter>
-      {mutation.isError && (
-        <p className="text-xs text-destructive">{(mutation.error as Error)?.message}</p>
+      {(formError || mutation.isError) && (
+        <p className="text-xs text-destructive">
+          {formError || (mutation.error as Error)?.message || "ذخیره با خطا مواجه شد"}
+        </p>
       )}
     </div>
   );
@@ -260,7 +281,7 @@ const Users = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsUserId, setDetailsUserId] = useState<number | null>(null);
   const [editUserId, setEditUserId] = useState<number | null>(null);
-  const [deleteUser, setDeleteUser] = useState<UserRow | null>(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<UserRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -277,6 +298,7 @@ const Users = () => {
   const [newRoleFullAccess, setNewRoleFullAccess] = useState(false);
   const [newCompKind, setNewCompKind] = useState<CompensationKind>("FIXED");
   const [newFixedTomans, setNewFixedTomans] = useState("");
+  const [newPayrollMonths, setNewPayrollMonths] = useState("12");
   /** درصد از مبلغ کل هر پرداخت دانش‌آموز (اختیاری، مثلاً برای مدیر اجرایی) */
   const [newRolePerms, setNewRolePerms] = useState<string[]>([PERMISSIONS.STUDENTS]);
 
@@ -298,15 +320,21 @@ const Users = () => {
   }, [createRoleId, defaultAdvisorRoleId]);
 
   const { data: detailsUserData } = useQuery({
-    queryKey: ["user", detailsUserId],
+    queryKey: ["user", "details", detailsUserId],
     queryFn: () => getUser(detailsUserId!),
     enabled: detailsUserId != null,
   });
 
-  const { data: editUserData } = useQuery({
-    queryKey: ["user", editUserId],
+  const {
+    data: editUserData,
+    isLoading: isEditUserLoading,
+    isError: isEditUserError,
+    error: editUserError,
+  } = useQuery({
+    queryKey: ["user", "edit", editUserId],
     queryFn: () => getUser(editUserId!),
     enabled: editUserId != null,
+    retry: 1,
   });
 
   const updateMutation = useMutation({
@@ -315,7 +343,8 @@ const Users = () => {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["user", id] });
+      queryClient.invalidateQueries({ queryKey: ["user", "details", id] });
+      queryClient.invalidateQueries({ queryKey: ["user", "edit", id] });
       queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setEditUserId(null);
     },
@@ -342,6 +371,7 @@ const Users = () => {
       setNewRoleFullAccess(false);
       setNewCompKind("FIXED");
       setNewFixedTomans("");
+      setNewPayrollMonths("12");
       setNewRolePerms([PERMISSIONS.STUDENTS]);
     },
   });
@@ -352,7 +382,7 @@ const Users = () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["users-summary"] });
       queryClient.invalidateQueries({ queryKey: ["advisors"] });
-      setDeleteUser(null);
+      setDeleteUserTarget(null);
     },
   });
 
@@ -403,6 +433,9 @@ const Users = () => {
   });
 
   const users: UserRow[] = (data?.data || []).map(mapUser);
+  const userApiList: UserApi[] = data?.data ?? [];
+  const editUserResolved =
+    editUserData ?? userApiList.find((u) => u.id === editUserId) ?? null;
 
   const handleExport = async () => {
     try {
@@ -529,7 +562,10 @@ const Users = () => {
               <div>
                 <p className="font-bold text-foreground">{row.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  {isSummaryLoading || isSummaryError ? "—" : row.count} کاربر
+                  {isSummaryLoading || isSummaryError ? "—" : row.count.toLocaleString("fa-IR")} کاربر
+                  {!isSummaryLoading && !isSummaryError && (
+                    <span className="text-primary"> · {(row.students_count ?? 0).toLocaleString("fa-IR")} دانش‌آموز</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -542,7 +578,7 @@ const Users = () => {
         <div className="border-b bg-muted/40 px-4 py-3">
           <h2 className="text-sm font-semibold">نقش‌ها و قوانین حقوق</h2>
           <p className="text-xs text-muted-foreground">
-            هر نقش یکی از انواع حقوق ثابت، درصدی از پرداخت‌های دانش‌آموزان، یا مبلغ به‌ازای واحد حجم پرداخت دارد؛ علاوه بر آن می‌توان درصد جدا از مبلغ کل هر پرداخت دانش‌آموز تعریف کرد.
+            هر نقش نوع حقوق و تعداد ماه‌های پرداخت در سال دارد — مثلاً مشاور ۱۰ ماه، منشی ۱۲ ماه.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -576,6 +612,13 @@ const Users = () => {
                       "مجموع پرداخت‌های ماه − مجموع حقوق سایر کارمندان"}
                     {(r.full_access && r.compensation_kind !== "NET_REVENUE") &&
                       " — مدیرکل: درآمد خالص"}
+                    {!r.full_access && r.compensation_kind !== "NET_REVENUE" && (
+                      <span className="block mt-0.5">
+                        {r.payroll_months_count ??
+                          (r.compensation_kind === "VARIABLE" ? 10 : 12)}{" "}
+                        ماه حقوق در سال
+                      </span>
+                    )}
                   </td>
                   <td className="p-3">
                     {!r.is_system && (
@@ -605,6 +648,7 @@ const Users = () => {
               <tr className="border-b bg-muted/50">
                 <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کاربر</th>
                 <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش</th>
+                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
                 <th className="p-4 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
                 <th className="p-4 text-right text-xs font-semibold text-muted-foreground">آخرین فعالیت</th>
                 <th className="p-4 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
@@ -614,7 +658,7 @@ const Users = () => {
               {isLoading && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="p-4 text-center text-sm text-muted-foreground"
                   >
                     در حال بارگذاری کاربران...
@@ -624,7 +668,7 @@ const Users = () => {
               {isError && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="p-4 text-center text-sm text-destructive"
                   >
                     {(error as Error)?.message ||
@@ -635,7 +679,7 @@ const Users = () => {
               {!isLoading && !isError && users.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="p-4 text-center text-sm text-muted-foreground"
                   >
                     کاربری یافت نشد.
@@ -670,6 +714,13 @@ const Users = () => {
                       {user.roleLabel}
                     </span>
                   </td>
+                  <td className="p-4 text-foreground">
+                    {user.assignedStudentsCount > 0 ? (
+                      <span>{user.assignedStudentsCount.toLocaleString("fa-IR")} نفر</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="p-4">
                     <span
                       className={cn(
@@ -687,6 +738,7 @@ const Users = () => {
                   <td className="p-4">
                     <div className="flex gap-1 flex-wrap">
                       <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
                         className="gap-1"
@@ -697,6 +749,7 @@ const Users = () => {
                         جزئیات
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
                         className="gap-1"
@@ -707,10 +760,11 @@ const Users = () => {
                         ویرایش
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
                         className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => setDeleteUser(user)}
+                        onClick={() => setDeleteUserTarget(user)}
                         title="حذف (غیرفعال‌سازی)"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -875,6 +929,12 @@ const Users = () => {
               <p><span className="text-muted-foreground">ایمیل:</span> {detailsUserData.email}</p>
               <p><span className="text-muted-foreground">موبایل:</span> {detailsUserData.phone || "—"}</p>
               <p><span className="text-muted-foreground">نقش:</span> {detailsUserData.role_name || detailsUserData.role_code || detailsUserData.role}</p>
+              <p>
+                <span className="text-muted-foreground">دانش‌آموزان ثبت‌شده:</span>{" "}
+                {(detailsUserData.assigned_students_count ?? 0) > 0
+                  ? `${(detailsUserData.assigned_students_count ?? 0).toLocaleString("fa-IR")} نفر`
+                  : "—"}
+              </p>
               <p><span className="text-muted-foreground">وضعیت:</span> {detailsUserData.is_active ? "فعال" : "غیرفعال"}</p>
               <p><span className="text-muted-foreground">دسترسی‌ها:</span> {(detailsUserData.permissions ?? []).length ? (detailsUserData.permissions ?? []).map((p) => PERMISSION_LABELS[p] ?? p).join("، ") : "—"}</p>
             </div>
@@ -884,18 +944,32 @@ const Users = () => {
 
       {/* Edit user dialog */}
       <Dialog open={editUserId != null} onOpenChange={(open) => !open && setEditUserId(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>ویرایش کاربر</DialogTitle>
           </DialogHeader>
-          {editUserData && (
+          {isEditUserLoading && !editUserResolved && (
+            <p className="text-sm text-muted-foreground">در حال بارگذاری اطلاعات کاربر...</p>
+          )}
+          {isEditUserError && !editUserResolved && (
+            <p className="text-sm text-destructive">
+              {(editUserError as Error)?.message || "خطا در دریافت اطلاعات کاربر"}
+            </p>
+          )}
+          {editUserResolved && (
             <EditUserForm
-              user={editUserData}
+              key={`${editUserResolved.id}-${editUserData ? "full" : "list"}`}
+              user={editUserResolved}
               roles={roles}
               onCancel={() => setEditUserId(null)}
               onSuccess={() => setEditUserId(null)}
               mutation={updateMutation}
             />
+          )}
+          {isEditUserError && editUserResolved && (
+            <p className="text-xs text-amber-600">
+              دسترسی‌های دقیق بارگذاری نشد؛ بقیه فیلدها از لیست پر شده‌اند.
+            </p>
           )}
         </DialogContent>
       </Dialog>
@@ -908,12 +982,12 @@ const Users = () => {
           </DialogHeader>
           <div className="space-y-3 text-sm">
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">کد نقش (انگلیسی، کوچک)</label>
+              <label className="mb-1 block text-xs text-muted-foreground">کد نقش (انگلیسی کوچک؛ حتی تک‌حرفی مثل m)</label>
               <Input
                 dir="ltr"
                 value={newRoleCode}
                 onChange={(e) => setNewRoleCode(e.target.value)}
-                placeholder="e.g. sales_lead"
+                placeholder="e.g. m"
               />
             </div>
             <div>
@@ -966,7 +1040,14 @@ const Users = () => {
             )}
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">نوع حقوق</label>
-              <Select value={newCompKind} onValueChange={(v) => setNewCompKind(v as CompensationKind)}>
+              <Select
+                value={newCompKind}
+                onValueChange={(v) => {
+                  const kind = v as CompensationKind;
+                  setNewCompKind(kind);
+                  setNewPayrollMonths(kind === "VARIABLE" ? "10" : "12");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -977,10 +1058,26 @@ const Users = () => {
               </Select>
               {newCompKind === "VARIABLE" && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  میزان سهم این نقش از هر دانش‌آموز هنگام ثبت‌نام دانش‌آموز مشخص می‌شود.
+                  میزان سهم این نقش از هر دانش‌آموز هنگام ثبت‌نام مشخص می‌شود. معمولاً ۱۰ ماه در سال (دوره مشاوره).
                 </p>
               )}
             </div>
+            {!newRoleFullAccess && newCompKind !== "NET_REVENUE" && (
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">تعداد ماه‌های حقوق در سال</label>
+                <Input
+                  inputMode="numeric"
+                  value={newPayrollMonths}
+                  onChange={(e) => setNewPayrollMonths(e.target.value.replace(/[^\d]/g, ""))}
+                  placeholder={newCompKind === "VARIABLE" ? "10" : "12"}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {newCompKind === "FIXED"
+                    ? "منشی و کارکنان ثابت معمولاً ۱۲ ماه."
+                    : "مشاوران معمولاً ۱۰ ماه (مثلاً مهر تا تیر)."}
+                </p>
+              </div>
+            )}
             {!newRoleFullAccess && newCompKind === "FIXED" && (
               <div>
                 <label className="mb-1 block text-xs text-muted-foreground">حقوق ثابت ماهانه (تومان)</label>
@@ -1015,6 +1112,15 @@ const Users = () => {
                 };
                 if (!newRoleFullAccess && newCompKind === "FIXED") {
                   payload.fixed_cents = tomansToCents(newFixedTomans);
+                }
+                if (!newRoleFullAccess && newCompKind !== "NET_REVENUE") {
+                  const months = parseLocalizedInt(newPayrollMonths);
+                  payload.payroll_months_count =
+                    months >= 1 && months <= 12
+                      ? months
+                      : newCompKind === "VARIABLE"
+                        ? 10
+                        : 12;
                 }
                 createRoleMutation.mutate(payload);
               }}
@@ -1059,19 +1165,37 @@ const Users = () => {
       </AlertDialog>
 
       {/* Delete (deactivate) confirm */}
-      <AlertDialog open={deleteUser != null} onOpenChange={(open) => !open && setDeleteUser(null)}>
+      <AlertDialog
+        open={deleteUserTarget != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteUserTarget(null);
+            deactivateMutation.reset();
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>غیرفعال کردن کاربر</AlertDialogTitle>
             <AlertDialogDescription>
-              آیا از غیرفعال کردن کاربر «{deleteUser?.name}» اطمینان دارید؟ این کاربر دیگر نمی‌تواند وارد سیستم شود.
+              آیا از غیرفعال کردن کاربر «{deleteUserTarget?.name}» اطمینان دارید؟ این کاربر دیگر نمی‌تواند وارد سیستم شود.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deactivateMutation.isError && (
+            <p className="text-xs text-destructive px-1">
+              {(deactivateMutation.error as Error)?.message || "غیرفعال کردن کاربر با خطا مواجه شد"}
+            </p>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogCancel disabled={deactivateMutation.isPending}>انصراف</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteUser && deactivateMutation.mutate(deleteUser.id)}
+              disabled={deactivateMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!deleteUserTarget) return;
+                deactivateMutation.mutate(deleteUserTarget.id);
+              }}
             >
               {deactivateMutation.isPending ? "در حال انجام..." : "غیرفعال کردن"}
             </AlertDialogAction>

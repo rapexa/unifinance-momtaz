@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -14,28 +22,36 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CalendarDays, Plus, Lock, CheckCircle2, AlertTriangle, Download, RotateCcw } from "lucide-react";
+import { Plus, Lock, CheckCircle2, AlertTriangle, Download, RotateCcw, HistoryIcon, Trash2, Pencil } from "lucide-react";
 import {
   listFiscalYears,
   getCurrentFiscalYear,
   createFiscalYear,
+  updateFiscalYear,
   closeFiscalYear,
   reopenFiscalYear,
+  restoreFiscalYear,
+  purgeFiscalYear,
   absoluteUploadUrl,
   type FiscalYear,
 } from "@/api/settingsApi";
-import { gregorianIsoToJalali, jalaliToGregorianIso } from "@/lib/jalaliDate";
+import { gregorianIsoToJalali, jalaliToGregorianIso, todayJalaliString } from "@/lib/jalaliDate";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import { SHAMSI_MONTH_NAMES } from "@/lib/shamsi";
 
 const Settings = () => {
   const queryClient = useQueryClient();
 
   const [newFYName, setNewFYName] = useState("");
-  const [newFYStartJalali, setNewFYStartJalali] = useState("");
+  const [newFYStartJalali, setNewFYStartJalali] = useState(() => todayJalaliString());
   const [showNewFYDialog, setShowNewFYDialog] = useState(false);
   const [showCloseFYDialog, setShowCloseFYDialog] = useState(false);
   const [closedFY, setClosedFY] = useState<FiscalYear | null>(null);
   const [reopenTarget, setReopenTarget] = useState<FiscalYear | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<FiscalYear | null>(null);
+  const [purgeTarget, setPurgeTarget] = useState<FiscalYear | null>(null);
+  const [editNameTarget, setEditNameTarget] = useState<FiscalYear | null>(null);
+  const [editNameValue, setEditNameValue] = useState("");
   const [fyError, setFyError] = useState("");
 
   const { data: fiscalYears = [], isLoading: fyLoading } = useQuery({
@@ -54,7 +70,20 @@ const Settings = () => {
       queryClient.invalidateQueries({ queryKey: ["fiscal-year-current"] });
       setShowNewFYDialog(false);
       setNewFYName("");
-      setNewFYStartJalali("");
+      setNewFYStartJalali(todayJalaliString());
+      setFyError("");
+    },
+    onError: (e: Error) => setFyError(e.message),
+  });
+
+  const updateFYNameMutation = useMutation({
+    mutationFn: (p: { id: number; name: string }) => updateFiscalYear(p.id, { name: p.name }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["fiscal-years"] });
+      queryClient.invalidateQueries({ queryKey: ["fiscal-year-current"] });
+      setClosedFY((prev) => (prev?.id === updated.id ? { ...prev, name: updated.name } : prev));
+      setEditNameTarget(null);
+      setEditNameValue("");
       setFyError("");
     },
     onError: (e: Error) => setFyError(e.message),
@@ -83,6 +112,33 @@ const Settings = () => {
     onError: (e: Error) => setFyError(e.message),
   });
 
+  const restoreFYMutation = useMutation({
+    mutationFn: (id: number) => restoreFiscalYear(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fiscal-years"] });
+      queryClient.invalidateQueries({ queryKey: ["fiscal-year-current"] });
+      setRestoreTarget(null);
+      setClosedFY(null);
+      setFyError("");
+    },
+    onError: (e: Error) => setFyError(e.message),
+  });
+
+  const purgeFYMutation = useMutation({
+    mutationFn: (id: number) => purgeFiscalYear(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["fiscal-years"] });
+      queryClient.invalidateQueries({ queryKey: ["fiscal-year-current"] });
+      setPurgeTarget(null);
+      setClosedFY((prev) => (prev?.id === id ? null : prev));
+      setFyError("");
+    },
+    onError: (e: Error) => setFyError(e.message),
+  });
+
+  // The most-recently-created fiscal year; restore is only valid for this one.
+  const mostRecentFYId = fiscalYears.length > 0 ? fiscalYears[0].id : null;
+
   const handleCreateFY = () => {
     setFyError("");
     if (!newFYName.trim()) {
@@ -95,10 +151,34 @@ const Settings = () => {
     }
     const gregorianStart = jalaliToGregorianIso(newFYStartJalali);
     if (!gregorianStart) {
-      setFyError("فرمت تاریخ اشتباه است. مثال: ۱۴۰۴/۰۱/۰۱");
+      setFyError("تاریخ شروع نامعتبر است — از تقویم انتخاب کنید");
       return;
     }
     createFYMutation.mutate({ name: newFYName.trim(), start_date: gregorianStart });
+  };
+
+  const openEditNameDialog = (fy: FiscalYear) => {
+    setEditNameTarget(fy);
+    setEditNameValue(fy.name);
+    setFyError("");
+  };
+
+  const handleUpdateFYName = () => {
+    if (!editNameTarget) return;
+    setFyError("");
+    if (!editNameValue.trim()) {
+      setFyError("نام سال مالی الزامی است");
+      return;
+    }
+    updateFYNameMutation.mutate({ id: editNameTarget.id, name: editNameValue.trim() });
+  };
+
+  const openNewFYDialog = () => {
+    setFyError("");
+    if (!newFYStartJalali.trim()) {
+      setNewFYStartJalali(todayJalaliString());
+    }
+    setShowNewFYDialog(true);
   };
 
   const fyMonthName = (iso: string | null) => {
@@ -110,42 +190,107 @@ const Settings = () => {
     return `${monthName} ${jy}`;
   };
 
+  /** سال هدف برای ویرایش/حذف — جاری، یا اولین باز، یا اولین رکورد */
+  const actionFy: FiscalYear | null =
+    currentFY ??
+    fiscalYears.find((f) => f.status === "OPEN") ??
+    (fiscalYears.length > 0 ? fiscalYears[0] : null);
+
   return (
     <MainLayout title="مدیریت سال مالی" subtitle="تعریف سال مالی جاری، بستن دوره و دانلود خروجی">
       <div className="space-y-6">
-        <div className="card-elevated p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-foreground">سال مالی جاری</h3>
-            {!currentFY && !fyLoading && (
-              <Button
-                onClick={() => {
-                  setShowNewFYDialog(true);
+        {/* همیشه نمایش داده می‌شود — بدون شرط */}
+        <div className="card-elevated border-2 border-primary/25 p-4 sm:p-5">
+          <p className="mb-3 text-sm font-bold text-foreground">عملیات سال مالی</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              variant="default"
+              size="lg"
+              className="w-full gap-2 sm:w-auto"
+              disabled={fyLoading || !actionFy}
+              onClick={() => actionFy && openEditNameDialog(actionFy)}
+            >
+              <Pencil className="h-4 w-4" />
+              ویرایش نام سال مالی
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="lg"
+              className="w-full gap-2 sm:w-auto"
+              disabled={fyLoading || !actionFy}
+              onClick={() => {
+                if (actionFy) {
+                  setPurgeTarget(actionFy);
                   setFyError("");
-                }}
-                size="sm"
-              >
-                <Plus className="ml-2 h-4 w-4" />
-                شروع سال مالی جدید
-              </Button>
-            )}
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              حذف سال مالی
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="w-full gap-2 sm:w-auto"
+              onClick={openNewFYDialog}
+            >
+              <Plus className="h-4 w-4" />
+              سال مالی جدید
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {fyLoading
+              ? "در حال بارگذاری..."
+              : actionFy
+                ? `سال فعال: ${actionFy.name} (#${actionFy.id})`
+                : "هنوز سال مالی تعریف نشده — «سال مالی جدید» را بزنید."}
+          </p>
+        </div>
+
+        <div className="card-elevated p-6">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-lg font-bold text-foreground">سال مالی جاری</h3>
           </div>
 
           {fyLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
 
           {!fyLoading && !currentFY && (
-            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-              <CalendarDays className="h-12 w-12 text-muted-foreground/50" />
-              <p className="text-muted-foreground font-medium">هیچ سال مالی فعالی وجود ندارد</p>
-              <p className="text-sm text-muted-foreground">برای شروع کار، یک سال مالی جدید تعریف کنید</p>
+            <div className="space-y-4 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
+              <div>
+                <p className="font-semibold text-foreground">تعریف سال مالی جدید</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  نام و تاریخ شروع را وارد کنید — تاریخ را از تقویم شمسی انتخاب کنید.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">نام سال مالی</label>
+                <Input
+                  value={newFYName}
+                  onChange={(e) => setNewFYName(e.target.value)}
+                  placeholder="مثال: سال مالی ۱۴۰۵"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">تاریخ شروع (شمسی)</label>
+                <JalaliDatePicker
+                  value={newFYStartJalali}
+                  onChange={setNewFYStartJalali}
+                  placeholder="انتخاب از تقویم"
+                  clearable={false}
+                />
+              </div>
+              {fyError && <p className="text-sm text-destructive">{fyError}</p>}
               <Button
-                className="mt-2"
-                onClick={() => {
-                  setShowNewFYDialog(true);
-                  setFyError("");
-                }}
+                type="button"
+                size="lg"
+                className="w-full sm:w-auto"
+                onClick={handleCreateFY}
+                disabled={createFYMutation.isPending}
               >
-                <Plus className="ml-2 h-4 w-4" />
-                شروع سال مالی جدید
+                {createFYMutation.isPending ? "در حال ذخیره..." : "شروع سال مالی"}
               </Button>
             </div>
           )}
@@ -154,13 +299,13 @@ const Settings = () => {
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
                 <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="font-bold text-foreground">{currentFY.name}</p>
                   <p className="text-sm text-muted-foreground">
                     از {fyMonthName(currentFY.start_date)} — هنوز باز است
                   </p>
                 </div>
-                <Badge variant="outline" className="text-green-700 border-green-500 bg-green-50 dark:bg-green-950">
+                <Badge variant="outline" className="text-green-700 border-green-500 bg-green-50 dark:bg-green-950 shrink-0">
                   باز
                 </Badge>
               </div>
@@ -186,9 +331,9 @@ const Settings = () => {
                   <div className="flex-1">
                     <p className="font-medium text-amber-800 dark:text-amber-300">بستن سال مالی</p>
                     <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                      با بستن سال مالی، یک فایل CSV (بازکردن با اکسل) از داده‌های سال روی سرور ذخیره می‌شود. پس از دانلود،
-                      می‌توانید سال مالی جدید شروع کنید؛ در صورت اشتباه، تا وقتی سال جدید نزده‌اید می‌توانید همین سال را از
-                      تاریخچه دوباره باز کنید.
+                      با بستن سال مالی، یک فایل CSV (بازکردن با اکسل) از داده‌های سال روی سرور ذخیره می‌شود و سپس
+                      دانش‌آموزها، پلن‌ها، پرداخت‌ها، حقوق‌ها، نقش‌های سفارشی و کاربران غیرادمین پاک می‌شوند تا سال جدید
+                      از صفر تعریف شود.
                     </p>
                   </div>
                 </div>
@@ -227,11 +372,40 @@ const Settings = () => {
                     <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">سال مالی با موفقیت بسته شد.</p>
                   )}
                   <p className="text-xs text-blue-700/90 dark:text-blue-400/90 mt-2">
-                    اگر اشتباه بسته‌اید و هنوز سال مالی جدید شروع نکرده‌اید، از بخش تاریخچه می‌توانید همین سال را دوباره باز کنید.
+                    تا قبل از شروع سال مالی جدید می‌توانید همه داده‌ها را بازگردانی کنید.
                   </p>
                 </div>
               </div>
-              {!currentFY && (
+              {!currentFY && closedFY.id === mostRecentFYId && (
+                <div className="flex flex-wrap gap-2 self-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-300 text-blue-800 dark:text-blue-200"
+                    onClick={() => {
+                      setReopenTarget(closedFY);
+                      setFyError("");
+                    }}
+                  >
+                    <RotateCcw className="ml-2 h-4 w-4" />
+                    باز کردن بدون بازگردانی
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => {
+                      setRestoreTarget(closedFY);
+                      setFyError("");
+                    }}
+                  >
+                    <HistoryIcon className="ml-2 h-4 w-4" />
+                    بازگردانی کامل سال مالی
+                  </Button>
+                </div>
+              )}
+              {!currentFY && closedFY.id !== mostRecentFYId && (
                 <Button
                   type="button"
                   variant="outline"
@@ -243,34 +417,79 @@ const Settings = () => {
                   }}
                 >
                   <RotateCcw className="ml-2 h-4 w-4" />
-                  باز کردن مجدد همین سال
+                  باز کردن مجدد
                 </Button>
               )}
             </div>
           )}
         </div>
 
-        {fiscalYears.length > 0 && (
-          <div className="card-elevated p-6">
-            <h3 className="text-lg font-bold text-foreground mb-4">تاریخچه سال‌های مالی</h3>
-            <div className="space-y-3">
-              {fiscalYears.map((fy) => (
-                <div key={fy.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/40">
-                  <div className="flex items-center gap-3">
+        <div className="card-elevated p-6">
+          <h3 className="text-lg font-bold text-foreground mb-1">تاریخچه سال‌های مالی</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            برای هر سال، ویرایش نام و حذف در همان ردیف در دسترس است.
+          </p>
+          {fiscalYears.length === 0 && !fyLoading && (
+            <p className="text-sm text-muted-foreground py-4 text-center">هنوز سال مالی ثبت نشده است.</p>
+          )}
+          {fyLoading && (
+            <p className="text-sm text-muted-foreground py-4 text-center">در حال بارگذاری...</p>
+          )}
+          <div className="space-y-3">
+            {fiscalYears.map((fy) => (
+                <div key={fy.id} className="flex flex-col gap-3 p-4 rounded-lg bg-muted/40 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
                     {fy.status === "OPEN" ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
                     ) : (
-                      <Lock className="h-5 w-5 text-muted-foreground" />
+                      <Lock className="h-5 w-5 text-muted-foreground shrink-0" />
                     )}
-                    <div>
-                      <p className="font-medium text-foreground">{fy.name}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{fy.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {fyMonthName(fy.start_date)}
                         {fy.end_date ? ` تا ${fyMonthName(fy.end_date)}` : " — ادامه دارد"}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="h-9 min-w-[7rem] text-xs gap-1"
+                      onClick={() => openEditNameDialog(fy)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      ویرایش نام
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="h-9 min-w-[5rem] text-xs gap-1"
+                      onClick={() => {
+                        setPurgeTarget(fy);
+                        setFyError("");
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      حذف
+                    </Button>
+                    {fy.status === "CLOSED" && !currentFY && fy.id === mostRecentFYId && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => {
+                          setRestoreTarget(fy);
+                          setFyError("");
+                        }}
+                      >
+                        <HistoryIcon className="ml-1 h-3 w-3" />
+                        بازگردانی کامل
+                      </Button>
+                    )}
                     {fy.status === "CLOSED" && !currentFY && (
                       <Button
                         type="button"
@@ -292,7 +511,7 @@ const Settings = () => {
                         download={`${fy.name.replace(/\s+/g, "_")}.csv`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-blue-600 underline flex items-center gap-1"
+                        className="text-xs text-blue-600 underline flex items-center gap-1 h-8 px-2"
                       >
                         <Download className="h-3 w-3" />
                         دانلود CSV
@@ -304,9 +523,8 @@ const Settings = () => {
                   </div>
                 </div>
               ))}
-            </div>
           </div>
-        )}
+        </div>
 
         <div className="card-elevated p-6">
           <h3 className="text-lg font-bold text-foreground mb-4">راهنما</h3>
@@ -333,54 +551,101 @@ const Settings = () => {
               <span className="text-primary font-bold mt-0.5">•</span>
               <p>پس از بستن سال مالی، فایل CSV روی سرور ذخیره می‌شود و با همان دکمه دانلود قابل دریافت است (بازکردن با اکسل).</p>
             </div>
+            <div className="flex items-start gap-2">
+              <span className="text-primary font-bold mt-0.5">•</span>
+              <p>
+                سال مالی را می‌توانید با دکمه <strong className="text-foreground">«حذف»</strong> از لیست پاک کنید — برای سال تست یا سال باز بدون نیاز به بستن.
+                قبل از حذف سال بسته، در صورت نیاز CSV را دانلود کنید.
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <AlertDialog open={showNewFYDialog} onOpenChange={setShowNewFYDialog}>
+      <AlertDialog
+        open={editNameTarget != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditNameTarget(null);
+            setEditNameValue("");
+            setFyError("");
+          }
+        }}
+      >
         <AlertDialogContent className="max-w-md" dir="rtl">
           <AlertDialogHeader>
-            <AlertDialogTitle>شروع سال مالی جدید</AlertDialogTitle>
+            <AlertDialogTitle>ویرایش نام سال مالی</AlertDialogTitle>
             <AlertDialogDescription>
-              نام و تاریخ شروع سال مالی را وارد کنید. تمام ثبت‌ها از این تاریخ به بعد در این سال مالی ذخیره می‌شوند.
+              نام جدید در هدر، لیست تاریخچه و گزارش‌ها نمایش داده می‌شود.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <label className="text-sm font-medium">نام سال مالی</label>
+            <Input
+              value={editNameValue}
+              onChange={(e) => setEditNameValue(e.target.value)}
+              placeholder="مثال: سال مالی ۱۴۰۵"
+              autoFocus
+            />
+            {fyError && <p className="text-sm text-destructive">{fyError}</p>}
+          </div>
+          <AlertDialogFooter className="flex-row-reverse gap-2">
+            <AlertDialogCancel disabled={updateFYNameMutation.isPending}>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleUpdateFYName();
+              }}
+              disabled={updateFYNameMutation.isPending}
+            >
+              {updateFYNameMutation.isPending ? "در حال ذخیره..." : "ذخیره نام"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={showNewFYDialog} onOpenChange={setShowNewFYDialog}>
+        <DialogContent className="max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>شروع سال مالی جدید</DialogTitle>
+            <DialogDescription>
+              نام و تاریخ شروع را از تقویم شمسی انتخاب کنید.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <label className="text-sm font-medium">نام سال مالی</label>
               <Input
                 value={newFYName}
                 onChange={(e) => setNewFYName(e.target.value)}
-                placeholder="مثال: سال مالی ۱۴۰۴"
+                placeholder="مثال: سال مالی ۱۴۰۵"
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">تاریخ شروع (شمسی)</label>
-              <Input
+              <JalaliDatePicker
                 value={newFYStartJalali}
-                onChange={(e) => setNewFYStartJalali(e.target.value)}
-                placeholder="مثال: ۱۴۰۴/۰۲/۰۱"
-                dir="ltr"
-                className="text-right"
+                onChange={setNewFYStartJalali}
+                placeholder="انتخاب از تقویم"
+                clearable={false}
               />
-              <p className="text-xs text-muted-foreground">فرمت: سال/ماه/روز — مثلاً ۱۴۰۴/۰۲/۰۱ = اول اردیبهشت ۱۴۰۴</p>
             </div>
             {fyError && <p className="text-sm text-destructive">{fyError}</p>}
           </div>
-          <AlertDialogFooter className="flex-row-reverse gap-2">
-            <AlertDialogCancel>انصراف</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleCreateFY();
-              }}
+          <DialogFooter className="flex-row-reverse gap-2 sm:justify-start">
+            <Button
+              type="button"
+              onClick={handleCreateFY}
               disabled={createFYMutation.isPending}
             >
               {createFYMutation.isPending ? "در حال ذخیره..." : "شروع سال مالی"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setShowNewFYDialog(false)}>
+              انصراف
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showCloseFYDialog} onOpenChange={setShowCloseFYDialog}>
         <AlertDialogContent className="max-w-md" dir="rtl">
@@ -394,10 +659,12 @@ const Settings = () => {
                 با تأیید، یک فایل <strong>CSV</strong> (قابل باز کردن در اکسل) از دانش‌آموزان، پرداخت‌ها و حقوق روی سرور ذخیره
                 می‌شود و لینک آن را می‌گیرید.
               </span>
-              <span className="block">موجودی ledger دانش‌آموزان فعال به صفر بازنشانی می‌شود.</span>
               <span className="block">
-                اگر هنوز سال مالی جدیدی شروع نکرده باشید، می‌توانید همین سال را از تاریخچه دوباره{" "}
-                <strong>باز کنید</strong>؛ مانده‌های صفرشده خودکار برنمی‌گردند.
+                سپس دانش‌آموزها، پلن‌ها، پرداخت‌ها، حقوق‌ها، نقش‌های سفارشی و کاربران غیرادمین حذف می‌شوند.
+              </span>
+              <span className="block">
+                تا قبل از شروع سال مالی جدید می‌توانید{" "}
+                <strong>بازگردانی کامل</strong> کنید و همه داده‌ها را برگردانید.
               </span>
               <span className="block mt-2 text-amber-700 dark:text-amber-400 font-medium">آیا بستن سال مالی را تأیید می‌کنید؟</span>
             </AlertDialogDescription>
@@ -419,6 +686,41 @@ const Settings = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={restoreTarget != null} onOpenChange={(open) => !open && setRestoreTarget(null)}>
+        <AlertDialogContent className="max-w-md" dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+              <HistoryIcon className="h-5 w-5" />
+              بازگردانی کامل {restoreTarget?.name}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-right text-foreground">
+              <span className="block">
+                تمام داده‌های پاک‌شده هنگام بستن سال مالی برمی‌گردند: دانش‌آموزها، پلن‌ها، پرداخت‌ها، حقوق‌ها، نقش‌های سفارشی
+                و کاربران.
+              </span>
+              <span className="block">سال مالی دوباره به حالت «باز» تغییر می‌کند.</span>
+              <span className="block text-amber-700 dark:text-amber-400">
+                این عملیات فقط تا قبل از ایجاد سال مالی جدید ممکن است.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {fyError && <p className="text-sm text-destructive px-1">{fyError}</p>}
+          <AlertDialogFooter className="flex-row-reverse gap-2">
+            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={(e) => {
+                e.preventDefault();
+                if (restoreTarget) restoreFYMutation.mutate(restoreTarget.id);
+              }}
+              disabled={restoreFYMutation.isPending}
+            >
+              {restoreFYMutation.isPending ? "در حال بازگردانی..." : "تأیید بازگردانی"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={reopenTarget != null} onOpenChange={(open) => !open && setReopenTarget(null)}>
         <AlertDialogContent className="max-w-md" dir="rtl">
           <AlertDialogHeader>
@@ -429,7 +731,7 @@ const Settings = () => {
             <AlertDialogDescription className="space-y-2 text-right text-foreground">
               <span className="block">وضعیت این سال به «باز» برمی‌گردد و می‌توانید دوباره روی آن کار کنید.</span>
               <span className="block text-amber-700 dark:text-amber-400">
-                ماندهٔ صفر شدهٔ دانش‌آموزان هنگام بستن سال به‌طور خودکار برنمی‌گردد؛ در صورت نیاز باید دستی اصلاح شود.
+                داده‌هایی که هنگام بستن سال پاک شده‌اند به‌طور خودکار برنمی‌گردند و باید دوباره تعریف شوند.
               </span>
               <span className="block">اگر الان سال مالی دیگری باز است، ابتدا آن را ببندید.</span>
             </AlertDialogDescription>
@@ -445,6 +747,49 @@ const Settings = () => {
               disabled={reopenFYMutation.isPending}
             >
               {reopenFYMutation.isPending ? "در حال انجام..." : "تأیید باز کردن"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={purgeTarget != null} onOpenChange={(open) => !open && setPurgeTarget(null)}>
+        <AlertDialogContent className="max-w-md" dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              حذف کامل {purgeTarget?.name}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-right text-foreground">
+              <span className="block">
+                این سال مالی برای همیشه از لیست حذف می‌شود
+                {purgeTarget?.status === "CLOSED" ? " و فایل CSV ذخیره‌شده روی سرور (در صورت وجود) پاک می‌گردد" : ""}.
+              </span>
+              {purgeTarget?.status === "OPEN" && (
+                <span className="block text-amber-700 dark:text-amber-400">
+                  سال مالی «باز» است — با حذف، فقط رکورد سال پاک می‌شود؛ داده‌های دانش‌آموز و پرداخت‌ها دست‌نخورده می‌مانند.
+                  برای پاک کردن داده‌ها ابتدا «بستن سال مالی» را بزنید.
+                </span>
+              )}
+              <span className="block text-destructive font-medium">
+                این عمل غیرقابل بازگشت است. قبل از حذف، در صورت نیاز فایل CSV را دانلود کنید.
+              </span>
+              <span className="block text-muted-foreground text-sm">
+                بازگردانی داده‌های عملیاتی بعد از حذف ممکن نیست — فقط برای سال‌های تست یا آرشیو اضافی.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {fyError && <p className="text-sm text-destructive px-1">{fyError}</p>}
+          <AlertDialogFooter className="flex-row-reverse gap-2">
+            <AlertDialogCancel disabled={purgeFYMutation.isPending}>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                if (purgeTarget) purgeFYMutation.mutate(purgeTarget.id);
+              }}
+              disabled={purgeFYMutation.isPending}
+            >
+              {purgeFYMutation.isPending ? "در حال حذف..." : "حذف کامل و غیرقابل بازگشت"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

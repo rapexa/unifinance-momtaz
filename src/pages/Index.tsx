@@ -53,7 +53,9 @@ const Dashboard = () => {
   });
 
   const kpis = summary?.kpis;
-  const totalDebtCents = (kpis?.pending_debt_cents ?? 0) + (kpis?.overdue_debt_cents ?? 0);
+  const totalDebtCents =
+    kpis?.student_debt_cents ??
+    (kpis?.pending_debt_cents ?? 0) + (kpis?.overdue_debt_cents ?? 0);
 
   return (
     <MainLayout title="داشبورد" subtitle="خلاصه وضعیت مالی سیستم">

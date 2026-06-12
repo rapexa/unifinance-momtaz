@@ -46,6 +46,7 @@ func (r *GormPaymentRepository) FindByID(ctx context.Context, id uint) (*models.
 	var p models.Payment
 	if err := r.db.WithContext(ctx).
 		Preload("Student").
+		Preload("Student.Advisor").
 		Preload("Enrollment").
 		Preload("Enrollment.Plan").
 		First(&p, id).Error; err != nil {
@@ -194,6 +195,7 @@ func (r *GormPaymentRepository) List(
 
 	if err := query.
 		Preload("Student").
+		Preload("Student.Advisor").
 		Preload("Enrollment").
 		Preload("Enrollment.Plan").
 		Limit(limit).
@@ -225,6 +227,7 @@ func (r *GormPaymentRepository) ListRecent(ctx context.Context, limit int, scope
 	q := r.scopePaymentsQuery(ctx, scopeUser)
 	if err := q.
 		Preload("Student").
+		Preload("Student.Advisor").
 		Order("payments.created_at DESC").
 		Limit(limit).
 		Find(&payments).Error; err != nil {

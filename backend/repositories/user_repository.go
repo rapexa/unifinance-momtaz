@@ -17,14 +17,17 @@ type UserRepository interface {
 	Update(ctx context.Context, user *models.User) error
 	List(ctx context.Context, limit, offset int, search, roleCode string, roleID uint, isActive *bool) ([]models.User, int64, error)
 	RoleStats(ctx context.Context) ([]UserRoleStat, error)
+	CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int64, error)
+	RoleStudentCounts(ctx context.Context) (map[uint]int64, error)
 }
 
 // UserRoleStat is one row for the users summary endpoint.
 type UserRoleStat struct {
-	RoleID uint   `json:"role_id"`
-	Code   string `json:"code"`
-	Name   string `json:"name"`
-	Count  int64  `json:"count"`
+	RoleID         uint   `json:"role_id"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	Count          int64  `json:"count"`
+	StudentsCount  int64  `json:"students_count"`
 }
 
 type GormUserRepository struct {
@@ -131,4 +134,65 @@ func (r *GormUserRepository) RoleStats(ctx context.Context) ([]UserRoleStat, err
 		Group("users.role_id, roles.code, roles.name").
 		Scan(&rows).Error
 	return rows, err
+}
+
+// CountAssignedStudentsByUserIDs counts distinct active students linked to each user as advisor or role payout.
+func (r *GormUserRepository) CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int64, error) {
+	out := make(map[uint]int64, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = 0
+	}
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		UserID uint
+		Count  int64
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Raw(`
+SELECT uid AS user_id, COUNT(DISTINCT student_id) AS count FROM (
+  SELECT advisor_id AS uid, id AS student_id FROM students
+  WHERE deleted_at IS NULL AND status != ? AND advisor_id IN ?
+  UNION
+  SELECT srp.user_id AS uid, srp.student_id FROM student_role_payouts srp
+  INNER JOIN students s ON s.id = srp.student_id AND s.deleted_at IS NULL AND s.status != ?
+  WHERE srp.deleted_at IS NULL AND srp.user_id IN ?
+) t GROUP BY uid
+`, models.StudentStatusDeleted, userIDs, models.StudentStatusDeleted, userIDs).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, rw := range rows {
+		out[rw.UserID] = rw.Count
+	}
+	return out, nil
+}
+
+// RoleStudentCounts returns distinct student counts per role (advisor role or student_role_payout role).
+func (r *GormUserRepository) RoleStudentCounts(ctx context.Context) (map[uint]int64, error) {
+	type row struct {
+		RoleID uint
+		Count  int64
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Raw(`
+SELECT role_id, COUNT(DISTINCT student_id) AS count FROM (
+  SELECT srp.role_id, srp.student_id FROM student_role_payouts srp
+  INNER JOIN students s ON s.id = srp.student_id AND s.deleted_at IS NULL AND s.status != ?
+  WHERE srp.deleted_at IS NULL
+  UNION
+  SELECT u.role_id, st.id FROM students st
+  INNER JOIN users u ON u.id = st.advisor_id AND u.deleted_at IS NULL
+  WHERE st.deleted_at IS NULL AND st.status != ? AND st.advisor_id IS NOT NULL
+) t WHERE role_id IS NOT NULL AND role_id > 0 GROUP BY role_id
+`, models.StudentStatusDeleted, models.StudentStatusDeleted).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]int64, len(rows))
+	for _, rw := range rows {
+		out[rw.RoleID] = rw.Count
+	}
+	return out, nil
 }

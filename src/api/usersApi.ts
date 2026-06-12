@@ -12,7 +12,10 @@ export interface UserApi {
   /** Same as role_code */
   role: string;
   is_active: boolean;
+  created_at?: string;
   permissions?: string[];
+  /** دانش‌آموزانی که مشاور یا سهم نقش برایشان ثبت شده */
+  assigned_students_count?: number;
 }
 
 export interface PaginatedUsersResponse {
@@ -55,6 +58,7 @@ export interface RoleCountRow {
   code: string;
   name: string;
   count: number;
+  students_count?: number;
 }
 
 export interface UsersSummary {

@@ -94,11 +94,12 @@ type PayrollByUserSummary struct {
 
 // ReportService provides analytics and reporting queries.
 type ReportService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	payments *PaymentService
 }
 
-func NewReportService(db *gorm.DB) *ReportService {
-	return &ReportService{db: db}
+func NewReportService(db *gorm.DB, payments *PaymentService) *ReportService {
+	return &ReportService{db: db, payments: payments}
 }
 
 // GetRevenueSeries returns monthly revenue between two inclusive months (YYYY-MM).
@@ -167,40 +168,20 @@ func (s *ReportService) GetPayrollSeries(ctx context.Context, from, to time.Time
 	return points, nil
 }
 
-// GetAdvisorDebts aggregates student balances per advisor (only debts, BalanceCents < 0).
-func (s *ReportService) GetAdvisorDebts(ctx context.Context, month time.Time) ([]AdvisorDebt, error) {
-	// For now, we use the current student BalanceCents snapshot, not a historical value.
-	type row struct {
-		AdvisorID uint
-		FirstName string
-		LastName  string
-		DebtCents int64
+// GetAdvisorDebts aggregates remaining student debt per advisor (active students).
+func (s *ReportService) GetAdvisorDebts(ctx context.Context, _ time.Time) ([]AdvisorDebt, error) {
+	if s.payments == nil {
+		return nil, nil
 	}
-
-	var rows []row
-	if err := s.db.WithContext(ctx).
-		Model(&models.Student{}).
-		Joins("LEFT JOIN users ON users.id = students.advisor_id").
-		Where("students.balance_cents < 0").
-		Select(`COALESCE(students.advisor_id, 0) AS advisor_id,
-			COALESCE(users.first_name, '') AS first_name,
-			COALESCE(users.last_name, '') AS last_name,
-			COALESCE(SUM(-students.balance_cents), 0) AS debt_cents`).
-		Group("students.advisor_id, users.first_name, users.last_name").
-		Order("debt_cents DESC").
-		Scan(&rows).Error; err != nil {
+	rows, err := s.payments.ActiveStudentDebtsByAdvisor(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
-
 	out := make([]AdvisorDebt, len(rows))
 	for i, r := range rows {
-		name := (r.FirstName + " " + r.LastName)
-		if r.AdvisorID == 0 || name == " " {
-			name = "بدون مشاور"
-		}
 		out[i] = AdvisorDebt{
 			AdvisorID:   r.AdvisorID,
-			AdvisorName: name,
+			AdvisorName: r.AdvisorName,
 			DebtCents:   r.DebtCents,
 		}
 	}
@@ -236,14 +217,14 @@ func (s *ReportService) GetSummary(ctx context.Context, from, to time.Time) (Rep
 		return ReportSummary{}, err
 	}
 
-	// Debt from students (snapshot).
+	// Debt from active students (enrollment remaining − paid).
 	var debt int64
-	if err := s.db.WithContext(ctx).
-		Model(&models.Student{}).
-		Where("balance_cents < 0").
-		Select("COALESCE(SUM(-balance_cents), 0)").
-		Scan(&debt).Error; err != nil {
-		return ReportSummary{}, err
+	if s.payments != nil {
+		var debtErr error
+		debt, debtErr = s.payments.SumActiveStudentDebtCents(ctx, nil)
+		if debtErr != nil {
+			return ReportSummary{}, debtErr
+		}
 	}
 
 	net := revenue - payroll - debt
@@ -449,29 +430,22 @@ func (s *ReportService) GetPayrollByUser(ctx context.Context, from, to time.Time
 	return out, nil
 }
 
-// GetStudentDebtsDetail lists students with negative balance (جزئیات بدهی).
+// GetStudentDebtsDetail lists active students with positive remaining debt.
 func (s *ReportService) GetStudentDebtsDetail(ctx context.Context) ([]StudentDebtDetail, error) {
-	var students []models.Student
-	if err := s.db.WithContext(ctx).
-		Preload("Advisor").
-		Where("balance_cents < 0").
-		Order("balance_cents ASC").
-		Find(&students).Error; err != nil {
+	if s.payments == nil {
+		return nil, nil
+	}
+	rows, err := s.payments.ActiveStudentDebtDetails(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
-	out := make([]StudentDebtDetail, 0, len(students))
-	for i := range students {
-		st := &students[i]
-		name := fmt.Sprintf("%s %s", st.FirstName, st.LastName)
-		var adv string
-		if st.Advisor != nil {
-			adv = fmt.Sprintf("%s %s", st.Advisor.FirstName, st.Advisor.LastName)
-		}
+	out := make([]StudentDebtDetail, 0, len(rows))
+	for _, r := range rows {
 		out = append(out, StudentDebtDetail{
-			StudentID:    st.ID,
-			StudentName:  name,
-			BalanceCents: st.BalanceCents,
-			AdvisorName:  adv,
+			StudentID:    r.StudentID,
+			StudentName:  r.StudentName,
+			BalanceCents: r.LedgerCents,
+			AdvisorName:  r.AdvisorName,
 		})
 	}
 	return out, nil

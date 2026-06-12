@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/services"
+	"gorm.io/gorm"
 )
 
 // StudentHandler exposes student-related endpoints.
@@ -47,6 +49,10 @@ type StudentDoc struct {
 	AdvisorCommissionKind       string   `json:"advisor_commission_kind,omitempty"`
 	AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent,omitempty"`
 	AdvisorCommissionFixedCents *int64   `json:"advisor_commission_fixed_cents,omitempty"`
+	EnrollmentBillingMode       string   `json:"enrollment_billing_mode,omitempty"`
+	AdvisorAccrualMonths        *int     `json:"advisor_accrual_months,omitempty"`
+	AdvisorAccrualMonthMask   *int     `json:"advisor_accrual_month_mask,omitempty"`
+	AdvisorMonthlyAccrualCents  int64    `json:"advisor_monthly_accrual_cents,omitempty"`
 	CurrentPlanName             string   `json:"current_plan_name,omitempty"`
 	CurrentPlanID               *uint    `json:"current_plan_id,omitempty"`
 	// EnrollmentAmountCents is the per-student enrollment price for the current plan.
@@ -96,7 +102,14 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		AdvisorCommissionKind:       string(s.AdvisorCommissionKind),
 		AdvisorCommissionPercent:    s.AdvisorCommissionPercent,
 		AdvisorCommissionFixedCents: s.AdvisorCommissionFixedCents,
+		EnrollmentBillingMode:       string(s.EnrollmentBillingMode),
+		AdvisorAccrualMonths:        s.AdvisorAccrualMonths,
+		AdvisorAccrualMonthMask:     s.AdvisorAccrualMonthMask,
+		AdvisorMonthlyAccrualCents:  models.ComputeAdvisorMonthlyAccrualCents(s),
 		CurrentPlanID:               s.CurrentPlanID,
+	}
+	if doc.EnrollmentBillingMode == "" {
+		doc.EnrollmentBillingMode = string(models.EnrollmentBillingMonthly)
 	}
 	// Enrollment amount stored directly on student; fall back to active enrollment record.
 	if s.EnrollmentAmountCents > 0 {
@@ -144,22 +157,8 @@ func toStudentDocSlice(students []models.Student) []StudentDoc {
 	return out
 }
 
-func effectiveEnrollmentCents(s *models.Student) int64 {
-	if s.EnrollmentAmountCents > 0 {
-		return s.EnrollmentAmountCents
-	}
-	if len(s.Enrollments) > 0 {
-		return s.Enrollments[0].PriceCents
-	}
-	return 0
-}
-
 func computeRemainingBalanceCents(s *models.Student, paidSum, openSum int64) int64 {
-	enroll := effectiveEnrollmentCents(s)
-	if enroll > 0 {
-		return enroll - paidSum
-	}
-	return openSum
+	return services.RemainingBalanceCents(s, paidSum, openSum)
 }
 
 func (h *StudentHandler) studentDocWithRemaining(ctx context.Context, s *models.Student) StudentDoc {
@@ -268,10 +267,20 @@ func (h *StudentHandler) List(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /students/summary [get]
 func (h *StudentHandler) Summary(c *gin.Context) {
-	total, active, inactive, deleted, debtors, err := h.service.Stats(c.Request.Context(), middleware.DataScopeUserID(c))
+	ctx := c.Request.Context()
+	scope := middleware.DataScopeUserID(c)
+	total, active, inactive, deleted, _, err := h.service.Stats(ctx, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students summary"})
 		return
+	}
+	var debtors int64
+	if h.payments != nil {
+		debtors, err = h.payments.CountActiveStudentDebtors(ctx, scope)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students summary"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, StudentStatsDoc{
@@ -349,9 +358,12 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
-		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT PERCENT_OF_CONTRACT FIXED_MONTHLY"`
 		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
 		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		EnrollmentBillingMode       string                     `json:"enrollment_billing_mode" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY SCHOOL_ENROLLMENT"`
+		AdvisorAccrualMonths        *int                       `json:"advisor_accrual_months" binding:"omitempty,min=1,max=24"`
+		AdvisorAccrualMonthMask     *int                       `json:"advisor_accrual_month_mask" binding:"omitempty,min=1,max=4095"`
 		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
 		EnrollmentAmountCents       int64                      `json:"enrollment_amount_cents" binding:"omitempty,min=0"`
 		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
@@ -396,6 +408,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		student.BalanceCents = *payload.BalanceCents
 	}
 	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+	applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, true)
 	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
 
 	joinDate, err := advisoryStartDateForCreate(payload.AdvisoryStartDate)
@@ -427,6 +440,10 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID, payload.EnrollmentAmountCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
+	}
+
+	if h.payments != nil {
+		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), student.ID)
 	}
 
 	fresh, _ := h.service.GetByID(c.Request.Context(), student.ID)
@@ -476,9 +493,12 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
 		Status                      string                     `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE DELETED"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
-		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT"`
+		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT PERCENT_OF_CONTRACT FIXED_MONTHLY"`
 		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
 		AdvisorCommissionFixedCents *int64                     `json:"advisor_commission_fixed_cents" binding:"omitempty"`
+		EnrollmentBillingMode       string                     `json:"enrollment_billing_mode" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY SCHOOL_ENROLLMENT"`
+		AdvisorAccrualMonths        *int                       `json:"advisor_accrual_months" binding:"omitempty,min=1,max=24"`
+		AdvisorAccrualMonthMask     *int                       `json:"advisor_accrual_month_mask" binding:"omitempty,min=1,max=4095"`
 		CurrentPlanID               *uint                      `json:"current_plan_id" binding:"omitempty"`
 		EnrollmentAmountCents       int64                      `json:"enrollment_amount_cents" binding:"omitempty,min=0"`
 		BalanceCents                *int64                     `json:"balance_cents" binding:"omitempty"`
@@ -536,6 +556,9 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		student.BalanceCents = *payload.BalanceCents
 	}
 	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+	if payload.EnrollmentBillingMode != "" || payload.AdvisorAccrualMonths != nil || payload.AdvisorAccrualMonthMask != nil {
+		applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, false)
+	}
 	if payload.AdvisoryStartDate != nil {
 		if err := applyAdvisoryStartDateUpdate(student, *payload.AdvisoryStartDate); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -615,6 +638,47 @@ func (h *StudentHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *StudentHandler) HardDelete(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil {
+		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
+		if err != nil || !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			return
+		}
+	}
+
+	ctx := c.Request.Context()
+	var periods [][2]int
+	if h.payments != nil {
+		periods, _ = h.payments.PayrollPeriodsAffectedByStudent(ctx, uint(id))
+	}
+
+	if err := h.service.HardDelete(ctx, uint(id)); err != nil {
+		if errors.Is(err, services.ErrStudentMustBeDeletedFirst) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "این دانش‌آموز پرداخت ثبت‌شده دارد. ابتدا با «حذف» به وضعیت حذف‌شده منتقل کنید، سپس «حذف کامل» را بزنید تا پرداخت‌ها هم پاک شوند."})
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to permanently delete student"})
+		return
+	}
+
+	if h.payments != nil && len(periods) > 0 {
+		h.payments.RecalculatePayrollPeriods(ctx, periods)
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 func todayLocalMidnight() time.Time {
 	now := time.Now()
 	y, m, d := now.Date()
@@ -649,6 +713,33 @@ func applyAdvisoryStartDateUpdate(st *models.Student, raw string) error {
 	return nil
 }
 
+func applyEnrollmentBillingPayload(st *models.Student, mode string, accrualMonths, accrualMonthMask *int, isCreate bool) {
+	if mode != "" {
+		st.EnrollmentBillingMode = models.EnrollmentBillingMode(strings.ToUpper(strings.TrimSpace(mode)))
+	} else if isCreate || st.EnrollmentBillingMode == "" {
+		st.EnrollmentBillingMode = models.EnrollmentBillingMonthly
+	}
+	if !st.IsSchoolEnrollment() {
+		st.AdvisorAccrualMonths = nil
+		st.AdvisorAccrualMonthMask = nil
+		return
+	}
+	if accrualMonthMask != nil && *accrualMonthMask > 0 {
+		mask := *accrualMonthMask & 0xFFF
+		st.AdvisorAccrualMonthMask = &mask
+		n := models.AdvisorAccrualMonthMaskCount(mask)
+		st.AdvisorAccrualMonths = &n
+		return
+	}
+	st.AdvisorAccrualMonthMask = nil
+	if accrualMonths != nil {
+		st.AdvisorAccrualMonths = accrualMonths
+	} else if isCreate && st.AdvisorAccrualMonths == nil {
+		defaultMonths := 10
+		st.AdvisorAccrualMonths = &defaultMonths
+	}
+}
+
 func applyAdvisorCommissionPayload(st *models.Student, kind string, pct *float64, fix *int64, isCreate bool) {
 	if st.AdvisorID == nil {
 		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
@@ -676,9 +767,56 @@ func normalizeStudentAdvisorCommission(st *models.Student) error {
 		st.AdvisorCommissionFixedCents = nil
 		return nil
 	}
+	if st.EnrollmentBillingMode == "" {
+		st.EnrollmentBillingMode = models.EnrollmentBillingMonthly
+	}
 	if st.AdvisorCommissionKind == "" {
 		st.AdvisorCommissionKind = models.StudentAdvisorCommNone
 	}
+	if st.IsSchoolEnrollment() {
+		if st.EnrollmentAmountCents <= 0 {
+			return fmt.Errorf("برای ثبت‌نام سالانه، مبلغ کل قرارداد الزامی است")
+		}
+		if st.JoinDate == nil {
+			return fmt.Errorf("برای ثبت‌نام سالانه، تاریخ شروع مشاوره الزامی است")
+		}
+		if st.AdvisorAccrualMonthMask == nil || *st.AdvisorAccrualMonthMask <= 0 {
+			if st.AdvisorAccrualMonths == nil || *st.AdvisorAccrualMonths <= 0 {
+				defaultMonths := 10
+				st.AdvisorAccrualMonths = &defaultMonths
+			}
+		} else if models.AdvisorAccrualMonthMaskCount(*st.AdvisorAccrualMonthMask) == 0 {
+			return fmt.Errorf("حداقل یک ماه برای پرداخت حقوق مشاور انتخاب کنید")
+		}
+		switch st.AdvisorCommissionKind {
+		case models.StudentAdvisorCommNone:
+			st.AdvisorCommissionPercent = nil
+			st.AdvisorCommissionFixedCents = nil
+			return nil
+		case models.StudentAdvisorCommPercentOfContract:
+			if st.AdvisorCommissionPercent == nil || *st.AdvisorCommissionPercent <= 0 || *st.AdvisorCommissionPercent > 100 {
+				return fmt.Errorf("درصد سهم کل مشاور از قرارداد باید بین ۰ و ۱۰۰ باشد")
+			}
+			st.AdvisorCommissionFixedCents = nil
+			return nil
+		case models.StudentAdvisorCommFixedMonthly:
+			if st.AdvisorCommissionFixedCents == nil || *st.AdvisorCommissionFixedCents <= 0 {
+				return fmt.Errorf("سهم ماهانه مشاور نامعتبر است")
+			}
+			st.AdvisorCommissionPercent = nil
+			return nil
+		default:
+			return fmt.Errorf("برای ثبت‌نام سالانه، نوع سهم مشاور باید «درصد از قرارداد» یا «مبلغ ماهانه ثابت» باشد")
+		}
+	}
+	if st.IsSingleSession() {
+		if st.EnrollmentAmountCents <= 0 {
+			return fmt.Errorf("برای ثبت‌نام تک‌جلسه‌ای، مبلغ ثبت‌نام الزامی است")
+		}
+	}
+	// Per-payment billing (monthly + single session)
+	st.AdvisorAccrualMonths = nil
+	st.AdvisorAccrualMonthMask = nil
 	switch st.AdvisorCommissionKind {
 	case models.StudentAdvisorCommNone:
 		st.AdvisorCommissionPercent = nil

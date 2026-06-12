@@ -30,11 +30,11 @@ import (
 // @name Authorization
 
 // main sets up the HTTP server using Gin and wires dependencies (DI).
-// This file lives in backend/cmd/ to keep the module root clean.
+// Migrations (AutoMigrate + seed) run automatically on every startup — no separate migrate binary.
 func main() {
-	log.Println("running migrations...")
+	log.Println("starting: running database migrations...")
 	migrations.Run()
-	log.Println("migrations completed successfully")
+	log.Println("starting: migrations completed, booting API server...")
 
 	cfg := config.MustLoadConfig()
 	db := database.MustGetDB()
@@ -60,7 +60,7 @@ func main() {
 	payrollService := services.NewPayrollService(db)
 	paymentService := services.NewPaymentService(paymentRepo, db, payrollService)
 	dashboardService := services.NewDashboardService(db, paymentRepo)
-	reportService := services.NewReportService(db)
+	reportService := services.NewReportService(db, paymentService)
 	settingsService := services.NewSettingsService(db, userService)
 	melipayamakService := services.NewMelipayamakService(cfg.MelipayamakUsername, cfg.MelipayamakAPIKey)
 	reminderService := services.NewReminderService(db, melipayamakService)
@@ -171,6 +171,7 @@ func main() {
 		students.GET("/:id", studentHandler.Get)
 		students.POST("", studentHandler.Create)
 		students.PUT("/:id", studentHandler.Update)
+		students.DELETE("/:id/permanent", studentHandler.HardDelete)
 		students.DELETE("/:id", studentHandler.Delete)
 	}
 
@@ -314,8 +315,11 @@ func main() {
 		fiscalYears.GET("", fiscalYearHandler.List)
 		fiscalYears.GET("/current", fiscalYearHandler.GetCurrent)
 		fiscalYears.POST("", fiscalYearHandler.Create)
+		fiscalYears.PATCH("/:id", fiscalYearHandler.Update)
 		fiscalYears.POST("/:id/close", fiscalYearHandler.Close)
 		fiscalYears.POST("/:id/reopen", fiscalYearHandler.Reopen)
+		fiscalYears.POST("/:id/restore", fiscalYearHandler.Restore)
+		fiscalYears.DELETE("/:id/permanent", fiscalYearHandler.HardDelete)
 	}
 
 	// Auto scheduler: promote past-due pending payments to OVERDUE, then SMS reminders.

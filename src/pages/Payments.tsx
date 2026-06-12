@@ -40,7 +40,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
-import { formatIsoDateShamsi, gregorianIsoToJalali, jalaliToGregorianIso } from "@/lib/jalaliDate";
+import { formatIsoDateShamsi, jalaliToGregorianIso, isoToJalaliString, todayJalaliString } from "@/lib/jalaliDate";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import {
   listPayments,
   getPaymentsSummary,
@@ -141,8 +142,7 @@ function parseTomansInput(raw: string): number {
 }
 
 function isoDateOnly(iso: string | null | undefined): string {
-  if (!iso) return "";
-  return gregorianIsoToJalali(iso.slice(0, 10));
+  return isoToJalaliString(iso);
 }
 
 interface EditPaymentFormProps {
@@ -175,13 +175,28 @@ function EditPaymentForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const amountCents = parseTomansInput(amountTomans) * 10 || payment.amount_cents;
+
+    let dueDateGregorian: string | undefined;
+    const dueTrimmed = dueDate.trim();
+    if (dueTrimmed) {
+      dueDateGregorian = jalaliToGregorianIso(dueTrimmed) || undefined;
+      if (!dueDateGregorian) return;
+    }
+
+    let paidAtGregorian: string | undefined;
+    const paidTrimmed = paidAt.trim();
+    if (paidTrimmed) {
+      paidAtGregorian = jalaliToGregorianIso(paidTrimmed) || undefined;
+      if (!paidAtGregorian) return;
+    }
+
     const payload: UpdatePaymentPayload = {
       amount_cents: amountCents,
       method: method,
       status: status,
-      description: description || undefined,
-      due_date: dueDate ? jalaliToGregorianIso(dueDate) || undefined : undefined,
-      paid_at: paidAt ? jalaliToGregorianIso(paidAt) || undefined : undefined,
+      description: description.trim() || undefined,
+      due_date: dueDateGregorian,
+      paid_at: paidAtGregorian,
     };
     onSave(payload);
   };
@@ -232,11 +247,11 @@ function EditPaymentForm({
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">سررسید</label>
-        <Input type="text" value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="۱۴۰۳/۰۱/۱۵" dir="ltr" />
+        <JalaliDatePicker value={dueDate} onChange={setDueDate} placeholder="انتخاب تاریخ سررسید" />
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">تاریخ پرداخت</label>
-        <Input type="text" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} placeholder="۱۴۰۳/۰۱/۱۵" dir="ltr" />
+        <JalaliDatePicker value={paidAt} onChange={setPaidAt} placeholder="انتخاب تاریخ پرداخت" />
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">شرح</label>
@@ -284,6 +299,8 @@ const Payments = () => {
   const [createPaymentType, setCreatePaymentType] = useState<"SINGLE_SESSION" | "MONTHLY" | "COURSE">("MONTHLY");
   const [createDescription, setCreateDescription] = useState("");
   const [createDueDate, setCreateDueDate] = useState("");
+  const [createPaidAt, setCreatePaidAt] = useState(() => todayJalaliString());
+  const [createError, setCreateError] = useState("");
   const [studentSearchInput, setStudentSearchInput] = useState("");
   const [debouncedStudentSearch, setDebouncedStudentSearch] = useState("");
   const [studentComboOpen, setStudentComboOpen] = useState(false);
@@ -301,6 +318,7 @@ const Payments = () => {
       setStudentComboOpen(false);
       setCreateStudentId("");
       setCreateStudentLabel("");
+      setCreateError("");
     }
   }, [isCreateOpen]);
 
@@ -367,7 +385,9 @@ const Payments = () => {
       setCreateDescription("");
       setCreateDueDate("");
       setCreateStudentLabel("");
+      setCreateError("");
     },
+    onError: (e: Error) => setCreateError(e.message),
   });
 
   const { data: detailPayment, isLoading: isDetailLoading } = useQuery({
@@ -455,9 +475,34 @@ const Payments = () => {
   }, [linkResult]);
 
   const handleCreateSubmit = useCallback(() => {
+    setCreateError("");
     const studentId = parseInt(createStudentId, 10);
     const amountTomans = parseTomansInput(createAmountTomans);
-    if (!studentId || amountTomans <= 0 || !createMethod || !createStatus) return;
+    if (!studentId || amountTomans <= 0 || !createMethod || !createStatus) {
+      setCreateError("دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند");
+      return;
+    }
+
+    const dueDateTrimmed = createDueDate.trim();
+    let dueDateGregorian: string | undefined;
+    if (dueDateTrimmed) {
+      dueDateGregorian = jalaliToGregorianIso(dueDateTrimmed) || undefined;
+      if (!dueDateGregorian) {
+        setCreateError("تاریخ سررسید نامعتبر است — از تقویم انتخاب کنید");
+        return;
+      }
+    }
+
+    let paidAtGregorian: string | undefined;
+    if (createStatus === "PAID") {
+      const paidTrimmed = createPaidAt.trim() || todayJalaliString();
+      paidAtGregorian = jalaliToGregorianIso(paidTrimmed) || undefined;
+      if (!paidAtGregorian) {
+        setCreateError("تاریخ پرداخت نامعتبر است — از تقویم انتخاب کنید");
+        return;
+      }
+    }
+
     const amountCents = amountTomans * 10; // تومان به ریال
     const payload: CreatePaymentPayload = {
       student_id: studentId,
@@ -465,8 +510,9 @@ const Payments = () => {
       method: createMethod,
       status: createStatus,
       payment_type: createPaymentType,
-      description: createDescription || undefined,
-      due_date: createDueDate ? jalaliToGregorianIso(createDueDate) || undefined : undefined,
+      description: createDescription.trim() || undefined,
+      due_date: dueDateGregorian,
+      paid_at: paidAtGregorian,
     };
     createMutation.mutate(payload);
   }, [
@@ -477,6 +523,7 @@ const Payments = () => {
     createPaymentType,
     createDescription,
     createDueDate,
+    createPaidAt,
     createMutation,
   ]);
 
@@ -566,23 +613,19 @@ const Payments = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs text-muted-foreground">از</label>
-                    <Input
-                      type="text"
+                    <JalaliDatePicker
                       value={fromDate}
-                      onChange={(e) => setFromDate(e.target.value)}
-                      placeholder="۱۴۰۳/۰۱/۰۱"
-                      dir="ltr"
+                      onChange={setFromDate}
+                      placeholder="از تاریخ"
                       className="mt-1"
                     />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">تا</label>
-                    <Input
-                      type="text"
+                    <JalaliDatePicker
                       value={toDate}
-                      onChange={(e) => setToDate(e.target.value)}
-                      placeholder="۱۴۰۳/۰۱/۳۱"
-                      dir="ltr"
+                      onChange={setToDate}
+                      placeholder="تا تاریخ"
                       className="mt-1"
                     />
                   </div>
@@ -633,9 +676,14 @@ const Payments = () => {
           {payments.map((payment) => (
             <div key={payment.id} className="card-elevated p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="font-medium text-foreground">
-                  {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
-                </p>
+                <div>
+                  <p className="font-medium text-foreground">
+                    {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
+                  </p>
+                  {payment.advisor_name ? (
+                    <p className="text-xs text-muted-foreground">مشاور: {payment.advisor_name}</p>
+                  ) : null}
+                </div>
                 <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs", statusStyles[payment.status] ?? "bg-muted")}>
                   {statusLabels[payment.status] ?? payment.status}
                 </span>
@@ -727,12 +775,17 @@ const Payments = () => {
                       >
                         <td className="p-4">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                               {(payment.student_name || "—").charAt(0)}
                             </div>
-                            <span className="font-medium text-foreground">
-                              {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
-                            </span>
+                            <div>
+                              <span className="font-medium text-foreground">
+                                {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
+                              </span>
+                              {payment.advisor_name ? (
+                                <p className="text-xs text-muted-foreground">مشاور: {payment.advisor_name}</p>
+                              ) : null}
+                            </div>
                           </div>
                         </td>
                         <td className="p-4 text-muted-foreground">
@@ -827,6 +880,7 @@ const Payments = () => {
           {detailPayment && (
             <div className="space-y-3 text-sm">
               <p><span className="text-muted-foreground">دانش‌آموز:</span> {detailPayment.student_name || "—"}</p>
+              <p><span className="text-muted-foreground">مشاور:</span> {detailPayment.advisor_name || "—"}</p>
               <p><span className="text-muted-foreground">شناسه دانش‌آموز:</span> #{detailPayment.student_id}</p>
               <p><span className="text-muted-foreground">شماره تماس:</span> {detailPayment.student_phone || "—"}</p>
               <p><span className="text-muted-foreground">مبلغ:</span> {formatCentsToToman(detailPayment.amount_cents)} تومان</p>
@@ -871,7 +925,13 @@ const Payments = () => {
           <DialogHeader>
             <DialogTitle>ثبت پرداخت</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <form
+            className="grid gap-4 py-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateSubmit();
+            }}
+          >
             <div className="grid gap-2">
               <label className="text-sm font-medium">دانش‌آموز</label>
               <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
@@ -995,14 +1055,23 @@ const Payments = () => {
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">سررسید (اختیاری)</label>
-              <Input
-                type="text"
+              <JalaliDatePicker
                 value={createDueDate}
-                onChange={(e) => setCreateDueDate(e.target.value)}
-                placeholder="۱۴۰۳/۰۱/۱۵"
-                dir="ltr"
+                onChange={setCreateDueDate}
+                placeholder="انتخاب تاریخ سررسید"
               />
             </div>
+            {createStatus === "PAID" && (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">تاریخ پرداخت</label>
+                <JalaliDatePicker
+                  value={createPaidAt}
+                  onChange={setCreatePaidAt}
+                  placeholder="انتخاب تاریخ پرداخت"
+                  clearable={false}
+                />
+              </div>
+            )}
             <div className="grid gap-2">
               <label className="text-sm font-medium">شرح (اختیاری)</label>
               <Input
@@ -1011,23 +1080,24 @@ const Payments = () => {
                 placeholder="مثال: شهریه آذر"
               />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-              انصراف
-            </Button>
-            <Button
-              onClick={handleCreateSubmit}
-              disabled={
-                !createStudentId ||
-                !createAmountTomans ||
-                !createMethod ||
-                createMutation.isPending
-              }
-            >
-              {createMutation.isPending ? "در حال ثبت..." : "ثبت"}
-            </Button>
-          </DialogFooter>
+            {createError && <p className="text-sm text-destructive">{createError}</p>}
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+                انصراف
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  !createStudentId ||
+                  !createAmountTomans ||
+                  !createMethod ||
+                  createMutation.isPending
+                }
+              >
+                {createMutation.isPending ? "در حال ثبت..." : "ثبت"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

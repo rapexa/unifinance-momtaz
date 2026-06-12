@@ -12,6 +12,8 @@ export interface RoleApi {
   compensation_kind: CompensationKind;
   /** مبلغ ثابت ماهانه — فقط برای FIXED */
   fixed_cents?: number | null;
+  /** تعداد ماه‌های حقوق در سال (مثلاً ۱۰ مشاور، ۱۲ منشی) */
+  payroll_months_count?: number | null;
   permissions?: string[];
 }
 
@@ -23,6 +25,7 @@ export interface CreateRolePayload {
   compensation_kind: CompensationKind;
   /** برای FIXED الزامی است */
   fixed_cents?: number;
+  payroll_months_count?: number;
   permissions?: string[];
 }
 
@@ -32,6 +35,7 @@ export interface UpdateRolePayload {
   full_access?: boolean;
   compensation_kind?: CompensationKind;
   fixed_cents?: number | null;
+  payroll_months_count?: number | null;
   permissions?: string[];
 }
 

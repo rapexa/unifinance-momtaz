@@ -28,9 +28,10 @@ type RoleDTO struct {
 	Description      string   `json:"description,omitempty"`
 	IsSystem         bool     `json:"is_system"`
 	FullAccess       bool     `json:"full_access"`
-	CompensationKind string   `json:"compensation_kind"`
-	FixedCents       *int64   `json:"fixed_cents,omitempty"`
-	Permissions      []string `json:"permissions,omitempty"`
+	CompensationKind   string   `json:"compensation_kind"`
+	FixedCents         *int64   `json:"fixed_cents,omitempty"`
+	PayrollMonthsCount *int     `json:"payroll_months_count,omitempty"`
+	Permissions        []string `json:"permissions,omitempty"`
 }
 
 func roleToDTO(r *models.Role, perms []models.Permission) RoleDTO {
@@ -41,8 +42,9 @@ func roleToDTO(r *models.Role, perms []models.Permission) RoleDTO {
 		Description:      r.Description,
 		IsSystem:         r.IsSystem,
 		FullAccess:       r.FullAccess,
-		CompensationKind: string(r.CompensationKind),
-		FixedCents:       r.FixedCents,
+		CompensationKind:   string(r.CompensationKind),
+		FixedCents:         r.FixedCents,
+		PayrollMonthsCount: r.PayrollMonthsCount,
 	}
 	for _, p := range perms {
 		dto.Permissions = append(dto.Permissions, string(p))
@@ -55,18 +57,20 @@ type createRoleRequest struct {
 	Name             string   `json:"name" binding:"required,min=1,max=128"`
 	Description      string   `json:"description" binding:"omitempty,max=500"`
 	FullAccess       bool     `json:"full_access"`
-	CompensationKind string   `json:"compensation_kind" binding:"required,oneof=FIXED VARIABLE NET_REVENUE"`
-	FixedCents       *int64   `json:"fixed_cents"`
-	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
+	CompensationKind   string   `json:"compensation_kind" binding:"required,oneof=FIXED VARIABLE NET_REVENUE"`
+	FixedCents         *int64   `json:"fixed_cents"`
+	PayrollMonthsCount *int     `json:"payroll_months_count" binding:"omitempty,min=1,max=12"`
+	Permissions        []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
 type updateRoleRequest struct {
 	Name             *string  `json:"name" binding:"omitempty,min=1,max=128"`
 	Description      *string  `json:"description" binding:"omitempty,max=500"`
 	FullAccess       *bool    `json:"full_access"`
-	CompensationKind *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED VARIABLE NET_REVENUE"`
-	FixedCents       *int64   `json:"fixed_cents"`
-	Permissions      []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
+	CompensationKind   *string  `json:"compensation_kind" binding:"omitempty,oneof=FIXED VARIABLE NET_REVENUE"`
+	FixedCents         *int64   `json:"fixed_cents"`
+	PayrollMonthsCount *int     `json:"payroll_months_count" binding:"omitempty,min=1,max=12"`
+	Permissions        []string `json:"permissions" binding:"omitempty,dive,oneof=DASHBOARD STUDENTS USERS PLANS PAYMENTS PAYROLL REMINDERS REPORTS SETTINGS"`
 }
 
 func parsePermissions(ss []string) []models.Permission {
@@ -121,13 +125,14 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		return
 	}
 	params := services.CreateRoleParams{
-		Code:             req.Code,
-		Name:             req.Name,
-		Description:      req.Description,
-		FullAccess:       req.FullAccess,
-		CompensationKind: models.CompensationKind(req.CompensationKind),
-		FixedCents:       req.FixedCents,
-		Permissions:      parsePermissions(req.Permissions),
+		Code:               req.Code,
+		Name:               req.Name,
+		Description:        req.Description,
+		FullAccess:         req.FullAccess,
+		CompensationKind:   models.CompensationKind(req.CompensationKind),
+		FixedCents:         req.FixedCents,
+		PayrollMonthsCount: req.PayrollMonthsCount,
+		Permissions:        parsePermissions(req.Permissions),
 	}
 	role, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
@@ -160,10 +165,11 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		return
 	}
 	params := services.UpdateRoleParams{
-		Name:        req.Name,
-		Description: req.Description,
-		FullAccess:  req.FullAccess,
-		FixedCents:  req.FixedCents,
+		Name:               req.Name,
+		Description:        req.Description,
+		FullAccess:         req.FullAccess,
+		FixedCents:         req.FixedCents,
+		PayrollMonthsCount: req.PayrollMonthsCount,
 	}
 	if req.CompensationKind != nil {
 		k := models.CompensationKind(*req.CompensationKind)

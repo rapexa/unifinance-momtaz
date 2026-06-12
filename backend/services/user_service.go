@@ -204,7 +204,23 @@ func (s *UserService) Deactivate(ctx context.Context, id uint) error {
 	return s.repo.Update(ctx, u)
 }
 
-// RoleStats returns counts of users per role.
+// RoleStats returns counts of users per role, including assigned student counts per role.
 func (s *UserService) RoleStats(ctx context.Context) ([]repositories.UserRoleStat, error) {
-	return s.repo.RoleStats(ctx)
+	stats, err := s.repo.RoleStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	studentCounts, err := s.repo.RoleStudentCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range stats {
+		stats[i].StudentsCount = studentCounts[stats[i].RoleID]
+	}
+	return stats, nil
+}
+
+// CountAssignedStudentsForUsers returns distinct student counts per user (advisor + role payout).
+func (s *UserService) CountAssignedStudentsForUsers(ctx context.Context, userIDs []uint) (map[uint]int64, error) {
+	return s.repo.CountAssignedStudentsByUserIDs(ctx, userIDs)
 }

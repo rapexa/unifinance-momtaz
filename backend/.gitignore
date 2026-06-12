@@ -10,6 +10,9 @@
 
 # Output of the go build tool
 *.out
+/server
+/migrate-server
+/unifinance-server
 
 # Go workspace files
 go.work

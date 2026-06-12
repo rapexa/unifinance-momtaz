@@ -35,7 +35,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
-import { gregorianIsoToJalali, jalaliToGregorianIso } from "@/lib/jalaliDate";
+import { gregorianIsoToJalali, jalaliToGregorianIso, todayJalaliString, isoToJalaliString } from "@/lib/jalaliDate";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import {
   createStudent,
   listStudents,
@@ -43,9 +44,13 @@ import {
   getStudent,
   updateStudent,
   deleteStudent as deleteStudentApi,
+  purgeStudent as purgeStudentApi,
   StudentApi,
   UpdateStudentPayload,
+  CreateStudentPayload,
   StudentRolePayoutPayload,
+  type AdvisorCommissionKind,
+  type EnrollmentBillingMode,
 } from "@/api/studentsApi";
 import { listUsers, UserApi } from "@/api/usersApi";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
@@ -62,6 +67,20 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  EnrollmentRegistrationFields,
+  makeRolePayoutRow,
+  type RolePayoutFormRow,
+} from "@/components/students/EnrollmentRegistrationFields";
+import {
+  defaultAccrualMonthMask,
+  parseBillingMode,
+  parseCommKind,
+  accrualMonthCountFromMask,
+  billingModeLabel,
+  monthsFromMask,
+} from "@/components/students/enrollmentBillingUtils";
+import { JALALI_MONTH_NAMES } from "@/lib/jalaliDate";
 
 interface StudentRow {
   id: number;
@@ -73,8 +92,17 @@ interface StudentRow {
   /** مانده به ریال×۱۰ (هم‌واحد API) — برای بستانکار/بدهکار منفی یعنی پیش‌پرداخت نسبت به ثبت‌نام */
   remainingCents: number;
   enrollmentCents: number;
+  paidTotalCents: number;
   status: "active" | "inactive" | "deleted";
   advisoryStart: string;
+}
+
+function studentCanHardDelete(student: StudentRow): boolean {
+  return student.status === "deleted" || student.paidTotalCents === 0;
+}
+
+function studentNeedsSoftDeleteFirst(student: StudentRow): boolean {
+  return student.status !== "deleted" && student.paidTotalCents > 0;
 }
 
 function formatBalance(cents: number | undefined): string {
@@ -177,39 +205,91 @@ function todayIsoDate(): string {
 }
 
 function todayJalaliDate(): string {
-  return gregorianIsoToJalali(todayIsoDate());
+  return todayJalaliString();
 }
 
-type AdvisorCommKind = "NONE" | "PERCENT" | "FIXED_PER_PAYMENT";
 type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT";
 
-/** سهم «مبلغ ثابت» در backend به ازای هر پرداخت با وضعیت پرداخت‌شده اعمال می‌شود، نه یک‌بار برای کل ثبت‌نام. */
-const ROLE_PAYOUT_FIXED_HINT =
-  "این رقم به ازای هر پرداخت «پرداخت‌شده» جداگانه در حقوق لحاظ می‌شود؛ اگر چند قسط در همان ماه ثبت شده باشد، جمع متغیر چند برابر می‌شود (مثلاً ۲ قسط × ۱۰۰ هزار = ۲۰۰ هزار).";
-
-interface RolePayoutFormRow {
-  key: string;
-  roleId: string;
-  userId: string;
-  amountKind: PayoutAmountKind;
-  percent: string;
-  fixedCents: string;
+function appendAdvisorCommissionFields(
+  payload: UpdateStudentPayload | CreateStudentPayload,
+  opts: {
+    advisorSelected: boolean;
+    billingMode: EnrollmentBillingMode;
+    kind: AdvisorCommissionKind;
+    commPercent: string;
+    commFixed: string;
+    accrualMonthMask: number;
+  },
+) {
+  payload.enrollment_billing_mode = opts.billingMode;
+  if (opts.billingMode === "SCHOOL_ENROLLMENT") {
+    if (opts.accrualMonthMask > 0) {
+      payload.advisor_accrual_month_mask = opts.accrualMonthMask;
+    } else {
+      payload.advisor_accrual_months = 10;
+    }
+  }
+  if (!opts.advisorSelected) return;
+  payload.advisor_commission_kind = opts.kind;
+  if (opts.billingMode === "SCHOOL_ENROLLMENT") {
+    if (opts.kind === "PERCENT_OF_CONTRACT") {
+      payload.advisor_commission_percent = parseLocalizedFloat(opts.commPercent);
+    }
+    if (opts.kind === "FIXED_MONTHLY") {
+      payload.advisor_commission_fixed_cents = parseLocalizedInt(opts.commFixed) * 10;
+    }
+    return;
+  }
+  if (opts.kind === "PERCENT") {
+    payload.advisor_commission_percent = parseLocalizedFloat(opts.commPercent);
+  }
+  if (opts.kind === "FIXED_PER_PAYMENT") {
+    payload.advisor_commission_fixed_cents = parseLocalizedInt(opts.commFixed) * 10;
+  }
 }
 
-function parseCommKind(raw: string | undefined): AdvisorCommKind {
-  if (raw === "PERCENT" || raw === "FIXED_PER_PAYMENT") return raw;
-  return "NONE";
-}
-
-function makeRolePayoutRow(seed?: Partial<RolePayoutFormRow>): RolePayoutFormRow {
-  return {
-    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    roleId: seed?.roleId ?? "",
-    userId: seed?.userId ?? "",
-    amountKind: seed?.amountKind ?? "PERCENT",
-    percent: seed?.percent ?? "",
-    fixedCents: seed?.fixedCents ?? "",
-  };
+function isAdvisorCommissionInvalid(
+  advisorSelected: boolean,
+  billingMode: EnrollmentBillingMode,
+  kind: AdvisorCommissionKind,
+  commPercent: string,
+  commFixed: string,
+  accrualMonthMask: number,
+  enrollmentAmount: string,
+): boolean {
+  if (!advisorSelected || kind === "NONE") return false;
+  if (billingMode === "SINGLE_SESSION") {
+    if (parseLocalizedInt(enrollmentAmount) <= 0) return true;
+    if (kind === "PERCENT") {
+      const p = parseLocalizedFloat(commPercent);
+      return !commPercent.trim() || p <= 0 || p > 100;
+    }
+    if (kind === "FIXED_PER_PAYMENT") {
+      return !commFixed.trim() || parseLocalizedInt(commFixed) < 0;
+    }
+    return true;
+  }
+  if (billingMode === "SCHOOL_ENROLLMENT") {
+    const enroll = parseLocalizedInt(enrollmentAmount);
+    const monthCount = accrualMonthCountFromMask(accrualMonthMask);
+    if (monthCount <= 0 || monthCount > 12 || enroll <= 0) return true;
+    if (kind === "PERCENT_OF_CONTRACT") {
+      const p = parseLocalizedFloat(commPercent);
+      return !commPercent.trim() || p <= 0 || p > 100;
+    }
+    if (kind === "FIXED_MONTHLY") {
+      return !commFixed.trim() || parseLocalizedInt(commFixed) <= 0;
+    }
+    return true;
+  }
+  if (kind === "PERCENT") {
+    const p = parseLocalizedFloat(commPercent);
+    return !commPercent.trim() || p <= 0 || p > 100;
+  }
+  if (kind === "FIXED_PER_PAYMENT") {
+    return !commFixed.trim() || parseLocalizedInt(commFixed) < 0;
+  }
+  return false;
 }
 
 function mapApiRolePayoutsToRows(student: StudentApi): RolePayoutFormRow[] {
@@ -238,6 +318,18 @@ function buildRolePayoutPayload(rows: RolePayoutFormRow[]): StudentRolePayoutPay
     }));
 }
 
+function advisorPayrollMonths(advisorId: string, users: UserApi[], roles: RoleApi[]): number {
+  if (!advisorId) return 10;
+  const user = users.find((u) => String(u.id) === advisorId);
+  if (!user) return 10;
+  const role = roles.find((r) => r.id === user.role_id);
+  if (!role) return 10;
+  if (role.payroll_months_count != null && role.payroll_months_count > 0) {
+    return role.payroll_months_count;
+  }
+  return role.compensation_kind === "VARIABLE" ? 10 : 12;
+}
+
 function mapStudent(api: StudentApi): StudentRow {
   const name = `${api.first_name ?? ""} ${api.last_name ?? ""}`.trim();
   let advisoryStart = "—";
@@ -253,6 +345,7 @@ function mapStudent(api: StudentApi): StudentRow {
     plan: api.current_plan_name?.trim() || "—",
     remainingCents: api.remaining_balance_cents ?? api.balance_cents ?? 0,
     enrollmentCents: api.enrollment_amount_cents ?? 0,
+    paidTotalCents: api.paid_total_cents ?? 0,
     status:
       api.status === "DELETED"
         ? "deleted"
@@ -305,8 +398,16 @@ function EditStudentForm({
       ? formatGroupedFaIntInput(String(Math.round(student.enrollment_amount_cents / 10)))
       : ""
   );
-  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>(
-    parseCommKind(student.advisor_commission_kind)
+  const [billingMode, setBillingMode] = useState<EnrollmentBillingMode>(
+    parseBillingMode(student.enrollment_billing_mode)
+  );
+  const [accrualMonthMask, setAccrualMonthMask] = useState(() =>
+    student.advisor_accrual_month_mask && student.advisor_accrual_month_mask > 0
+      ? student.advisor_accrual_month_mask
+      : defaultAccrualMonthMask(student.advisor_accrual_months ?? 10),
+  );
+  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommissionKind>(
+    parseCommKind(student.advisor_commission_kind, parseBillingMode(student.enrollment_billing_mode))
   );
   const [commPercent, setCommPercent] = useState(
     student.advisor_commission_percent != null ? String(student.advisor_commission_percent) : ""
@@ -317,19 +418,22 @@ function EditStudentForm({
       : ""
   );
   const [advisoryStartDate, setAdvisoryStartDate] = useState(
-    gregorianIsoToJalali(student.advisory_start_date) || ""
+    isoToJalaliString(student.advisory_start_date) || ""
   );
   const [rolePayoutRows, setRolePayoutRows] = useState<RolePayoutFormRow[]>(
     mapApiRolePayoutsToRows(student)
   );
 
   const advisorSelected = advisorId !== "none";
-  const commissionInvalid =
-    advisorSelected &&
-    ((advisorCommKind === "PERCENT" &&
-      (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
-      (advisorCommKind === "FIXED_PER_PAYMENT" &&
-        (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)));
+  const commissionInvalid = isAdvisorCommissionInvalid(
+    advisorSelected,
+    billingMode,
+    advisorCommKind,
+    commPercent,
+    commFixed,
+    accrualMonthMask,
+    enrollmentAmount,
+  );
   const rolePayoutInvalid = rolePayoutRows.some((r) =>
     !r.roleId ||
     !r.userId ||
@@ -369,12 +473,10 @@ function EditStudentForm({
         </div>
         <div className="mt-3">
           <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
-          <Input
-            type="text"
+          <JalaliDatePicker
             value={advisoryStartDate}
-            onChange={(e) => setAdvisoryStartDate(e.target.value)}
-            placeholder="۱۴۰۳/۰۱/۱۵"
-            dir="ltr"
+            onChange={setAdvisoryStartDate}
+            placeholder="انتخاب تاریخ شروع مشاوره"
           />
         </div>
       </div>
@@ -424,59 +526,6 @@ function EditStudentForm({
           <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
           <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
         </div>
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
-          <Select
-            value={advisorId}
-            onValueChange={(v) => {
-              setAdvisorId(v);
-              if (v === "none") {
-                setAdvisorCommKind("NONE");
-                setCommPercent("");
-                setCommFixed("");
-              }
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="انتخاب مشاور" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">بدون مشاور</SelectItem>
-              {advisors.map((a) => (
-                <SelectItem key={a.id} value={String(a.id)}>
-                  {a.first_name} {a.last_name}{a.role_name ? ` — ${a.role_name}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {advisorSelected && (
-          <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-            <p className="text-xs font-medium text-muted-foreground">
-              سهم مشاور از هر پرداخت (به‌صورت خودکار محاسبه می‌شود)
-            </p>
-            <Select value={advisorCommKind} onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">بدون سهم</SelectItem>
-                <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
-              </SelectContent>
-            </Select>
-            {advisorCommKind === "PERCENT" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
-                <Input value={commPercent} onChange={(e) => setCommPercent(e.target.value)} placeholder="مثلاً ۱۰" inputMode="decimal" dir="ltr" />
-              </div>
-            )}
-            {advisorCommKind === "FIXED_PER_PAYMENT" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثابت (تومان، به ازای هر پرداخت)</label>
-                <Input value={commFixed} onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))} placeholder="مبلغ به تومان" inputMode="numeric" dir="ltr" />
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div>
@@ -495,90 +544,30 @@ function EditStudentForm({
             </AlertDescription>
           </Alert>
         )}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
-            <Select value={planId} onValueChange={setPlanId}>
-              <SelectTrigger>
-                <SelectValue placeholder="انتخاب نوع ثبت‌نام" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">بدون پلن</SelectItem>
-                {plans.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثبت‌نامی (تومان)</label>
-            <Input
-              inputMode="numeric"
-              value={enrollmentAmount}
-              onChange={(e) => setEnrollmentAmount(formatGroupedFaIntInput(e.target.value))}
-              placeholder="مثلاً 2,500,000"
-              dir="ltr"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">مبلغ خاص این دانش‌آموز برای پلن انتخاب‌شده</p>
-          </div>
-        </div>
-        <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground">تقسیم مبلغ ثبت‌نام به نقش‌ها (اختیاری)</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
-              افزودن نقش
-            </Button>
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            سهم‌ها هنگام ثبت پرداخت با وضعیت «پرداخت‌شده» محاسبه می‌شوند؛ نوع «مبلغ ثابت» یعنی به ازای هر قسط پرداخت‌شده، نه یک‌بار برای کل ثبت‌نام.
-          </p>
-          {rolePayoutRows.length === 0 && (
-            <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
-          )}
-          {rolePayoutRows.map((row) => {
-            const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
-            return (
-              <div key={row.key} className="space-y-2 rounded-md border border-border bg-background p-3">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <Select value={row.roleId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, roleId: v === "none" ? "" : v, userId: "" } : x))}>
-                    <SelectTrigger><SelectValue placeholder="نقش" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">انتخاب نقش</SelectItem>
-                      {roles.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={row.userId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, userId: v === "none" ? "" : v } : x))}>
-                    <SelectTrigger><SelectValue placeholder="کاربر" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">انتخاب کاربر</SelectItem>
-                      {roleUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.first_name} {u.last_name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت پرداخت‌شده</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {row.amountKind === "PERCENT" ? (
-                  <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
-                ) : (
-                  <div className="space-y-1">
-                    <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="تومان، هر بار پرداخت ثبت شود" inputMode="numeric" dir="ltr" />
-                    <p className="text-[11px] leading-snug text-muted-foreground">{ROLE_PAYOUT_FIXED_HINT}</p>
-                  </div>
-                )}
-                <div className="flex justify-end">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <EnrollmentRegistrationFields
+          billingMode={billingMode}
+          onBillingModeChange={setBillingMode}
+          planId={planId === "none" ? "" : planId}
+          onPlanIdChange={(id) => setPlanId(id || "none")}
+          plans={plans}
+          enrollmentAmount={enrollmentAmount}
+          onEnrollmentAmountChange={setEnrollmentAmount}
+          accrualMonthMask={accrualMonthMask}
+          onAccrualMonthMaskChange={setAccrualMonthMask}
+          rolePayoutRows={rolePayoutRows}
+          onRolePayoutRowsChange={setRolePayoutRows}
+          roles={roles}
+          users={users}
+          advisorId={advisorId === "none" ? "" : advisorId}
+          onAdvisorIdChange={(id) => setAdvisorId(id || "none")}
+          advisorOptions={advisors}
+          advisorCommKind={advisorCommKind}
+          onAdvisorCommKindChange={setAdvisorCommKind}
+          commPercent={commPercent}
+          onCommPercentChange={setCommPercent}
+          commFixed={commFixed}
+          onCommFixedChange={setCommFixed}
+        />
       </div>
 
       <div className="flex items-center justify-between">
@@ -627,15 +616,14 @@ function EditStudentForm({
             } else if (student.advisory_start_date) {
               payload.advisory_start_date = "";
             }
-            if (advisorSelected) {
-              payload.advisor_commission_kind = advisorCommKind;
-              if (advisorCommKind === "PERCENT") {
-                payload.advisor_commission_percent = parseLocalizedFloat(commPercent);
-              }
-              if (advisorCommKind === "FIXED_PER_PAYMENT") {
-                payload.advisor_commission_fixed_cents = parseLocalizedInt(commFixed) * 10;
-              }
-            }
+            appendAdvisorCommissionFields(payload, {
+              advisorSelected,
+              billingMode,
+              kind: advisorCommKind,
+              commPercent,
+              commFixed,
+              accrualMonthMask,
+            });
             payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
             mutation.mutate({ id: student.id, payload }, { onSuccess });
           }}
@@ -672,6 +660,7 @@ const Students = () => {
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
   const [editStudentId, setEditStudentId] = useState<number | null>(null);
   const [deleteStudent, setDeleteStudent] = useState<StudentRow | null>(null);
+  const [purgeStudent, setPurgeStudent] = useState<StudentRow | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -688,7 +677,9 @@ const Students = () => {
   const [schoolName, setSchoolName] = useState("");
   const [schoolAddress, setSchoolAddress] = useState("");
   const [homeAddress, setHomeAddress] = useState("");
-  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommKind>("NONE");
+  const [advisorCommKind, setAdvisorCommKind] = useState<AdvisorCommissionKind>("NONE");
+  const [billingMode, setBillingMode] = useState<EnrollmentBillingMode>("MONTHLY");
+  const [accrualMonthMask, setAccrualMonthMask] = useState(() => defaultAccrualMonthMask(10));
   const [commPercent, setCommPercent] = useState("");
   const [commFixed, setCommFixed] = useState("");
   const [rolePayoutRows, setRolePayoutRows] = useState<RolePayoutFormRow[]>([]);
@@ -700,8 +691,20 @@ const Students = () => {
     if (isCreateOpen) {
       setCreateAdvisoryStartDate(todayJalaliDate());
       setRolePayoutRows([]);
+      setBillingMode("MONTHLY");
+      setAccrualMonthMask(defaultAccrualMonthMask(10));
     }
   }, [isCreateOpen]);
+
+  const createCommissionInvalid = isAdvisorCommissionInvalid(
+    !!advisorId,
+    billingMode,
+    advisorCommKind,
+    commPercent,
+    commFixed,
+    accrualMonthMask,
+    enrollmentAmount,
+  );
 
   const { data: detailsStudentData } = useQuery({
     queryKey: ["student", detailsStudentId],
@@ -724,6 +727,8 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["student", id] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       setEditStudentId(null);
     },
   });
@@ -735,6 +740,20 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setDeleteStudent(null);
+    },
+  });
+
+  const purgeMutation = useMutation({
+    mutationFn: purgeStudentApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      setPurgeStudent(null);
     },
   });
 
@@ -771,6 +790,11 @@ const Students = () => {
     queryKey: ["roles", "student-role-payouts"],
     queryFn: listRoles,
   });
+
+  useEffect(() => {
+    if (billingMode !== "SCHOOL_ENROLLMENT" || !advisorId) return;
+    setAccrualMonthMask(defaultAccrualMonthMask(advisorPayrollMonths(advisorId, users, roles)));
+  }, [advisorId, billingMode, users, roles]);
 
   const { data: plans } = useQuery({
     queryKey: ["plans-active"],
@@ -814,6 +838,8 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       setIsCreateOpen(false);
       setFirstName("");
       setLastName("");
@@ -832,6 +858,8 @@ const Students = () => {
       setSchoolAddress("");
       setHomeAddress("");
       setAdvisorCommKind("NONE");
+      setBillingMode("MONTHLY");
+      setAccrualMonthMask(defaultAccrualMonthMask(10));
       setCommPercent("");
       setCommFixed("");
       setRolePayoutRows([]);
@@ -1138,16 +1166,30 @@ const Students = () => {
                           <Pencil className="h-4 w-4" />
                           ویرایش
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => setDeleteStudent(student)}
-                          title="حذف دانش‌آموز"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          حذف
-                        </Button>
+                        {studentNeedsSoftDeleteFirst(student) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteStudent(student)}
+                            title="خروج از چرخه — سوابق پرداخت حفظ می‌شود"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            حذف
+                          </Button>
+                        )}
+                        {studentCanHardDelete(student) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setPurgeStudent(student)}
+                            title="حذف کامل از سیستم همراه با پرداخت‌ها"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            حذف کامل
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1184,17 +1226,53 @@ const Students = () => {
                   ? gregorianIsoToJalali(detailsStudentData.advisory_start_date) || detailsStudentData.advisory_start_date
                   : "—"}
               </p>
+              <p>
+                <span className="text-muted-foreground">نوع ثبت‌نام:</span>{" "}
+                {billingModeLabel(parseBillingMode(detailsStudentData.enrollment_billing_mode))}
+              </p>
+              {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" && (
+                <p>
+                  <span className="text-muted-foreground">ماه‌های حقوق:</span>{" "}
+                  {(() => {
+                    const mask =
+                      detailsStudentData.advisor_accrual_month_mask &&
+                      detailsStudentData.advisor_accrual_month_mask > 0
+                        ? detailsStudentData.advisor_accrual_month_mask
+                        : defaultAccrualMonthMask(detailsStudentData.advisor_accrual_months ?? 10);
+                    const names = monthsFromMask(mask).map((jm) => JALALI_MONTH_NAMES[jm - 1]);
+                    return names.length > 0
+                      ? `${names.join("، ")} (${names.length} ماه)`
+                      : `${detailsStudentData.advisor_accrual_months ?? 10} ماه (پیش‌فرض)`;
+                  })()}
+                </p>
+              )}
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
               {detailsStudentData.advisor_id != null && (
                 <p>
-                  <span className="text-muted-foreground">سهم مشاور (هر پرداخت پرداخت‌شده):</span>{" "}
-                  {detailsStudentData.advisor_commission_kind === "PERCENT" &&
-                  detailsStudentData.advisor_commission_percent != null
-                    ? `${detailsStudentData.advisor_commission_percent}٪ از مبلغ`
-                    : detailsStudentData.advisor_commission_kind === "FIXED_PER_PAYMENT" &&
-                        detailsStudentData.advisor_commission_fixed_cents != null
-                      ? `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} تومان ثابت`
-                      : "بدون سهم"}
+                  <span className="text-muted-foreground">
+                    {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT"
+                      ? "سهم ماهانه مشاور:"
+                      : detailsStudentData.enrollment_billing_mode === "SINGLE_SESSION"
+                        ? "سهم مشاور (پرداخت تک‌جلسه‌ای):"
+                        : "سهم مشاور (هر پرداخت):"}
+                  </span>{" "}
+                  {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" ? (
+                    detailsStudentData.advisor_commission_kind === "PERCENT_OF_CONTRACT" &&
+                    detailsStudentData.advisor_commission_percent != null
+                      ? `${detailsStudentData.advisor_commission_percent}٪ از قرارداد → ${Math.round((detailsStudentData.advisor_monthly_accrual_cents ?? 0) / 10).toLocaleString("fa-IR")} تومان/ماه`
+                      : detailsStudentData.advisor_commission_kind === "FIXED_MONTHLY" &&
+                          detailsStudentData.advisor_commission_fixed_cents != null
+                        ? `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} تومان در ماه`
+                        : "بدون سهم"
+                  ) : detailsStudentData.advisor_commission_kind === "PERCENT" &&
+                    detailsStudentData.advisor_commission_percent != null ? (
+                    `${detailsStudentData.advisor_commission_percent}٪ از مبلغ`
+                  ) : detailsStudentData.advisor_commission_kind === "FIXED_PER_PAYMENT" &&
+                    detailsStudentData.advisor_commission_fixed_cents != null ? (
+                    `${formatBalance(detailsStudentData.advisor_commission_fixed_cents)} تومان ثابت`
+                  ) : (
+                    "بدون سهم"
+                  )}
                 </p>
               )}
               {Array.isArray(detailsStudentData.role_payouts) && detailsStudentData.role_payouts.length > 0 && (
@@ -1279,13 +1357,21 @@ const Students = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirm */}
+      {/* Soft delete confirm — keeps payment history */}
       <AlertDialog open={deleteStudent != null} onOpenChange={(open) => !open && setDeleteStudent(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف دانش‌آموز</AlertDialogTitle>
-            <AlertDialogDescription>
-              دانش‌آموز «{deleteStudent?.name}» از چرخه مشاوره خارج و به وضعیت «حذف‌شده» منتقل می‌شود، اما برای گزارش سالانه در لیست باقی می‌ماند.
+            <AlertDialogTitle>خروج از چرخه (حذف‌شده)</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                دانش‌آموز «{deleteStudent?.name}» به وضعیت «حذف‌شده» منتقل می‌شود و دیگر در چرخه فعال نیست.
+              </span>
+              <span className="block font-medium">
+                پرداخت‌ها و سوابق مالی در لیست پرداخت‌ها و گزارش‌ها باقی می‌مانند — برای کسی که پول داده و دیگر نمی‌آید.
+              </span>
+              <span className="block text-muted-foreground text-sm">
+                اگر رکورد تست است و باید از همه‌جا پاک شود، بعد از این مرحله «حذف کامل» را بزنید.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1295,6 +1381,48 @@ const Students = () => {
               onClick={() => deleteStudent && deleteMutation.mutate(deleteStudent.id)}
             >
               {deleteMutation.isPending ? "در حال ثبت..." : "تبدیل به حذف‌شده"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Hard delete confirm */}
+      <AlertDialog open={purgeStudent != null} onOpenChange={(open) => !open && setPurgeStudent(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف کامل از سیستم</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                دانش‌آموز «{purgeStudent?.name}» و تمام پرداخت‌هایش (از جمله در لیست پرداخت‌ها) برای همیشه پاک می‌شوند.
+              </span>
+              <span className="block text-destructive font-medium">
+                این عمل غیرقابل بازگشت است — فقط برای ثبت اشتباه، تست، یا رکوردی که اصلاً نباید در نرم‌افزار بماند.
+              </span>
+              {purgeStudent && purgeStudent.paidTotalCents > 0 && (
+                <span className="block text-sm">
+                  این دانش‌آموز{" "}
+                  {Math.round(purgeStudent.paidTotalCents / 10).toLocaleString("fa-IR")} تومان پرداخت ثبت‌شده دارد که
+                  همراه با رکورد دانش‌آموز حذف می‌شود.
+                </span>
+              )}
+              {purgeMutation.isError && (
+                <span className="block text-destructive text-sm">
+                  {(purgeMutation.error as Error)?.message || "خطا در حذف کامل"}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={purgeMutation.isPending}>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={purgeMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (purgeStudent) purgeMutation.mutate(purgeStudent.id);
+              }}
+            >
+              {purgeMutation.isPending ? "در حال حذف..." : "حذف کامل و غیرقابل بازگشت"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1337,14 +1465,12 @@ const Students = () => {
               </div>
               <div className="mt-3">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">تاریخ شروع مشاوره</label>
-                <Input
-                  type="text"
+                <JalaliDatePicker
                   value={createAdvisoryStartDate}
-                  onChange={(e) => setCreateAdvisoryStartDate(e.target.value)}
-                  placeholder="۱۴۰۳/۰۱/۱۵"
-                  dir="ltr"
+                  onChange={setCreateAdvisoryStartDate}
+                  placeholder="انتخاب تاریخ شروع مشاوره"
+                  clearable={false}
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">فرمت: سال/ماه/روز شمسی (مثلا ۱۴۰۳/۰۱/۱۵)</p>
               </div>
             </div>
 
@@ -1393,151 +1519,35 @@ const Students = () => {
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
                 <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
               </div>
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
-                <Select
-                  value={advisorId || "none"}
-                  onValueChange={(val) => {
-                    setAdvisorId(val === "none" ? "" : val);
-                    if (val === "none") {
-                      setAdvisorCommKind("NONE");
-                      setCommPercent("");
-                      setCommFixed("");
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="انتخاب مشاور" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">بدون مشاور</SelectItem>
-                    {users.map((advisor: UserApi) => (
-                      <SelectItem key={advisor.id} value={String(advisor.id)}>
-                        {advisor.first_name} {advisor.last_name} — {advisor.role_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {!!advisorId && (
-                <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    سهم مشاور از هر پرداخت (به‌صورت خودکار محاسبه می‌شود)
-                  </p>
-                  <Select value={advisorCommKind} onValueChange={(v) => setAdvisorCommKind(v as AdvisorCommKind)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE">بدون سهم</SelectItem>
-                      <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                      <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {advisorCommKind === "PERCENT" && (
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">درصد از مبلغ پرداخت</label>
-                      <Input value={commPercent} onChange={(e) => setCommPercent(e.target.value)} placeholder="مثلاً ۱۰" inputMode="decimal" dir="ltr" />
-                    </div>
-                  )}
-                  {advisorCommKind === "FIXED_PER_PAYMENT" && (
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثابت (تومان، به ازای هر پرداخت)</label>
-                      <Input value={commFixed} onChange={(e) => setCommFixed(formatGroupedFaIntInput(e.target.value))} placeholder="مبلغ به تومان" inputMode="numeric" dir="ltr" />
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             <div>
               <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
               <Separator className="mb-3" />
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
-                  <Select
-                    value={planId || "none"}
-                    onValueChange={(val) => setPlanId(val === "none" ? "" : val)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="انتخاب نوع ثبت‌نام" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">بدون پلن</SelectItem>
-                      {(plans || []).map((plan: PlanApi) => (
-                        <SelectItem key={plan.id} value={String(plan.id)}>
-                          {plan.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مبلغ ثبت‌نامی (تومان)</label>
-                  <Input
-                    value={enrollmentAmount}
-                    onChange={(e) => setEnrollmentAmount(formatGroupedFaIntInput(e.target.value))}
-                    placeholder="مثلاً 2,500,000"
-                    inputMode="numeric"
-                    dir="ltr"
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">مبلغ خاص این دانش‌آموز برای پلن انتخاب‌شده</p>
-                </div>
-              </div>
-              <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-muted-foreground">تقسیم مبلغ ثبت‌نام به نقش‌ها (اختیاری)</p>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setRolePayoutRows((prev) => [...prev, makeRolePayoutRow()])}>
-                    افزودن نقش
-                  </Button>
-                </div>
-                <p className="text-[11px] leading-snug text-muted-foreground">
-                  سهم‌ها هنگام ثبت پرداخت با وضعیت «پرداخت‌شده» محاسبه می‌شوند؛ نوع «مبلغ ثابت» یعنی به ازای هر قسط پرداخت‌شده، نه یک‌بار برای کل ثبت‌نام.
-                </p>
-                {rolePayoutRows.length === 0 && (
-                  <p className="text-xs text-muted-foreground">هنوز سهمی تعریف نشده است.</p>
-                )}
-                {rolePayoutRows.map((row) => {
-                  const roleUsers = users.filter((u) => String(u.role_id) === row.roleId);
-                  return (
-                    <div key={row.key} className="space-y-2 rounded-md border border-border bg-background p-3">
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <Select value={row.roleId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, roleId: v === "none" ? "" : v, userId: "" } : x))}>
-                          <SelectTrigger><SelectValue placeholder="نقش" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">انتخاب نقش</SelectItem>
-                            {roles.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                        <Select value={row.userId || "none"} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, userId: v === "none" ? "" : v } : x))}>
-                          <SelectTrigger><SelectValue placeholder="کاربر" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">انتخاب کاربر</SelectItem>
-                            {roleUsers.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.first_name} {u.last_name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                        <Select value={row.amountKind} onValueChange={(v) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, amountKind: v as PayoutAmountKind } : x))}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
-                            <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت پرداخت‌شده</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {row.amountKind === "PERCENT" ? (
-                        <Input value={row.percent} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, percent: e.target.value } : x))} placeholder="درصد (مثلاً ۲۰)" inputMode="decimal" dir="ltr" />
-                      ) : (
-                        <div className="space-y-1">
-                          <Input value={row.fixedCents} onChange={(e) => setRolePayoutRows((prev) => prev.map((x) => x.key === row.key ? { ...x, fixedCents: formatGroupedFaIntInput(e.target.value) } : x))} placeholder="تومان، هر بار پرداخت ثبت شود" inputMode="numeric" dir="ltr" />
-                          <p className="text-[11px] leading-snug text-muted-foreground">{ROLE_PAYOUT_FIXED_HINT}</p>
-                        </div>
-                      )}
-                      <div className="flex justify-end">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setRolePayoutRows((prev) => prev.filter((x) => x.key !== row.key))}>حذف</Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <EnrollmentRegistrationFields
+                billingMode={billingMode}
+                onBillingModeChange={setBillingMode}
+                planId={planId}
+                onPlanIdChange={setPlanId}
+                plans={plans || []}
+                enrollmentAmount={enrollmentAmount}
+                onEnrollmentAmountChange={setEnrollmentAmount}
+                accrualMonthMask={accrualMonthMask}
+                onAccrualMonthMaskChange={setAccrualMonthMask}
+                rolePayoutRows={rolePayoutRows}
+                onRolePayoutRowsChange={setRolePayoutRows}
+                roles={roles}
+                users={users}
+                advisorId={advisorId}
+                onAdvisorIdChange={setAdvisorId}
+                advisorOptions={users}
+                advisorCommKind={advisorCommKind}
+                onAdvisorCommKindChange={setAdvisorCommKind}
+                commPercent={commPercent}
+                onCommPercentChange={setCommPercent}
+                commFixed={commFixed}
+                onCommFixedChange={setCommFixed}
+              />
             </div>
           </div>
           <DialogFooter>
@@ -1550,13 +1560,6 @@ const Students = () => {
             </Button>
             <Button
               onClick={() => {
-                const createAdvisorSelected = !!advisorId;
-                const createCommissionInvalid =
-                  createAdvisorSelected &&
-                  ((advisorCommKind === "PERCENT" &&
-                    (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
-                    (advisorCommKind === "FIXED_PER_PAYMENT" &&
-                      (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)));
                 const createRolePayoutInvalid = rolePayoutRows.some((r) =>
                   !r.roleId ||
                   !r.userId ||
@@ -1567,7 +1570,7 @@ const Students = () => {
                 );
                 if (createCommissionInvalid || createRolePayoutInvalid) return;
                 const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
-                createMutation.mutate({
+                const payload: CreateStudentPayload = {
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
                   email: email.trim() || undefined,
@@ -1586,31 +1589,25 @@ const Students = () => {
                     return g || undefined;
                   })(),
                   advisor_id: advisorId ? Number(advisorId) : undefined,
-                  ...(createAdvisorSelected
-                    ? {
-                        advisor_commission_kind: advisorCommKind,
-                        ...(advisorCommKind === "PERCENT"
-                          ? { advisor_commission_percent: parseLocalizedFloat(commPercent) }
-                          : {}),
-                        ...(advisorCommKind === "FIXED_PER_PAYMENT"
-                          ? { advisor_commission_fixed_cents: parseLocalizedInt(commFixed) * 10 }
-                          : {}),
-                      }
-                    : {}),
                   role_payouts: buildRolePayoutPayload(rolePayoutRows),
                   current_plan_id: planId ? Number(planId) : undefined,
                   enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined,
+                };
+                appendAdvisorCommissionFields(payload, {
+                  advisorSelected: !!advisorId,
+                  billingMode,
+                  kind: advisorCommKind,
+                  commPercent,
+                  commFixed,
+                  accrualMonthMask,
                 });
+                createMutation.mutate(payload);
               }}
               disabled={
                 createMutation.isPending ||
                 !firstName.trim() ||
                 !lastName.trim() ||
-                (!!advisorId &&
-                  ((advisorCommKind === "PERCENT" &&
-                    (!commPercent.trim() || parseLocalizedFloat(commPercent) <= 0 || parseLocalizedFloat(commPercent) > 100)) ||
-                    (advisorCommKind === "FIXED_PER_PAYMENT" &&
-                      (!commFixed.trim() || parseLocalizedInt(commFixed) < 0)))) ||
+                createCommissionInvalid ||
                 rolePayoutRows.some((r) =>
                   !r.roleId ||
                   !r.userId ||

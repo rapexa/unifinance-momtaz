@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/csv"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,10 +31,11 @@ type UserDTO struct {
 	RoleCode       string    `json:"role_code"`
 	RoleName       string    `json:"role_name"`
 	Role           string    `json:"role"` // same as role_code (backward compatible)
-	IsActive       bool      `json:"is_active"`
-	OrganizationID *uint     `json:"organization_id,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	Permissions    []string  `json:"permissions,omitempty"` // only for GET when caller has USERS permission
+	IsActive              bool      `json:"is_active"`
+	OrganizationID        *uint     `json:"organization_id,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+	AssignedStudentsCount int64     `json:"assigned_students_count"`
+	Permissions           []string  `json:"permissions,omitempty"` // only for GET when caller has USERS permission
 }
 
 func toUserDTO(u *models.User) UserDTO {
@@ -153,6 +153,18 @@ func (h *UserHandler) List(c *gin.Context) {
 	}
 
 	dtos := toUserDTOSlice(users)
+	if len(users) > 0 {
+		ids := make([]uint, len(users))
+		for i := range users {
+			ids[i] = users[i].ID
+		}
+		counts, err := h.service.CountAssignedStudentsForUsers(c.Request.Context(), ids)
+		if err == nil {
+			for i := range dtos {
+				dtos[i].AssignedStudentsCount = counts[dtos[i].ID]
+			}
+		}
+	}
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -184,14 +196,21 @@ func (h *UserHandler) Summary(c *gin.Context) {
 		return
 	}
 	type row struct {
-		RoleID uint   `json:"role_id"`
-		Code   string `json:"code"`
-		Name   string `json:"name"`
-		Count  int64  `json:"count"`
+		RoleID        uint   `json:"role_id"`
+		Code          string `json:"code"`
+		Name          string `json:"name"`
+		Count         int64  `json:"count"`
+		StudentsCount int64  `json:"students_count"`
 	}
 	rows := make([]row, 0, len(stats))
 	for _, s := range stats {
-		rows = append(rows, row{RoleID: s.RoleID, Code: s.Code, Name: s.Name, Count: s.Count})
+		rows = append(rows, row{
+			RoleID:        s.RoleID,
+			Code:          s.Code,
+			Name:          s.Name,
+			Count:         s.Count,
+			StudentsCount: s.StudentsCount,
+		})
 	}
 	c.JSON(http.StatusOK, gin.H{"by_role": rows})
 }
@@ -228,6 +247,9 @@ func (h *UserHandler) Get(c *gin.Context) {
 	}
 
 	dto := toUserDTO(u)
+	if counts, err := h.service.CountAssignedStudentsForUsers(c.Request.Context(), []uint{u.ID}); err == nil {
+		dto.AssignedStudentsCount = counts[u.ID]
+	}
 	if h.permSvc != nil {
 		full := u.Role != nil && u.Role.FullAccess
 		perms, _ := h.permSvc.GetForUser(c.Request.Context(), u.ID, full)
@@ -427,21 +449,27 @@ func (h *UserHandler) Export(c *gin.Context) {
 	}
 
 	filename := "users_export.csv"
-	c.Header("Content-Type", "text/csv")
-	c.Header("Content-Disposition", "attachment; filename="+filename)
 
-	w := csv.NewWriter(c.Writer)
-	defer w.Flush()
-
-	_ = w.Write([]string{"ID", "FirstName", "LastName", "Email", "Phone", "RoleID", "RoleCode", "RoleName", "IsActive", "CreatedAt"})
-
+	header := []string{
+		"شناسه",
+		"نام",
+		"نام خانوادگی",
+		"ایمیل",
+		"موبایل",
+		"شناسه نقش",
+		"کد نقش",
+		"نام نقش",
+		"فعال",
+		"تاریخ ایجاد",
+	}
+	rows := make([][]string, 0, len(users))
 	for _, u := range users {
 		rc, rn := "", ""
 		if u.Role != nil {
 			rc = u.Role.Code
 			rn = u.Role.Name
 		}
-		row := []string{
+		rows = append(rows, []string{
 			strconv.FormatUint(uint64(u.ID), 10),
 			u.FirstName,
 			u.LastName,
@@ -451,9 +479,11 @@ func (h *UserHandler) Export(c *gin.Context) {
 			rc,
 			rn,
 			strconv.FormatBool(u.IsActive),
-			u.CreatedAt.Format(time.RFC3339),
-		}
-		_ = w.Write(row)
+			u.CreatedAt.In(time.Local).Format("2006-01-02 15:04"),
+		})
+	}
+	if err := writeCSVAttachment(c.Writer, filename, header, rows); err != nil {
+		userError(c, http.StatusInternalServerError, "failed to export users")
 	}
 }
 

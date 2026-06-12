@@ -30,6 +30,8 @@ type DashboardKPIsDTO struct {
 	ActiveStudents                int64 `json:"active_students"`
 	StudentRegistrationsThisMonth int64 `json:"student_registrations_this_month"`
 	MonthlyPayrollCents           int64 `json:"monthly_payroll_cents"`
+	// StudentDebtCents: sum of active students' remaining enrollment debt (matches student list).
+	StudentDebtCents int64 `json:"student_debt_cents"`
 }
 
 // DebtAlertDTO represents a single debt alert item.
@@ -94,6 +96,12 @@ func (h *DashboardHandler) GetSummary(c *gin.Context) {
 		return
 	}
 
+	studentDebt, err := h.payments.SumActiveStudentDebtCents(ctx, scope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dashboard KPIs"})
+		return
+	}
+
 	// Map service structs to DTOs
 	kpiDTO := DashboardKPIsDTO{
 		TotalRevenueCents:             kpis.TotalRevenueCents,
@@ -102,6 +110,7 @@ func (h *DashboardHandler) GetSummary(c *gin.Context) {
 		ActiveStudents:                kpis.ActiveStudents,
 		StudentRegistrationsThisMonth: kpis.StudentRegistrationsThisMonth,
 		MonthlyPayrollCents:           kpis.MonthlyPayrollCents,
+		StudentDebtCents:              studentDebt,
 	}
 
 	paymentDTOs := toPaymentDTOSlice(payments)
