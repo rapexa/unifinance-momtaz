@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -31,7 +32,9 @@ func (s *PaymentService) recalcPendingPayrollForPaidAt(ctx context.Context, paid
 	}
 	t := paidAt.In(time.Local)
 	y, m, _ := t.Date()
-	_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m))
+	if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m)); err != nil {
+		log.Printf("payroll: recalc pending for %d-%02d failed: %v", y, m, err)
+	}
 }
 
 func (s *PaymentService) recalcPendingPayrollForStudentPaidMonths(ctx context.Context, studentID uint) {
@@ -56,31 +59,34 @@ func (s *PaymentService) recalcPendingPayrollForStudentPaidMonths(ctx context.Co
 			continue
 		}
 		seen[key] = struct{}{}
-		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(mo))
+		if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(mo)); err != nil {
+			log.Printf("payroll: recalc pending for %d-%02d failed: %v", y, mo, err)
+		}
 	}
 }
 
 // rebuildPaymentPayrollShares replaces split rows for a payment from StudentRolePayout rows
 // plus optional advisor contract share when advisor commission is set and not overridden by role payouts.
-func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymentID uint) error {
+// It runs every write on the given db handle, so callers can pass a transaction for atomicity.
+func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, db *gorm.DB, paymentID uint) error {
 	var p models.Payment
-	if err := s.db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
+	if err := db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
 		return err
 	}
 	// Clear existing shares
-	if err := s.db.WithContext(ctx).Unscoped().
+	if err := db.WithContext(ctx).Unscoped().
 		Where("payment_id = ?", paymentID).
 		Delete(&models.PaymentPayrollShare{}).Error; err != nil {
 		return err
 	}
 	if p.Status != models.PaymentStatusPaid {
-		return s.db.WithContext(ctx).Model(&models.Payment{}).
+		return db.WithContext(ctx).Model(&models.Payment{}).
 			Where("id = ?", paymentID).
 			Update("advisor_share_cents", 0).Error
 	}
 	// Load student with role payouts
 	var st models.Student
-	if err := s.db.WithContext(ctx).Preload("StudentRolePayouts").First(&st, p.StudentID).Error; err != nil {
+	if err := db.WithContext(ctx).Preload("StudentRolePayouts").First(&st, p.StudentID).Error; err != nil {
 		return err
 	}
 	// Aggregate shares per user
@@ -100,7 +106,7 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 			ShareCents:       share,
 			BasisAmountCents: p.AmountCents,
 		}
-		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+		if err := db.WithContext(ctx).Create(&row).Error; err != nil {
 			return err
 		}
 	}
@@ -123,14 +129,14 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, paymen
 					ShareCents:       adv,
 					BasisAmountCents: p.AmountCents,
 				}
-				if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+				if err := db.WithContext(ctx).Create(&row).Error; err != nil {
 					return err
 				}
 			}
 		}
 	}
 	advisorShare := models.ComputeAdvisorShareCents(&st, p.AmountCents)
-	return s.db.WithContext(ctx).Model(&models.Payment{}).
+	return db.WithContext(ctx).Model(&models.Payment{}).
 		Where("id = ?", paymentID).
 		Update("advisor_share_cents", advisorShare).Error
 }
@@ -144,7 +150,7 @@ func (s *PaymentService) RebuildAllPaidPaymentPayrollShares(ctx context.Context)
 		return err
 	}
 	for _, id := range ids {
-		if err := s.rebuildPaymentPayrollShares(ctx, id); err != nil {
+		if err := s.rebuildPaymentPayrollShares(ctx, s.db, id); err != nil {
 			return err
 		}
 	}
@@ -160,7 +166,7 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 		return err
 	}
 	for i := range list {
-		if err := s.rebuildPaymentPayrollShares(ctx, list[i].ID); err != nil {
+		if err := s.rebuildPaymentPayrollShares(ctx, s.db, list[i].ID); err != nil {
 			return err
 		}
 	}
@@ -344,16 +350,22 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		payment.PaidAt = p.PaidAt
 	}
 
-	if err := s.repo.Create(ctx, payment); err != nil {
-		return nil, err
-	}
-	if err := s.rebuildPaymentPayrollShares(ctx, payment.ID); err != nil {
-		return nil, err
-	}
-	if payment.Status == models.PaymentStatusPaid && payment.AmountCents != 0 {
-		if err := s.adjustStudentBalanceByPaidDelta(ctx, payment.StudentID, payment.AmountCents); err != nil {
-			return nil, err
+	// Payment row, payroll split rows and the student balance must move together.
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.repo.WithTx(tx).Create(ctx, payment); err != nil {
+			return err
 		}
+		if err := s.rebuildPaymentPayrollShares(ctx, tx, payment.ID); err != nil {
+			return err
+		}
+		if payment.Status == models.PaymentStatusPaid && payment.AmountCents != 0 {
+			if err := s.adjustStudentBalanceByPaidDelta(ctx, tx, payment.StudentID, payment.AmountCents); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	s.recalcPendingPayrollForPaidAt(ctx, payment.PaidAt)
 	return payment, nil
@@ -409,20 +421,25 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 		payment.PaidAt = p.PaidAt
 	}
 
-	if err := s.repo.Update(ctx, payment); err != nil {
-		return nil, err
-	}
-	if err := s.rebuildPaymentPayrollShares(ctx, payment.ID); err != nil {
-		return nil, err
-	}
 	newPaidContribution := int64(0)
 	if payment.Status == models.PaymentStatusPaid {
 		newPaidContribution = payment.AmountCents
 	}
-	if delta := newPaidContribution - oldPaidContribution; delta != 0 {
-		if err := s.adjustStudentBalanceByPaidDelta(ctx, payment.StudentID, delta); err != nil {
-			return nil, err
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.repo.WithTx(tx).Update(ctx, payment); err != nil {
+			return err
 		}
+		if err := s.rebuildPaymentPayrollShares(ctx, tx, payment.ID); err != nil {
+			return err
+		}
+		if delta := newPaidContribution - oldPaidContribution; delta != 0 {
+			if err := s.adjustStudentBalanceByPaidDelta(ctx, tx, payment.StudentID, delta); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	if s.payroll != nil {
 		months := make(map[[2]int]struct{})
@@ -437,7 +454,9 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 			months[[2]int{y, int(m)}] = struct{}{}
 		}
 		for k := range months {
-			_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, k[0], k[1])
+			if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, k[0], k[1]); err != nil {
+				log.Printf("payroll: recalc pending for %d-%02d failed: %v", k[0], k[1], err)
+			}
 		}
 	}
 	return payment, nil
@@ -455,32 +474,42 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 		y, m, _ := t.Date()
 		delYear, delMonth = y, int(m)
 	}
-	_ = s.db.WithContext(ctx).Unscoped().Where("payment_id = ?", id).Delete(&models.PaymentPayrollShare{})
-	if err := s.repo.SoftDelete(ctx, id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrPaymentNotFound
-		}
-		return err
-	}
-	if err := s.rebuildPaymentPayrollShares(ctx, id); err != nil {
-		return err
-	}
-	if payment.Status == models.PaymentStatusPaid && payment.AmountCents != 0 {
-		if err := s.adjustStudentBalanceByPaidDelta(ctx, payment.StudentID, -payment.AmountCents); err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("payment_id = ?", id).
+			Delete(&models.PaymentPayrollShare{}).Error; err != nil {
 			return err
 		}
+		if err := s.repo.WithTx(tx).SoftDelete(ctx, id); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPaymentNotFound
+			}
+			return err
+		}
+		if err := s.rebuildPaymentPayrollShares(ctx, tx, id); err != nil {
+			return err
+		}
+		if payment.Status == models.PaymentStatusPaid && payment.AmountCents != 0 {
+			if err := s.adjustStudentBalanceByPaidDelta(ctx, tx, payment.StudentID, -payment.AmountCents); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if wasPaid && s.payroll != nil {
-		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, delYear, delMonth)
+		if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, delYear, delMonth); err != nil {
+			log.Printf("payroll: recalc pending for %d-%02d failed: %v", delYear, delMonth, err)
+		}
 	}
 	return nil
 }
 
-func (s *PaymentService) adjustStudentBalanceByPaidDelta(ctx context.Context, studentID uint, deltaCents int64) error {
+func (s *PaymentService) adjustStudentBalanceByPaidDelta(ctx context.Context, db *gorm.DB, studentID uint, deltaCents int64) error {
 	if deltaCents == 0 {
 		return nil
 	}
-	return s.db.WithContext(ctx).Model(&models.Student{}).
+	return db.WithContext(ctx).Model(&models.Student{}).
 		Where("id = ?", studentID).
 		Update("balance_cents", gorm.Expr("balance_cents + ?", deltaCents)).Error
 }

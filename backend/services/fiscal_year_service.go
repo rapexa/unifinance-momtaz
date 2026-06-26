@@ -26,6 +26,18 @@ var (
 
 const defaultAdminEmail = "admin@example.com"
 
+// fiscalCloseTables lists every table whose rows are soft-deleted by Close (and restored
+// by Restore). Kept in one place so the two stay in sync.
+var fiscalCloseTables = []string{
+	"roles", "role_permissions",
+	"users", "user_permissions", "notification_settings",
+	"plans", "plan_features",
+	"students", "enrollments",
+	"student_role_payouts",
+	"payroll_entries",
+	"payments", "payment_payroll_shares", "payment_reminders",
+}
+
 type FiscalYearService struct {
 	db *gorm.DB
 }
@@ -123,6 +135,9 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 	}
 
 	now := time.Now()
+	// One canonical close timestamp (whole seconds) shared by every archived row and the
+	// fiscal year record, so Restore can match them by exact equality.
+	closedAt := now.Truncate(time.Second)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var gm models.Role
 		if err := tx.Where("code = ? AND is_system = ?", models.RoleCodeGeneralManager, true).
@@ -153,18 +168,6 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 		}
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.StudentRolePayout{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
-			Delete(&models.CompensationRuleStudent{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
-			Delete(&models.CompensationRuleUserStudent{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
-			Delete(&models.CompensationRule{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
@@ -221,10 +224,22 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 			return err
 		}
 
+		// Stamp every row soft-deleted in THIS close with one canonical timestamp so Restore
+		// can match them exactly (deleted_at = closedAt) instead of a fuzzy time window.
+		// Rows deleted before this close (deleted_at < now) are left untouched.
+		for _, t := range fiscalCloseTables {
+			if err := tx.Exec(
+				"UPDATE `"+t+"` SET deleted_at = ? WHERE deleted_at IS NOT NULL AND deleted_at >= ?",
+				closedAt, now,
+			).Error; err != nil {
+				return err
+			}
+		}
+
 		return tx.Model(&fy).Updates(map[string]interface{}{
 			"status":     models.FiscalYearClosed,
-			"end_date":   now,
-			"closed_at":  now,
+			"end_date":   closedAt,
+			"closed_at":  closedAt,
 			"export_url": exportURL,
 		}).Error
 	}); err != nil {
@@ -232,8 +247,8 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 	}
 
 	fy.Status = models.FiscalYearClosed
-	fy.EndDate = &now
-	fy.ClosedAt = &now
+	fy.EndDate = &closedAt
+	fy.ClosedAt = &closedAt
 	fy.ExportURL = exportURL
 	return &fy, nil
 }
@@ -274,25 +289,14 @@ func (s *FiscalYearService) Restore(ctx context.Context, id uint) (*models.Fisca
 		return nil, ErrFiscalYearRestoreBlocked
 	}
 
-	// All rows deleted during Close share a deleted_at within the same second as closed_at.
-	cutoff := fy.ClosedAt.Add(-time.Second)
-
-	// Tables to restore — order doesn't matter for soft-delete recovery.
-	tables := []string{
-		"roles", "role_permissions",
-		"users", "user_permissions", "notification_settings",
-		"plans", "plan_features",
-		"students", "enrollments",
-		"compensation_rules", "compensation_rule_students", "compensation_rule_user_students",
-		"student_role_payouts",
-		"payroll_entries",
-		"payments", "payment_payroll_shares", "payment_reminders",
-	}
+	// Close stamped every archived row with deleted_at = closed_at exactly, so we restore
+	// precisely those rows — no fuzzy time window, no risk of reviving unrelated deletions.
+	closedAt := *fy.ClosedAt
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, t := range tables {
+		for _, t := range fiscalCloseTables {
 			if err := tx.Exec(
-				"UPDATE `"+t+"` SET deleted_at = NULL WHERE deleted_at >= ?", cutoff,
+				"UPDATE `"+t+"` SET deleted_at = NULL WHERE deleted_at = ?", closedAt,
 			).Error; err != nil {
 				return err
 			}
@@ -427,7 +431,11 @@ func (s *FiscalYearService) writeStudentsSection(ctx context.Context, w *csv.Wri
 	_ = w.Write([]string{"شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "وضعیت", "موجودی (تومان)", "مشاور"})
 
 	var students []models.Student
-	if err := s.db.WithContext(ctx).Preload("Advisor").Find(&students).Error; err != nil {
+	q := s.db.WithContext(ctx).Preload("Advisor")
+	if !fy.StartDate.IsZero() {
+		q = q.Where("created_at >= ?", fy.StartDate)
+	}
+	if err := q.Find(&students).Error; err != nil {
 		return err
 	}
 	for _, st := range students {
@@ -496,7 +504,11 @@ func (s *FiscalYearService) writePayrollSection(ctx context.Context, w *csv.Writ
 	_ = w.Write([]string{"شناسه", "کارمند", "سال", "ماه", "حقوق پایه (تومان)", "حقوق متغیر (تومان)", "کل (تومان)", "وضعیت", "تاریخ پرداخت"})
 
 	var entries []models.PayrollEntry
-	if err := s.db.WithContext(ctx).Preload("User").Find(&entries).Error; err != nil {
+	q := s.db.WithContext(ctx).Preload("User")
+	if !fy.StartDate.IsZero() {
+		q = q.Where("created_at >= ?", fy.StartDate)
+	}
+	if err := q.Find(&entries).Error; err != nil {
 		return err
 	}
 	for _, e := range entries {

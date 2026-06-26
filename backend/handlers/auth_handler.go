@@ -23,14 +23,6 @@ type loginRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
-type registerRequest struct {
-	FirstName string `json:"first_name" binding:"required"`
-	LastName  string `json:"last_name" binding:"required"`
-	Email     string `json:"email" binding:"required,email"`
-	Password  string `json:"password" binding:"required,min=6"`
-	Phone     string `json:"phone"`
-}
-
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
@@ -64,32 +56,6 @@ type AuthTokensDoc struct {
 type AuthResultDoc struct {
 	User   AuthUserDoc   `json:"user"`
 	Tokens AuthTokensDoc `json:"tokens"`
-}
-
-// Register handles POST /api/v1/auth/register
-// @Summary      Register new user
-// @Description  Create a new user and return access & refresh tokens
-// @Tags         auth
-// @Accept       json
-// @Produce      json
-// @Param        body  body      registerRequest true "Register data"
-// @Success      201   {object}  AuthResultDoc
-// @Failure      400   {object}  map[string]string
-// @Router       /auth/register [post]
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req registerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	result, err := h.authService.Register(c.Request.Context(), req.FirstName, req.LastName, req.Email, req.Password, req.Phone)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, result)
 }
 
 // Login handles POST /api/v1/auth/login
@@ -212,7 +178,15 @@ func (h *AuthHandler) Me(c *gin.Context) {
 // @Failure      401   {object}  map[string]string
 // @Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// In a real implementation, you could blacklist the token (e.g., Redis) or rotate keys.
+	userIDVal, exists := c.Get(middleware.ContextUserIDKey)
+	if exists {
+		if userID, ok := userIDVal.(uint); ok {
+			if err := h.authService.Logout(c.Request.Context(), userID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "logout failed"})
+				return
+			}
+		}
+	}
 	c.Status(http.StatusNoContent)
 }
 
@@ -233,8 +207,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	// Currently stubbed; email integration is not implemented.
-	if err := h.authService.ForgotPassword(c.Request.Context(), req.Email); err != nil && err != services.ErrNotImplemented {
+	if err := h.authService.ForgotPassword(c.Request.Context(), req.Email); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
@@ -261,8 +234,8 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	if err := h.authService.ResetPassword(c.Request.Context(), req.Token, req.NewPassword); err != nil {
-		if err == services.ErrNotImplemented {
-			c.JSON(http.StatusNotImplemented, gin.H{"error": "reset-password not implemented"})
+		if err == services.ErrInvalidResetToken {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "لینک بازنشانی نامعتبر یا منقضی شده است"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})

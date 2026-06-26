@@ -5,22 +5,30 @@ import (
 )
 
 // DataScopeUserID returns nil when the user may see all rows (full_access).
-// Otherwise returns the current user's ID for advisor / role-payout–scoped data.
+// Otherwise it returns the current user's ID for advisor / role-payout–scoped data.
+// It fails CLOSED: if full access is not confirmed and the user id is missing or of an
+// unexpected type, it returns a sentinel (user id 0) that matches no rows, rather than
+// granting access to everything.
 func DataScopeUserID(c *gin.Context) *uint {
-	fa, ok := c.Get(ContextUserFullAccess)
-	if ok {
+	if fa, ok := c.Get(ContextUserFullAccess); ok {
 		if full, isBool := fa.(bool); isBool && full {
-			return nil
+			return nil // full access — no scoping
 		}
 	}
 	uidVal, ok := c.Get(ContextUserIDKey)
 	if !ok {
-		return nil
+		return denyAllScope()
 	}
 	uid, ok := uidVal.(uint)
 	if !ok {
-		return nil
+		return denyAllScope()
 	}
 	u := uid
 	return &u
+}
+
+// denyAllScope returns a scope pointing at user id 0, which never matches a real row.
+func denyAllScope() *uint {
+	z := uint(0)
+	return &z
 }

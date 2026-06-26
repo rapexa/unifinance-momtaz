@@ -3,12 +3,14 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 	"github.com/soheilsshh/unifinance-momtaz/utils"
+	"gorm.io/gorm"
 )
 
 // Context keys
@@ -19,8 +21,9 @@ const (
 )
 
 // AuthMiddleware is a Gin middleware that validates JWT and injects user info into context.
-// This follows the classic Middleware Pattern for cross-cutting concerns (auth).
-func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+// It also performs a live account check: deactivated users and tokens invalidated by
+// logout / password reset (via TokensValidFrom) are rejected immediately.
+func AuthMiddleware(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -41,6 +44,28 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 		if claims.TokenType != "access" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token type"})
+			return
+		}
+
+		// Live account check: confirm the user is still active and the token has not been
+		// invalidated by a logout or password reset. Scan returns zero values for a missing
+		// row, so a deleted/unknown user is rejected (fail closed).
+		var acct struct {
+			IsActive        bool
+			TokensValidFrom *time.Time
+		}
+		if err := db.WithContext(c.Request.Context()).Model(&models.User{}).
+			Select("is_active", "tokens_valid_from").
+			Where("id = ?", claims.UserID).Scan(&acct).Error; err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to verify session"})
+			return
+		}
+		if !acct.IsActive {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user is inactive"})
+			return
+		}
+		if acct.TokensValidFrom != nil && claims.IssuedAt != nil && claims.IssuedAt.Time.Before(*acct.TokensValidFrom) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session expired, please log in again"})
 			return
 		}
 

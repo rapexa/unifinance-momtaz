@@ -131,7 +131,8 @@ func main() {
 	// Public auth routes
 	authGroup := api.Group("/auth")
 	{
-		authGroup.POST("/register", authHandler.Register)
+		// NOTE: public self-registration was removed — it created full-access مدیرکل
+		// accounts without authentication. New users are created by an admin via /users.
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/refresh", authHandler.Refresh)
 		authGroup.POST("/forgot-password", authHandler.ForgotPassword)
@@ -140,7 +141,7 @@ func main() {
 
 	// Protected routes
 	protected := api.Group("")
-	protected.Use(middleware.AuthMiddleware(cfg))
+	protected.Use(middleware.AuthMiddleware(cfg, db))
 
 	// current user endpoint
 	protected.GET("/users/me", func(c *gin.Context) {

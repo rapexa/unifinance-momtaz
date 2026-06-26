@@ -32,6 +32,9 @@ type PaymentRepository interface {
 	Update(ctx context.Context, p *models.Payment) error
 	SoftDelete(ctx context.Context, id uint) error
 	ListRecent(ctx context.Context, limit int, scopeUser *uint) ([]models.Payment, error)
+	// WithTx returns a repository bound to the given transaction so a service can run
+	// several writes atomically.
+	WithTx(tx *gorm.DB) PaymentRepository
 }
 
 type GormPaymentRepository struct {
@@ -40,6 +43,10 @@ type GormPaymentRepository struct {
 
 func NewPaymentRepository(db *gorm.DB) PaymentRepository {
 	return &GormPaymentRepository{db: db}
+}
+
+func (r *GormPaymentRepository) WithTx(tx *gorm.DB) PaymentRepository {
+	return &GormPaymentRepository{db: tx}
 }
 
 func (r *GormPaymentRepository) FindByID(ctx context.Context, id uint) (*models.Payment, error) {

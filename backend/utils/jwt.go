@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -9,14 +11,42 @@ import (
 )
 
 // JWTClaims holds the data embedded in the JWT token.
-// TokenType distinguishes between "access" and "refresh" tokens.
+// TokenType distinguishes between "access", "refresh" and "reset" tokens.
 // Role is the role code (slug). FullAccess mirrors Role.FullAccess (مدیرکل).
 type JWTClaims struct {
 	UserID     uint   `json:"user_id"`
 	Role       string `json:"role"`
 	FullAccess bool   `json:"full_access"`
 	TokenType  string `json:"typ"`
+	// Fingerprint binds a reset token to the password it was issued for, making it
+	// single-use: once the password changes the fingerprint no longer matches.
+	Fingerprint string `json:"fp,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// PasswordFingerprint returns a short stable fingerprint of a password hash.
+func PasswordFingerprint(passwordHash string) string {
+	sum := sha256.Sum256([]byte(passwordHash))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// GenerateResetToken creates a short-lived password-reset token bound to the
+// user's current password hash (single-use once the password changes).
+func GenerateResetToken(user *models.User, cfg *config.Config) (string, error) {
+	now := time.Now()
+	claims := JWTClaims{
+		UserID:      user.ID,
+		TokenType:   "reset",
+		Fingerprint: PasswordFingerprint(user.PasswordHash),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    cfg.JWTIssuer,
+			Subject:   user.Email,
+			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(cfg.JWTSecret))
 }
 
 func roleClaimsFromUser(user *models.User) (code string, fullAccess bool) {

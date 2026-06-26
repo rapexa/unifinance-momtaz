@@ -2,7 +2,9 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
@@ -15,6 +17,8 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	Create(ctx context.Context, user *models.User) error
 	Update(ctx context.Context, user *models.User) error
+	SetTokensValidFrom(ctx context.Context, userID uint, t time.Time) error
+	SetPasswordAndInvalidate(ctx context.Context, userID uint, passwordHash string, t time.Time) error
 	List(ctx context.Context, limit, offset int, search, roleCode string, roleID uint, isActive *bool) ([]models.User, int64, error)
 	RoleStats(ctx context.Context) ([]UserRoleStat, error)
 	CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int64, error)
@@ -55,7 +59,57 @@ func (r *GormUserRepository) FindByEmail(ctx context.Context, email string) (*mo
 }
 
 func (r *GormUserRepository) Create(ctx context.Context, user *models.User) error {
+	// The email unique index ignores deleted_at, so a soft-deleted user (e.g. archived
+	// by a fiscal-year close) still occupies the email and a plain INSERT would fail with
+	// a duplicate-key error. If such an archived row exists, revive it in place instead.
+	var soft models.User
+	softErr := r.db.WithContext(ctx).Unscoped().
+		Where("email = ? AND deleted_at IS NOT NULL", user.Email).
+		First(&soft).Error
+	if softErr == nil {
+		if err := user.BeforeCreate(r.db); err != nil { // hash PlainPassword
+			return err
+		}
+		updates := map[string]interface{}{
+			"deleted_at":        gorm.Expr("NULL"),
+			"first_name":        user.FirstName,
+			"last_name":         user.LastName,
+			"phone":             user.Phone,
+			"role_id":           user.RoleID,
+			"is_active":         user.IsActive,
+			"organization_id":   user.OrganizationID,
+			"two_factor_enabled": user.TwoFactorEnabled,
+			"tokens_valid_from": gorm.Expr("NULL"),
+		}
+		if user.PasswordHash != "" {
+			updates["password_hash"] = user.PasswordHash
+		}
+		if err := r.db.WithContext(ctx).Unscoped().
+			Model(&models.User{}).Where("id = ?", soft.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+		user.ID = soft.ID
+		return nil
+	}
+	if !errors.Is(softErr, gorm.ErrRecordNotFound) {
+		return softErr
+	}
 	return r.db.WithContext(ctx).Create(user).Error
+}
+
+func (r *GormUserRepository) SetTokensValidFrom(ctx context.Context, userID uint, t time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("tokens_valid_from", t).Error
+}
+
+func (r *GormUserRepository) SetPasswordAndInvalidate(ctx context.Context, userID uint, passwordHash string, t time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"password_hash":     passwordHash,
+			"tokens_valid_from": t,
+		}).Error
 }
 
 func (r *GormUserRepository) Update(ctx context.Context, user *models.User) error {

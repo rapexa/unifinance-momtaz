@@ -113,15 +113,6 @@ func (r *GormStudentRepository) Delete(ctx context.Context, id uint) error {
 // HardDelete permanently removes the student and all dependent rows (payments, enrollments, etc.).
 func (r *GormStudentRepository) HardDelete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("student_id = ?", id).
-			Delete(&models.CompensationRuleStudent{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Unscoped().Where("student_id = ?", id).
-			Delete(&models.CompensationRuleUserStudent{}).Error; err != nil {
-			return err
-		}
-
 		var paymentIDs []uint
 		if err := tx.Unscoped().Model(&models.Payment{}).
 			Where("student_id = ?", id).

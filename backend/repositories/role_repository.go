@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"gorm.io/gorm"
@@ -51,6 +52,33 @@ func (r *GormRoleRepository) GetByCode(ctx context.Context, code string) (*model
 }
 
 func (r *GormRoleRepository) Create(ctx context.Context, role *models.Role) error {
+	// The code unique index ignores deleted_at, so a soft-deleted role (e.g. archived by a
+	// fiscal-year close) still occupies the code and a plain INSERT would fail with a
+	// duplicate-key error. If such an archived row exists, revive it in place instead.
+	var soft models.Role
+	softErr := r.db.WithContext(ctx).Unscoped().
+		Where("code = ? AND deleted_at IS NOT NULL", role.Code).
+		First(&soft).Error
+	if softErr == nil {
+		if err := r.db.WithContext(ctx).Unscoped().Model(&models.Role{}).
+			Where("id = ?", soft.ID).Updates(map[string]interface{}{
+			"deleted_at":           gorm.Expr("NULL"),
+			"name":                 role.Name,
+			"description":          role.Description,
+			"is_system":            role.IsSystem,
+			"full_access":          role.FullAccess,
+			"compensation_kind":    role.CompensationKind,
+			"fixed_cents":          role.FixedCents,
+			"payroll_months_count": role.PayrollMonthsCount,
+		}).Error; err != nil {
+			return err
+		}
+		role.ID = soft.ID
+		return nil
+	}
+	if !errors.Is(softErr, gorm.ErrRecordNotFound) {
+		return softErr
+	}
 	return r.db.WithContext(ctx).Create(role).Error
 }
 

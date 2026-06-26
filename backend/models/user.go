@@ -22,6 +22,9 @@ type User struct {
 	PasswordHash     string `gorm:"size:255;not null"`
 	PlainPassword    string `gorm:"-"`
 	TwoFactorEnabled bool   `gorm:"not null;default:false"`
+	// TokensValidFrom invalidates every access token issued before this time.
+	// Set on logout and on password reset so old JWTs stop working immediately.
+	TokensValidFrom *time.Time `gorm:""`
 
 	// Profile (Settings > Profile)
 	AvatarURL string `gorm:"size:512"`

@@ -3,19 +3,21 @@ package services
 import (
 	"context"
 	"errors"
+	"log"
+	"strings"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"github.com/soheilsshh/unifinance-momtaz/utils"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInactiveUser       = errors.New("user is inactive")
-	ErrNotImplemented     = errors.New("not implemented")
+	ErrInvalidResetToken  = errors.New("reset token invalid or expired")
 	ErrAdminOnly          = errors.New("admin only")
 )
 
@@ -80,60 +82,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	}, nil
 }
 
-// Register creates a new user and returns tokens (auto-login).
-func (s *AuthService) Register(ctx context.Context, firstName, lastName, email, password, phone string) (*AuthResult, error) {
-	if len(password) < 6 {
-		return nil, errors.New("password too short")
-	}
-
-	gm, err := s.roleRepo.GetByCode(ctx, models.RoleCodeGeneralManager)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("general_manager role is not configured; run migrations")
-		}
-		return nil, err
-	}
-
-	u := &models.User{
-		FirstName:     firstName,
-		LastName:      lastName,
-		Email:         email,
-		Phone:         phone,
-		RoleID:        gm.ID,
-		IsActive:      true,
-		PlainPassword: password,
-	}
-
-	if err := s.userRepo.Create(ctx, u); err != nil {
-		return nil, err
-	}
-	if s.permSvc != nil {
-		_ = s.permSvc.SyncFromRole(ctx, u.ID, u.RoleID)
-	}
-
-	user, err := s.userRepo.FindByID(ctx, u.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	access, err := utils.GenerateAccessToken(user, s.cfg)
-	if err != nil {
-		return nil, err
-	}
-	refresh, err := utils.GenerateRefreshToken(user, s.cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AuthResult{
-		User: user,
-		Tokens: AuthTokens{
-			AccessToken:  access,
-			RefreshToken: refresh,
-		},
-	}, nil
-}
-
 // Refresh validates a refresh token and issues new tokens.
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*AuthResult, error) {
 	claims, err := utils.ParseToken(refreshToken, s.cfg)
@@ -175,12 +123,52 @@ func (s *AuthService) GetByID(ctx context.Context, id uint) (*models.User, error
 	return s.userRepo.FindByID(ctx, id)
 }
 
-// ForgotPassword is a stub for sending reset links (email integration not implemented).
-func (s *AuthService) ForgotPassword(_ context.Context, _ string) error {
-	return ErrNotImplemented
+// Logout invalidates every access token previously issued to the user by stamping
+// TokensValidFrom = now. AuthMiddleware rejects tokens issued before that moment.
+func (s *AuthService) Logout(ctx context.Context, userID uint) error {
+	return s.userRepo.SetTokensValidFrom(ctx, userID, time.Now())
 }
 
-// ResetPassword is a stub for resetting passwords using a token.
-func (s *AuthService) ResetPassword(_ context.Context, _ string, _ string) error {
-	return ErrNotImplemented
+// ForgotPassword issues a short-lived reset token for the email (if it belongs to an
+// active user) and makes it available for delivery. It never reveals whether the email
+// exists, to avoid account enumeration.
+func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil || user == nil || !user.IsActive {
+		return nil // silently succeed — do not leak account existence
+	}
+	token, err := utils.GenerateResetToken(user, s.cfg)
+	if err != nil {
+		return err
+	}
+	resetURL := strings.TrimRight(s.cfg.FrontendURL, "/") + "/reset-password?token=" + token
+	// No email/SMS pattern is wired for reset delivery yet, so the link is logged for an
+	// admin to relay. Swap this for an email/SMS send once a channel is configured.
+	log.Printf("auth: password reset link for %s -> %s", email, resetURL)
+	return nil
+}
+
+// ResetPassword validates a reset token and sets a new password. The token is single-use:
+// it is bound to the password hash it was issued for, so it stops working once the password changes.
+func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if len(newPassword) < 6 {
+		return errors.New("password too short")
+	}
+	claims, err := utils.ParseToken(token, s.cfg)
+	if err != nil || claims.TokenType != "reset" {
+		return ErrInvalidResetToken
+	}
+	user, err := s.userRepo.FindByID(ctx, claims.UserID)
+	if err != nil || user == nil {
+		return ErrInvalidResetToken
+	}
+	if claims.Fingerprint != utils.PasswordFingerprint(user.PasswordHash) {
+		return ErrInvalidResetToken // token already used or password already changed
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	// Setting TokensValidFrom = now also logs out any existing sessions after the reset.
+	return s.userRepo.SetPasswordAndInvalidate(ctx, user.ID, string(hashed), time.Now())
 }
