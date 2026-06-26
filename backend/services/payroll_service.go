@@ -480,6 +480,47 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 	}
 
 	total := p.BaseSalaryCents + p.VariableSalaryCents
+
+	// A payslip for this (user, period) may already exist but be SOFT-DELETED — e.g.
+	// archived by a fiscal-year close. The unique index idx_payroll_user_period does not
+	// include deleted_at, so a plain INSERT collides with that archived row and fails with
+	// a duplicate-key error (surfaced as "failed to ensure payroll entries"). Revive the
+	// archived row in place instead of inserting a duplicate. No live data is lost: the row
+	// was already logically deleted, and closed-year history is kept in the fiscal-year export.
+	var soft models.PayrollEntry
+	softErr := s.db.WithContext(ctx).Unscoped().
+		Where("user_id = ? AND period_year = ? AND period_month = ? AND deleted_at IS NOT NULL",
+			p.UserID, p.PeriodYear, p.PeriodMonth).
+		First(&soft).Error
+	if softErr == nil {
+		updates := map[string]interface{}{
+			"deleted_at":            gorm.Expr("NULL"),
+			"base_salary_cents":     p.BaseSalaryCents,
+			"variable_salary_cents": p.VariableSalaryCents,
+			"total_salary_cents":    total,
+			"students_count":        p.StudentsCount,
+			"status":                p.Status,
+			"paid_at":               gorm.Expr("NULL"),
+		}
+		if p.Status == models.PayrollStatusPaid {
+			updates["paid_at"] = time.Now()
+		}
+		if err := s.db.WithContext(ctx).Unscoped().
+			Model(&models.PayrollEntry{}).
+			Where("id = ?", soft.ID).
+			Updates(updates).Error; err != nil {
+			return nil, err
+		}
+		var revived models.PayrollEntry
+		if err := s.db.WithContext(ctx).Preload("User.Role").First(&revived, soft.ID).Error; err != nil {
+			return &soft, nil
+		}
+		return &revived, nil
+	}
+	if !errors.Is(softErr, gorm.ErrRecordNotFound) {
+		return nil, softErr
+	}
+
 	entry := &models.PayrollEntry{
 		UserID:              p.UserID,
 		PeriodYear:          p.PeriodYear,
