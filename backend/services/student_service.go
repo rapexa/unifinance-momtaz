@@ -23,8 +23,13 @@ func (s *StudentService) GetByID(ctx context.Context, id uint) (*models.Student,
 	return s.repo.FindByID(ctx, id)
 }
 
-func (s *StudentService) List(ctx context.Context, limit, offset int, search string, scopeUser *uint) ([]models.Student, int64, error) {
-	return s.repo.List(ctx, limit, offset, search, scopeUser)
+func (s *StudentService) List(ctx context.Context, limit, offset int, filter repositories.StudentListFilter) ([]models.Student, int64, error) {
+	return s.repo.List(ctx, limit, offset, filter)
+}
+
+// SchoolNames lists distinct school names for the students the user may see.
+func (s *StudentService) SchoolNames(ctx context.Context, scopeUser *uint) ([]string, error) {
+	return s.repo.DistinctSchoolNames(ctx, scopeUser)
 }
 
 // IsStudentVisibleToUser is true when the user is the student's advisor or has a student_role_payout row.

@@ -186,8 +186,9 @@ func (h *PaymentHandler) List(c *gin.Context) {
 	if err != nil || pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	// 200 so the UI can offer up to 200 rows per page.
+	if pageSize > 200 {
+		pageSize = 200
 	}
 	offset := (page - 1) * pageSize
 

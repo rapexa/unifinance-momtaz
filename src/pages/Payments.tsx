@@ -280,6 +280,8 @@ const Payments = () => {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLinkOpen, setIsLinkOpen] = useState(false);
   const [linkPaymentId, setLinkPaymentId] = useState<number | null>(null);
@@ -324,33 +326,34 @@ const Payments = () => {
 
   const statusParam = activeTab === "all" ? undefined : activeTab.toUpperCase();
 
+  const paymentsListParams = {
+    search: searchQuery || undefined,
+    status: statusParam,
+    from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
+    to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
+  };
+
+  // با تغییر جستجو/فیلتر/تب به صفحه اول برگرد
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusParam, fromDate, toDate, pageSize]);
+
   const {
     data: listData,
     isLoading,
     isError,
     error,
+    isFetching,
   } = useQuery({
-    queryKey: [
-      "payments",
-      {
-        search: searchQuery || undefined,
-        status: statusParam,
-      from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
-      to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
-        page: 1,
-        page_size: 50,
-      },
-    ],
-    queryFn: () =>
-      listPayments({
-        search: searchQuery || undefined,
-        status: statusParam,
-        from_date: fromDate ? jalaliToGregorianIso(fromDate) || undefined : undefined,
-        to_date: toDate ? jalaliToGregorianIso(toDate) || undefined : undefined,
-        page: 1,
-        page_size: 50,
-      }),
+    queryKey: ["payments", { ...paymentsListParams, page, page_size: pageSize }],
+    queryFn: () => listPayments({ ...paymentsListParams, page, page_size: pageSize }),
+    placeholderData: (prev) => prev,
   });
+
+  const paymentsTotalItems = listData?.meta?.total_items ?? 0;
+  const paymentsTotalPages = Math.max(1, listData?.meta?.total_pages ?? 1);
+  const paymentsRangeFrom = paymentsTotalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const paymentsRangeTo = Math.min(page * pageSize, paymentsTotalItems);
 
   const { data: summary, isLoading: isSummaryLoading } = useQuery({
     queryKey: ["payments-summary"],
@@ -868,6 +871,60 @@ const Payments = () => {
             )}
           </div>
         </div>
+
+        {/* Pagination */}
+        {!isError && paymentsTotalItems > 0 && (
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              نمایش {paymentsRangeFrom.toLocaleString("fa-IR")} تا {paymentsRangeTo.toLocaleString("fa-IR")} از{" "}
+              {paymentsTotalItems.toLocaleString("fa-IR")} پرداخت
+              {isFetching && " — در حال بروزرسانی..."}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">۲۵ در هر صفحه</SelectItem>
+                  <SelectItem value="50">۵۰ در هر صفحه</SelectItem>
+                  <SelectItem value="100">۱۰۰ در هر صفحه</SelectItem>
+                  <SelectItem value="200">۲۰۰ در هر صفحه</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page <= 1}>
+                اول
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                قبلی
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                صفحه {page.toLocaleString("fa-IR")} از {paymentsTotalPages.toLocaleString("fa-IR")}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(paymentsTotalPages, p + 1))}
+                disabled={page >= paymentsTotalPages}
+              >
+                بعدی
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(paymentsTotalPages)}
+                disabled={page >= paymentsTotalPages}
+              >
+                آخر
+              </Button>
+            </div>
+          </div>
+        )}
       </Tabs>
 
       {/* Payment Detail Dialog */}

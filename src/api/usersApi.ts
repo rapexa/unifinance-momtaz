@@ -124,6 +124,27 @@ export async function listUsers(
   return data as PaginatedUsersResponse;
 }
 
+/** حداکثر page_size که بک‌اند برای کاربران می‌پذیرد */
+export const MAX_USER_PAGE_SIZE = 500;
+
+/**
+ * همه کاربران را با پیمایش صفحات می‌خواند تا هیچ کاربری از فهرست انتخاب مشاور جا نیفتد.
+ * سقف ۲۰ صفحه برای جلوگیری از حلقه بی‌پایان.
+ */
+export async function listAllUsers(
+  params: Omit<ListUsersParams, "page" | "page_size"> = {},
+): Promise<UserApi[]> {
+  const out: UserApi[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const res = await listUsers({ ...params, page, page_size: MAX_USER_PAGE_SIZE });
+    const rows = res.data ?? [];
+    out.push(...rows);
+    const totalPages = res.meta?.total_pages ?? 1;
+    if (rows.length === 0 || page >= totalPages) break;
+  }
+  return out;
+}
+
 export async function getUser(id: number): Promise<UserApi> {
   const res = await authFetch(`${API_BASE}/users/${id}`, {
     headers: {

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/soheilsshh/unifinance-momtaz/middleware"
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/repositories"
 	"github.com/soheilsshh/unifinance-momtaz/services"
 	"gorm.io/gorm"
 )
@@ -203,15 +204,123 @@ type StudentStatsDoc struct {
 	Debtors  int64 `json:"debtors"`
 }
 
+// maxStudentPageSize caps page_size so the list can be paged through fully
+// (the UI offers 25/50/100/200 rows per page).
+const maxStudentPageSize = 200
+
+// parseOptionalUintQuery reads a positive integer query param; missing/empty returns nil.
+func parseOptionalUintQuery(c *gin.Context, key string) (*uint, error) {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || v == 0 {
+		return nil, fmt.Errorf("invalid %s", key)
+	}
+	u := uint(v)
+	return &u, nil
+}
+
+// studentListFilterFromQuery builds the list filter from query params and the caller's data scope.
+func studentListFilterFromQuery(c *gin.Context) (repositories.StudentListFilter, error) {
+	f := repositories.StudentListFilter{
+		Search:     c.DefaultQuery("search", ""),
+		SchoolName: strings.TrimSpace(c.Query("school_name")),
+		ScopeUser:  middleware.DataScopeUserID(c),
+		Sort:       strings.ToLower(strings.TrimSpace(c.Query("sort"))),
+	}
+
+	switch status := strings.ToUpper(strings.TrimSpace(c.Query("status"))); status {
+	case "", "ALL":
+		// no restriction
+	case string(models.StudentStatusActive), string(models.StudentStatusInactive), string(models.StudentStatusDeleted):
+		f.Status = status
+	default:
+		return f, errors.New("invalid status")
+	}
+
+	switch mode := strings.ToUpper(strings.TrimSpace(c.Query("billing_mode"))); mode {
+	case "", "ALL":
+		// no restriction
+	case string(models.EnrollmentBillingSingleSession), string(models.EnrollmentBillingMonthly), string(models.EnrollmentBillingSchoolEnrollment):
+		f.BillingMode = mode
+	default:
+		return f, errors.New("invalid billing_mode")
+	}
+
+	switch f.Sort {
+	case "", "newest", "oldest", "name", "name_desc":
+	default:
+		return f, errors.New("invalid sort")
+	}
+
+	advisorID, err := parseOptionalUintQuery(c, "advisor_id")
+	if err != nil {
+		return f, err
+	}
+	f.AdvisorID = advisorID
+
+	planID, err := parseOptionalUintQuery(c, "plan_id")
+	if err != nil {
+		return f, err
+	}
+	f.PlanID = planID
+
+	roleUserID, err := parseOptionalUintQuery(c, "role_user_id")
+	if err != nil {
+		return f, err
+	}
+	f.RoleUserID = roleUserID
+
+	if hasDebt := strings.TrimSpace(c.Query("has_debt")); hasDebt != "" {
+		v, err := strconv.ParseBool(hasDebt)
+		if err != nil {
+			return f, errors.New("invalid has_debt")
+		}
+		f.HasDebt = v
+	}
+
+	return f, nil
+}
+
+// Schools handles GET /students/schools — distinct school names for the filter dropdown.
+// @Summary      List school names
+// @Tags         students
+// @Security     BearerAuth
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
+// @Router       /students/schools [get]
+func (h *StudentHandler) Schools(c *gin.Context) {
+	names, err := h.service.SchoolNames(c.Request.Context(), middleware.DataScopeUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load school names"})
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": names})
+}
+
 // List handles GET /students
 // @Summary      List students
 // @Description  List students with optional search and pagination
 // @Tags         students
 // @Security     BearerAuth
 // @Produce      json
-// @Param        page       query     int     false "Page number (1-based)" default(1)
-// @Param        page_size  query     int     false "Page size" default(20)
-// @Param        search     query     string  false "Search by name, phone or email"
+// @Param        page          query     int     false "Page number (1-based)" default(1)
+// @Param        page_size     query     int     false "Page size" default(20)
+// @Param        search        query     string  false "Search by name, parent name, school, phone or email"
+// @Param        status        query     string  false "Filter by status: ACTIVE, INACTIVE or DELETED"
+// @Param        advisor_id    query     int     false "Filter by advisor user id"
+// @Param        billing_mode  query     string  false "Filter by SINGLE_SESSION, MONTHLY or SCHOOL_ENROLLMENT"
+// @Param        school_name   query     string  false "Filter by exact school name"
+// @Param        plan_id       query     int     false "Filter by current plan id"
+// @Param        role_user_id  query     int     false "Filter by a user having a role payout share"
+// @Param        has_debt      query     bool    false "Only students with a negative balance"
+// @Param        sort          query     string  false "newest (default), oldest, name, name_desc"
 // @Success      200        {object}  map[string]interface{}
 // @Failure      400        {object}  map[string]string
 // @Failure      401        {object}  map[string]string
@@ -220,7 +329,6 @@ type StudentStatsDoc struct {
 func (h *StudentHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	pageSizeStr := c.DefaultQuery("page_size", "20")
-	search := c.DefaultQuery("search", "")
 
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page <= 0 {
@@ -230,12 +338,18 @@ func (h *StudentHandler) List(c *gin.Context) {
 	if err != nil || pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	if pageSize > maxStudentPageSize {
+		pageSize = maxStudentPageSize
 	}
 	offset := (page - 1) * pageSize
 
-	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, middleware.DataScopeUserID(c))
+	filter, err := studentListFilterFromQuery(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list students"})
 		return

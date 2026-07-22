@@ -169,7 +169,7 @@ func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search
 	}
 
 	if err := q2.
-		Order("users.created_at DESC").
+		Order("users.created_at DESC, users.id DESC").
 		Limit(limit).
 		Offset(offset).
 		Find(&users).Error; err != nil {

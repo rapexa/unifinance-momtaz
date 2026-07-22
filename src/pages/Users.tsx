@@ -277,6 +277,8 @@ const Users = () => {
   const [roleFilter, setRoleFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsUserId, setDetailsUserId] = useState<number | null>(null);
@@ -400,8 +402,9 @@ const Users = () => {
     isLoading,
     isError,
     error,
+    isFetching,
   } = useQuery({
-    queryKey: ["users", { search: searchQuery, role: roleFilter, status: statusFilter }],
+    queryKey: ["users", { search: searchQuery, role: roleFilter, status: statusFilter, page, pageSize }],
     queryFn: () =>
       listUsers({
         search: searchQuery || undefined,
@@ -410,10 +413,21 @@ const Users = () => {
             ? parseInt(roleFilter, 10)
             : undefined,
         status: statusFilter || undefined,
-        page: 1,
-        page_size: 50,
+        page,
+        page_size: pageSize,
       }),
+    placeholderData: (prev) => prev,
   });
+
+  const totalItems = data?.meta?.total_items ?? 0;
+  const totalPages = Math.max(1, data?.meta?.total_pages ?? 1);
+  const rangeFrom = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeTo = Math.min(page * pageSize, totalItems);
+
+  // با تغییر جستجو یا فیلترها به صفحه اول برگرد
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, roleFilter, statusFilter, pageSize]);
 
   const createMutation = useMutation({
     mutationFn: createUser,
@@ -778,6 +792,59 @@ const Users = () => {
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {!isError && totalItems > 0 && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            نمایش {rangeFrom.toLocaleString("fa-IR")} تا {rangeTo.toLocaleString("fa-IR")} از{" "}
+            {totalItems.toLocaleString("fa-IR")} کاربر
+            {isFetching && " — در حال بروزرسانی..."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">۲۵ در هر صفحه</SelectItem>
+                <SelectItem value="50">۵۰ در هر صفحه</SelectItem>
+                <SelectItem value="100">۱۰۰ در هر صفحه</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page <= 1}>
+              اول
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              قبلی
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              صفحه {page.toLocaleString("fa-IR")} از {totalPages.toLocaleString("fa-IR")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              بعدی
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(totalPages)}
+              disabled={page >= totalPages}
+            >
+              آخر
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Create user dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

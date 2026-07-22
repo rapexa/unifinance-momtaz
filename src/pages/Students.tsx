@@ -40,6 +40,8 @@ import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import {
   createStudent,
   listStudents,
+  listAllStudents,
+  listStudentSchools,
   getStudentsSummary,
   getStudent,
   updateStudent,
@@ -51,8 +53,12 @@ import {
   StudentRolePayoutPayload,
   type AdvisorCommissionKind,
   type EnrollmentBillingMode,
+  type StudentSort,
+  type StudentStatusFilter,
 } from "@/api/studentsApi";
-import { listUsers, UserApi } from "@/api/usersApi";
+import { listAllUsers, UserApi } from "@/api/usersApi";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
 import { listRoles, RoleApi } from "@/api/rolesApi";
 import {
@@ -653,7 +659,17 @@ function downloadCsvBlob(filename: string, rows: string[][]): void {
 
 const Students = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("active");
+  // مقدار جستجو با تأخیر، تا هر حرف یک درخواست به سرور نفرستد
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
+  const [advisorFilter, setAdvisorFilter] = useState<string>("all");
+  const [billingFilter, setBillingFilter] = useState<string>("all");
+  const [schoolFilter, setSchoolFilter] = useState<string>("all");
+  const [planFilter, setPlanFilter] = useState<string>("all");
+  const [debtOnly, setDebtOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<StudentSort>("newest");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -724,6 +740,7 @@ const Students = () => {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["student-schools"] });
       queryClient.invalidateQueries({ queryKey: ["student", id] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
@@ -738,6 +755,7 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["student-schools"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setDeleteStudent(null);
     },
@@ -748,6 +766,7 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["student-schools"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
@@ -757,19 +776,68 @@ const Students = () => {
     },
   });
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const statusParam: StudentStatusFilter | undefined =
+    statusFilter === "all"
+      ? undefined
+      : statusFilter === "active"
+        ? "ACTIVE"
+        : statusFilter === "inactive"
+          ? "INACTIVE"
+          : "DELETED";
+
+  const listParams = {
+    search: debouncedSearch || undefined,
+    status: statusParam,
+    advisor_id: advisorFilter === "all" ? undefined : Number(advisorFilter),
+    billing_mode:
+      billingFilter === "all" ? undefined : (billingFilter as EnrollmentBillingMode),
+    school_name: schoolFilter === "all" ? undefined : schoolFilter,
+    plan_id: planFilter === "all" ? undefined : Number(planFilter),
+    has_debt: debtOnly || undefined,
+    sort: sortBy,
+  };
+
+  const activeFilterCount =
+    (advisorFilter !== "all" ? 1 : 0) +
+    (billingFilter !== "all" ? 1 : 0) +
+    (schoolFilter !== "all" ? 1 : 0) +
+    (planFilter !== "all" ? 1 : 0) +
+    (debtOnly ? 1 : 0);
+
+  const resetFilters = () => {
+    setAdvisorFilter("all");
+    setBillingFilter("all");
+    setSchoolFilter("all");
+    setPlanFilter("all");
+    setDebtOnly(false);
+    setSortBy("newest");
+  };
+
+  // هر بار فیلتر/جستجو عوض شد، به صفحه اول برگرد
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, statusFilter, advisorFilter, billingFilter, schoolFilter, planFilter, debtOnly, sortBy, pageSize]);
+
   const {
     data,
     isLoading,
     isError,
     error,
+    isFetching,
   } = useQuery({
-    queryKey: ["students", { search: searchQuery }],
-    queryFn: () =>
-      listStudents({
-        search: searchQuery || undefined,
-        page: 1,
-        page_size: 50,
-      }),
+    queryKey: ["students", { ...listParams, page, pageSize }],
+    queryFn: () => listStudents({ ...listParams, page, page_size: pageSize }),
+    placeholderData: (prev) => prev,
+  });
+
+  const { data: schoolNames = [] } = useQuery({
+    queryKey: ["student-schools"],
+    queryFn: listStudentSchools,
   });
 
   const {
@@ -781,11 +849,12 @@ const Students = () => {
     queryFn: getStudentsSummary,
   });
 
+  // همه کاربران فعال (پیمایش همه صفحات) تا هیچ مشاوری از فهرست انتخاب جا نیفتد.
   const { data: usersData } = useQuery({
     queryKey: ["users", "student-role-payouts"],
-    queryFn: () => listUsers({ status: "active", page: 1, page_size: 300 }),
+    queryFn: () => listAllUsers({ status: "active" }),
   });
-  const users = usersData?.data ?? [];
+  const users = usersData ?? [];
   const { data: roles = [] } = useQuery({
     queryKey: ["roles", "student-role-payouts"],
     queryFn: listRoles,
@@ -804,8 +873,8 @@ const Students = () => {
   const handleExportStudents = async () => {
     setIsExporting(true);
     try {
-      const res = await listStudents({ page: 1, page_size: 2000, search: searchQuery || undefined });
-      const allStudents = res.data ?? [];
+      // همه صفحات با همان فیلترهای فعلی
+      const allStudents = await listAllStudents(listParams);
       const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "مانده / وضعیت", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
       const rows = allStudents.map((s) => {
         const remain =
@@ -836,6 +905,7 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["student-schools"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
@@ -867,11 +937,12 @@ const Students = () => {
     },
   });
 
-  const studentsAll: StudentRow[] = (data?.data || []).map(mapStudent);
-  const students: StudentRow[] =
-    statusFilter === "all"
-      ? studentsAll
-      : studentsAll.filter((s) => s.status === statusFilter);
+  // فیلتر و صفحه‌بندی سمت سرور انجام می‌شود؛ اینجا فقط نگاشت به ردیف جدول.
+  const students: StudentRow[] = (data?.data || []).map(mapStudent);
+  const totalItems = data?.meta?.total_items ?? 0;
+  const totalPages = Math.max(1, data?.meta?.total_pages ?? 1);
+  const rangeFrom = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeTo = Math.min(page * pageSize, totalItems);
 
   return (
     <MainLayout title="دانش‌آموزان" subtitle="مدیریت پروفایل و اطلاعات مالی دانش‌آموزان">
@@ -939,10 +1010,117 @@ const Students = () => {
               <Grid className="h-4 w-4" />
             </Button>
           </div>
-          <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
-            <Filter className="ml-2 h-4 w-4" />
-            فیلتر
-          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant={activeFilterCount > 0 ? "secondary" : "outline"} size="sm" className="flex-1 sm:flex-none">
+                <Filter className="ml-2 h-4 w-4" />
+                فیلتر
+                {activeFilterCount > 0 && (
+                  <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[320px] space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">مشاور</label>
+                <Select value={advisorFilter} onValueChange={setAdvisorFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="همه مشاوران" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    <SelectItem value="all">همه مشاوران</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.first_name} {u.last_name}
+                        {u.role_name ? ` — ${u.role_name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">نوع ثبت‌نام</label>
+                <Select value={billingFilter} onValueChange={setBillingFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="همه" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">همه</SelectItem>
+                    <SelectItem value="SCHOOL_ENROLLMENT">مدرسه‌ای (قرارداد سالانه)</SelectItem>
+                    <SelectItem value="MONTHLY">خصوصی — ماهانه</SelectItem>
+                    <SelectItem value="SINGLE_SESSION">خصوصی — تک‌جلسه‌ای</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">مدرسه</label>
+                <Select value={schoolFilter} onValueChange={setSchoolFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="همه مدارس" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    <SelectItem value="all">همه مدارس</SelectItem>
+                    {schoolNames.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">پلن</label>
+                <Select value={planFilter} onValueChange={setPlanFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="همه پلن‌ها" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    <SelectItem value="all">همه پلن‌ها</SelectItem>
+                    {(plans ?? []).map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">مرتب‌سازی</label>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as StudentSort)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">جدیدترین</SelectItem>
+                    <SelectItem value="oldest">قدیمی‌ترین</SelectItem>
+                    <SelectItem value="name">نام (الف تا ی)</SelectItem>
+                    <SelectItem value="name_desc">نام (ی تا الف)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-2 text-xs">
+                <Checkbox checked={debtOnly} onCheckedChange={(v) => setDebtOnly(v === true)} />
+                <span>فقط بدهکاران</span>
+              </label>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={resetFilters}
+                disabled={activeFilterCount === 0 && sortBy === "newest"}
+              >
+                پاک کردن فیلترها
+              </Button>
+            </PopoverContent>
+          </Popover>
           <Button
             variant="outline"
             size="sm"
@@ -1017,7 +1195,9 @@ const Students = () => {
       )}
       {!isLoading && !isError && students.length === 0 && (
         <div className="card-elevated p-6 text-sm text-muted-foreground">
-          هیچ دانش‌آموزی ثبت نشده است.
+          {debouncedSearch || activeFilterCount > 0 || statusFilter !== "all"
+            ? "دانش‌آموزی با این جستجو/فیلتر پیدا نشد."
+            : "هیچ دانش‌آموزی ثبت نشده است."}
         </div>
       )}
       {!isLoading && !isError && students.length > 0 && (viewMode === "grid" ? (
@@ -1196,6 +1376,65 @@ const Students = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!isError && totalItems > 0 && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            نمایش {rangeFrom.toLocaleString("fa-IR")} تا {rangeTo.toLocaleString("fa-IR")} از{" "}
+            {totalItems.toLocaleString("fa-IR")} دانش‌آموز
+            {isFetching && " — در حال بروزرسانی..."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">۲۵ در هر صفحه</SelectItem>
+                <SelectItem value="50">۵۰ در هر صفحه</SelectItem>
+                <SelectItem value="100">۱۰۰ در هر صفحه</SelectItem>
+                <SelectItem value="200">۲۰۰ در هر صفحه</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(1)}
+              disabled={page <= 1}
+            >
+              اول
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              قبلی
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              صفحه {page.toLocaleString("fa-IR")} از {totalPages.toLocaleString("fa-IR")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              بعدی
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(totalPages)}
+              disabled={page >= totalPages}
+            >
+              آخر
+            </Button>
           </div>
         </div>
       )}

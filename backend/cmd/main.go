@@ -169,6 +169,7 @@ func main() {
 	{
 		students.GET("", studentHandler.List)
 		students.GET("/summary", studentHandler.Summary)
+		students.GET("/schools", studentHandler.Schools)
 		students.GET("/:id", studentHandler.Get)
 		students.POST("", studentHandler.Create)
 		students.PUT("/:id", studentHandler.Update)

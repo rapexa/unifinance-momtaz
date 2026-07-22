@@ -141,8 +141,9 @@ func (h *UserHandler) List(c *gin.Context) {
 	if err != nil || pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	// 500 so dropdowns (advisor / role payout pickers) can load every user in one page.
+	if pageSize > 500 {
+		pageSize = 500
 	}
 	offset := (page - 1) * pageSize
 

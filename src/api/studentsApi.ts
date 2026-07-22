@@ -79,23 +79,45 @@ export interface PaginatedStudentsResponse {
   };
 }
 
+export type StudentStatusFilter = "ACTIVE" | "INACTIVE" | "DELETED";
+export type StudentSort = "newest" | "oldest" | "name" | "name_desc";
+
 export interface ListStudentsParams {
   search?: string;
   page?: number;
   page_size?: number;
+  /** خالی = همه وضعیت‌ها */
+  status?: StudentStatusFilter;
+  advisor_id?: number;
+  billing_mode?: EnrollmentBillingMode;
+  school_name?: string;
+  plan_id?: number;
+  /** کاربری که سهم نقش برای دانش‌آموز دارد */
+  role_user_id?: number;
+  has_debt?: boolean;
+  sort?: StudentSort;
 }
+
+/** حداکثر page_size که بک‌اند می‌پذیرد */
+export const MAX_STUDENT_PAGE_SIZE = 200;
 
 export async function listStudents(
   params: ListStudentsParams
 ): Promise<PaginatedStudentsResponse> {
   const url = new URL(`${API_BASE}/students`);
   const page = params.page ?? 1;
-  const pageSize = params.page_size ?? 50;
+  const pageSize = Math.min(params.page_size ?? 50, MAX_STUDENT_PAGE_SIZE);
   url.searchParams.set("page", String(page));
   url.searchParams.set("page_size", String(pageSize));
-  if (params.search) {
-    url.searchParams.set("search", params.search);
-  }
+  if (params.search) url.searchParams.set("search", params.search);
+  if (params.status) url.searchParams.set("status", params.status);
+  if (params.advisor_id != null) url.searchParams.set("advisor_id", String(params.advisor_id));
+  if (params.billing_mode) url.searchParams.set("billing_mode", params.billing_mode);
+  if (params.school_name) url.searchParams.set("school_name", params.school_name);
+  if (params.plan_id != null) url.searchParams.set("plan_id", String(params.plan_id));
+  if (params.role_user_id != null) url.searchParams.set("role_user_id", String(params.role_user_id));
+  if (params.has_debt) url.searchParams.set("has_debt", "true");
+  if (params.sort) url.searchParams.set("sort", params.sort);
 
   const res = await authFetch(url.toString(), {
     headers: {
@@ -115,6 +137,39 @@ export async function listStudents(
   }
 
   return data as PaginatedStudentsResponse;
+}
+
+/**
+ * همه صفحات را با فیلترهای داده‌شده می‌خواند (برای خروجی اکسل).
+ * سقف ۱۰۰ صفحه برای جلوگیری از حلقه بی‌پایان.
+ */
+export async function listAllStudents(
+  params: Omit<ListStudentsParams, "page" | "page_size">
+): Promise<StudentApi[]> {
+  const out: StudentApi[] = [];
+  for (let page = 1; page <= 100; page++) {
+    const res = await listStudents({ ...params, page, page_size: MAX_STUDENT_PAGE_SIZE });
+    const rows = res.data ?? [];
+    out.push(...rows);
+    const totalPages = res.meta?.total_pages ?? 1;
+    if (rows.length === 0 || page >= totalPages) break;
+  }
+  return out;
+}
+
+/** نام مدارس ثبت‌شده (برای فیلتر) */
+export async function listStudentSchools(): Promise<string[]> {
+  const res = await authFetch(`${API_BASE}/students/schools`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در دریافت فهرست مدارس");
+  }
+  return ((data as { data?: string[] })?.data ?? []) as string[];
 }
 
 export interface CreateStudentPayload {
