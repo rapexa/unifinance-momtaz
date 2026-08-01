@@ -98,6 +98,20 @@ func autoMigrate(db *gorm.DB) {
 	}
 	log.Println("migrations: AutoMigrate finished successfully")
 	relaxPaymentStudentIDNotNull(db)
+	backfillStudentRegistrationChannel(db)
+}
+
+// backfillStudentRegistrationChannel sets PRIVATE for legacy rows with empty channel.
+func backfillStudentRegistrationChannel(db *gorm.DB) {
+	res := db.Exec(`UPDATE students SET registration_channel = ? WHERE registration_channel = '' OR registration_channel IS NULL`,
+		models.RegistrationChannelPrivate)
+	if res.Error != nil {
+		log.Printf("migrations: backfill registration_channel: %v", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("migrations: set registration_channel=PRIVATE on %d student(s)", res.RowsAffected)
+	}
 }
 
 // relaxPaymentStudentIDNotNull allows school-contract payments without a student_id.

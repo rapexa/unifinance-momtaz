@@ -16,6 +16,14 @@ const (
 	StudentStatusDeleted  StudentStatus = "DELETED"
 )
 
+// RegistrationChannel is whether the student enrolled privately or via a school contract.
+type RegistrationChannel string
+
+const (
+	RegistrationChannelPrivate RegistrationChannel = "PRIVATE"
+	RegistrationChannelSchool  RegistrationChannel = "SCHOOL"
+)
+
 // DeliveryMode is how private advisory sessions are held.
 type DeliveryMode string
 
@@ -48,6 +56,19 @@ const (
 
 func (st *Student) IsSchoolEnrollment() bool {
 	return st != nil && st.EnrollmentBillingMode == EnrollmentBillingSchoolEnrollment
+}
+
+// IsSchoolChannel reports whether this student belongs to a school contract (v2).
+func (st *Student) IsSchoolChannel() bool {
+	return st != nil && st.RegistrationChannel == RegistrationChannelSchool
+}
+
+// IsPrivateChannel reports private (individual) enrollment.
+func (st *Student) IsPrivateChannel() bool {
+	if st == nil {
+		return false
+	}
+	return st.RegistrationChannel == RegistrationChannelPrivate || st.RegistrationChannel == ""
 }
 
 func (st *Student) IsSingleSession() bool {
@@ -280,14 +301,20 @@ type Student struct {
 	AdvisorCommissionPercent    *float64                     `gorm:""` // PERCENT or PERCENT_OF_CONTRACT
 	AdvisorCommissionFixedCents *int64                       `gorm:""` // FIXED_PER_PAYMENT or FIXED_MONTHLY
 
-	// School info
+	// School info (free-text; for SCHOOL channel also mirrored from SchoolContract.SchoolName)
 	SchoolName    string `gorm:"size:200"`
 	SchoolAddress string `gorm:"size:500"`
+
+	// RegistrationChannel: PRIVATE (default) or SCHOOL (linked to SchoolContract).
+	RegistrationChannel RegistrationChannel `gorm:"type:varchar(32);not null;default:'PRIVATE';index"`
+	// SchoolContractID links a SCHOOL-channel student to their bulk school contract.
+	SchoolContractID *uint           `gorm:"index"`
+	SchoolContract   *SchoolContract `gorm:"constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
 
 	// Home address
 	HomeAddress string `gorm:"size:500"`
 
-	// DeliveryMode: ONLINE or IN_PERSON (private students). Empty for legacy rows.
+	// DeliveryMode: ONLINE or IN_PERSON (private students). Empty for school-channel / legacy rows.
 	DeliveryMode DeliveryMode `gorm:"type:varchar(32);index"`
 
 	// Financial balance (in smallest unit, e.g. rials)

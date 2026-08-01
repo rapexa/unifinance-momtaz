@@ -18,7 +18,11 @@ type StudentListFilter struct {
 	AdvisorID   *uint
 	BillingMode string // SINGLE_SESSION | MONTHLY | SCHOOL_ENROLLMENT
 	SchoolName  string
-	PlanID      *uint
+	// RegistrationChannel: PRIVATE | SCHOOL
+	RegistrationChannel string
+	// SchoolContractID filters students linked to one school contract.
+	SchoolContractID *uint
+	PlanID           *uint
 	// RoleUserID matches students where this user has a role payout share.
 	RoleUserID *uint
 	// HasDebt filters students with a negative ledger balance.
@@ -44,6 +48,8 @@ type StudentRepository interface {
 	ReplaceActiveEnrollment(ctx context.Context, studentID uint, planID *uint, priceCents int64) error
 	ReplaceStudentRolePayouts(ctx context.Context, studentID uint, rows []models.StudentRolePayout) error
 	CountPaidPayments(ctx context.Context, studentID uint) (int64, error)
+	// CountBySchoolContractIDs returns how many non-deleted students are linked to each contract.
+	CountBySchoolContractIDs(ctx context.Context, ids []uint) (map[uint]int64, error)
 }
 
 type GormStudentRepository struct {
@@ -59,6 +65,7 @@ func (r *GormStudentRepository) FindByID(ctx context.Context, id uint) (*models.
 	if err := r.db.WithContext(ctx).
 		Preload("Advisor").
 		Preload("CurrentPlan").
+		Preload("SchoolContract").
 		Preload("Enrollments", "status = ?", models.EnrollmentStatusActive).
 		Preload("StudentRolePayouts").
 		Preload("StudentRolePayouts.Role").
@@ -162,6 +169,17 @@ func applyStudentFilters(db *gorm.DB, q *gorm.DB, f StudentListFilter) *gorm.DB 
 	if school := normalizePersianText(strings.TrimSpace(f.SchoolName)); school != "" {
 		q = q.Where(sqlNormalizeExpr("students.school_name")+" = ?", school)
 	}
+	if ch := strings.ToUpper(strings.TrimSpace(f.RegistrationChannel)); ch != "" {
+		if ch == string(models.RegistrationChannelPrivate) {
+			// Legacy rows before the column existed may be empty.
+			q = q.Where("(students.registration_channel = ? OR students.registration_channel = '' OR students.registration_channel IS NULL)", models.RegistrationChannelPrivate)
+		} else {
+			q = q.Where("students.registration_channel = ?", ch)
+		}
+	}
+	if f.SchoolContractID != nil {
+		q = q.Where("students.school_contract_id = ?", *f.SchoolContractID)
+	}
 	if f.PlanID != nil {
 		q = q.Where("students.current_plan_id = ?", *f.PlanID)
 	}
@@ -205,6 +223,7 @@ func (r *GormStudentRepository) List(ctx context.Context, limit, offset int, fil
 	if err := rowsQuery.
 		Preload("Advisor").
 		Preload("CurrentPlan").
+		Preload("SchoolContract").
 		Preload("Enrollments", "status = ?", models.EnrollmentStatusActive).
 		Order(studentListOrder(filter.Sort)).
 		Limit(limit).
@@ -214,6 +233,29 @@ func (r *GormStudentRepository) List(ctx context.Context, limit, offset int, fil
 	}
 
 	return students, count, nil
+}
+
+func (r *GormStudentRepository) CountBySchoolContractIDs(ctx context.Context, ids []uint) (map[uint]int64, error) {
+	out := make(map[uint]int64, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	type row struct {
+		SchoolContractID uint
+		Cnt              int64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).Model(&models.Student{}).
+		Select("school_contract_id AS school_contract_id, COUNT(*) AS cnt").
+		Where("school_contract_id IN ? AND status <> ?", ids, models.StudentStatusDeleted).
+		Group("school_contract_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.SchoolContractID] = r.Cnt
+	}
+	return out, nil
 }
 
 // DistinctSchoolNames returns the non-empty school names visible to the user, for filter dropdowns.

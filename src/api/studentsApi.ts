@@ -1,5 +1,7 @@
 import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
+export type RegistrationChannel = "PRIVATE" | "SCHOOL";
+
 export interface StudentApi {
   id: number;
   first_name: string;
@@ -16,6 +18,9 @@ export interface StudentApi {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  registration_channel?: RegistrationChannel | string;
+  school_contract_id?: number;
+  school_contract_name?: string;
   delivery_mode?: "ONLINE" | "IN_PERSON" | string;
   advisor_id?: number;
   advisor_name?: string;
@@ -51,8 +56,6 @@ export type AdvisorCommissionKind =
 export type EnrollmentBillingMode = "SINGLE_SESSION" | "MONTHLY" | "SCHOOL_ENROLLMENT";
 
 export type DeliveryMode = "ONLINE" | "IN_PERSON";
-
-export type RegistrationChannel = "PRIVATE" | "SCHOOL";
 
 export interface StudentRolePayoutApi {
   id: number;
@@ -96,6 +99,8 @@ export interface ListStudentsParams {
   advisor_id?: number;
   billing_mode?: EnrollmentBillingMode;
   school_name?: string;
+  registration_channel?: RegistrationChannel;
+  school_contract_id?: number;
   plan_id?: number;
   /** کاربری که سهم نقش برای دانش‌آموز دارد */
   role_user_id?: number;
@@ -119,6 +124,10 @@ export async function listStudents(
   if (params.advisor_id != null) url.searchParams.set("advisor_id", String(params.advisor_id));
   if (params.billing_mode) url.searchParams.set("billing_mode", params.billing_mode);
   if (params.school_name) url.searchParams.set("school_name", params.school_name);
+  if (params.registration_channel)
+    url.searchParams.set("registration_channel", params.registration_channel);
+  if (params.school_contract_id != null)
+    url.searchParams.set("school_contract_id", String(params.school_contract_id));
   if (params.plan_id != null) url.searchParams.set("plan_id", String(params.plan_id));
   if (params.role_user_id != null) url.searchParams.set("role_user_id", String(params.role_user_id));
   if (params.has_debt) url.searchParams.set("has_debt", "true");
@@ -191,6 +200,8 @@ export interface CreateStudentPayload {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  registration_channel?: RegistrationChannel;
+  school_contract_id?: number;
   delivery_mode?: DeliveryMode;
   advisor_id?: number;
   advisor_commission_kind?: AdvisorCommissionKind;
@@ -286,6 +297,8 @@ export interface UpdateStudentPayload {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  registration_channel?: RegistrationChannel;
+  school_contract_id?: number;
   delivery_mode?: DeliveryMode;
   status?: "ACTIVE" | "INACTIVE" | "DELETED";
   advisor_id?: number | null;

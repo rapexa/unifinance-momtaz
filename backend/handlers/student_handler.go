@@ -19,12 +19,17 @@ import (
 
 // StudentHandler exposes student-related endpoints.
 type StudentHandler struct {
-	service  *services.StudentService
-	payments *services.PaymentService
+	service         *services.StudentService
+	payments        *services.PaymentService
+	schoolContracts *services.SchoolContractService
 }
 
-func NewStudentHandler(service *services.StudentService, payments *services.PaymentService) *StudentHandler {
-	return &StudentHandler{service: service, payments: payments}
+func NewStudentHandler(
+	service *services.StudentService,
+	payments *services.PaymentService,
+	schoolContracts *services.SchoolContractService,
+) *StudentHandler {
+	return &StudentHandler{service: service, payments: payments, schoolContracts: schoolContracts}
 }
 
 // StudentDoc is a simplified representation of Student for Swagger docs and API responses.
@@ -41,12 +46,15 @@ type StudentDoc struct {
 	MotherPhone   string `json:"mother_phone,omitempty"`
 	FatherJob     string `json:"father_job,omitempty"`
 	MotherJob     string `json:"mother_job,omitempty"`
-	SchoolName    string `json:"school_name,omitempty"`
-	SchoolAddress string `json:"school_address,omitempty"`
-	HomeAddress   string `json:"home_address,omitempty"`
-	DeliveryMode  string `json:"delivery_mode,omitempty"`
-	AdvisorName   string `json:"advisor_name,omitempty"`
-	AdvisorID     *uint  `json:"advisor_id,omitempty"`
+	SchoolName              string `json:"school_name,omitempty"`
+	SchoolAddress           string `json:"school_address,omitempty"`
+	HomeAddress             string `json:"home_address,omitempty"`
+	RegistrationChannel     string `json:"registration_channel,omitempty"`
+	SchoolContractID        *uint  `json:"school_contract_id,omitempty"`
+	SchoolContractName      string `json:"school_contract_name,omitempty"`
+	DeliveryMode            string `json:"delivery_mode,omitempty"`
+	AdvisorName             string `json:"advisor_name,omitempty"`
+	AdvisorID               *uint  `json:"advisor_id,omitempty"`
 	// Per paid payment: how the assigned advisor is compensated (see models.StudentAdvisorCommissionKind).
 	AdvisorCommissionKind       string   `json:"advisor_commission_kind,omitempty"`
 	AdvisorCommissionPercent    *float64 `json:"advisor_commission_percent,omitempty"`
@@ -96,11 +104,13 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		MotherPhone:                 s.MotherPhone,
 		FatherJob:                   s.FatherJob,
 		MotherJob:                   s.MotherJob,
-		SchoolName:                  s.SchoolName,
-		SchoolAddress:               s.SchoolAddress,
-		HomeAddress:                 s.HomeAddress,
-		DeliveryMode:                string(s.DeliveryMode),
-		BalanceCents:                s.BalanceCents,
+		SchoolName:              s.SchoolName,
+		SchoolAddress:           s.SchoolAddress,
+		HomeAddress:             s.HomeAddress,
+		RegistrationChannel:     string(s.RegistrationChannel),
+		SchoolContractID:        s.SchoolContractID,
+		DeliveryMode:            string(s.DeliveryMode),
+		BalanceCents:            s.BalanceCents,
 		AdvisorID:                   s.AdvisorID,
 		AdvisorCommissionKind:       string(s.AdvisorCommissionKind),
 		AdvisorCommissionPercent:    s.AdvisorCommissionPercent,
@@ -113,6 +123,14 @@ func toStudentDoc(s *models.Student) StudentDoc {
 	}
 	if doc.EnrollmentBillingMode == "" {
 		doc.EnrollmentBillingMode = string(models.EnrollmentBillingMonthly)
+	}
+	if doc.RegistrationChannel == "" {
+		doc.RegistrationChannel = string(models.RegistrationChannelPrivate)
+	}
+	if s.SchoolContract != nil {
+		doc.SchoolContractName = s.SchoolContract.SchoolName
+	} else if s.IsSchoolChannel() && s.SchoolName != "" {
+		doc.SchoolContractName = s.SchoolName
 	}
 	// Enrollment amount stored directly on student; fall back to active enrollment record.
 	if s.EnrollmentAmountCents > 0 {
@@ -250,6 +268,21 @@ func studentListFilterFromQuery(c *gin.Context) (repositories.StudentListFilter,
 	default:
 		return f, errors.New("invalid billing_mode")
 	}
+
+	switch ch := strings.ToUpper(strings.TrimSpace(c.Query("registration_channel"))); ch {
+	case "", "ALL":
+		// no restriction
+	case string(models.RegistrationChannelPrivate), string(models.RegistrationChannelSchool):
+		f.RegistrationChannel = ch
+	default:
+		return f, errors.New("invalid registration_channel")
+	}
+
+	schoolContractID, err := parseOptionalUintQuery(c, "school_contract_id")
+	if err != nil {
+		return f, err
+	}
+	f.SchoolContractID = schoolContractID
 
 	switch f.Sort {
 	case "", "newest", "oldest", "name", "name_desc":
@@ -473,6 +506,8 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
 		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		RegistrationChannel         string                     `json:"registration_channel" binding:"omitempty,oneof=PRIVATE SCHOOL"`
+		SchoolContractID            *uint                      `json:"school_contract_id" binding:"omitempty"`
 		DeliveryMode                string                     `json:"delivery_mode" binding:"omitempty,oneof=ONLINE IN_PERSON"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
 		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT PERCENT_OF_CONTRACT FIXED_MONTHLY"`
@@ -492,26 +527,27 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if payload.DeliveryMode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
-		return
+
+	channel := models.RegistrationChannelPrivate
+	if payload.RegistrationChannel != "" {
+		channel = models.RegistrationChannel(payload.RegistrationChannel)
 	}
 
 	student := &models.Student{
-		FirstName:     payload.FirstName,
-		LastName:      payload.LastName,
-		Email:         payload.Email,
-		Phone:         payload.Phone,
-		FatherName:    payload.FatherName,
-		MotherName:    payload.MotherName,
-		FatherPhone:   payload.FatherPhone,
-		MotherPhone:   payload.MotherPhone,
-		FatherJob:     payload.FatherJob,
-		MotherJob:     payload.MotherJob,
-		SchoolName:    payload.SchoolName,
-		SchoolAddress: payload.SchoolAddress,
-		HomeAddress:   payload.HomeAddress,
-		DeliveryMode:  models.DeliveryMode(payload.DeliveryMode),
+		FirstName:           payload.FirstName,
+		LastName:            payload.LastName,
+		Email:               payload.Email,
+		Phone:               payload.Phone,
+		FatherName:          payload.FatherName,
+		MotherName:          payload.MotherName,
+		FatherPhone:         payload.FatherPhone,
+		MotherPhone:         payload.MotherPhone,
+		FatherJob:           payload.FatherJob,
+		MotherJob:           payload.MotherJob,
+		SchoolName:          payload.SchoolName,
+		SchoolAddress:       payload.SchoolAddress,
+		HomeAddress:         payload.HomeAddress,
+		RegistrationChannel: channel,
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		uid := *scope
@@ -523,15 +559,6 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	} else if payload.AdvisorID != nil {
 		student.AdvisorID = payload.AdvisorID
 	}
-	if payload.CurrentPlanID != nil {
-		student.CurrentPlanID = payload.CurrentPlanID
-	}
-	if payload.BalanceCents != nil {
-		student.BalanceCents = *payload.BalanceCents
-	}
-	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
-	applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, true)
-	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
 
 	joinDate, err := advisoryStartDateForCreate(payload.AdvisoryStartDate)
 	if err != nil {
@@ -540,9 +567,52 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	}
 	student.JoinDate = joinDate
 
-	if err := normalizeStudentAdvisorCommission(student); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	if channel == models.RegistrationChannelSchool {
+		if payload.SchoolContractID == nil || *payload.SchoolContractID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "school_contract_id is required for school registration"})
+			return
+		}
+		if h.schoolContracts == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "school contracts unavailable"})
+			return
+		}
+		contract, _, err := h.schoolContracts.GetByID(c.Request.Context(), *payload.SchoolContractID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "school contract not found"})
+			return
+		}
+		student.SchoolContractID = payload.SchoolContractID
+		student.SchoolName = contract.SchoolName
+		student.DeliveryMode = ""
+		student.EnrollmentAmountCents = 0
+		student.CurrentPlanID = nil
+		student.EnrollmentBillingMode = models.EnrollmentBillingMonthly
+		student.AdvisorCommissionKind = models.StudentAdvisorCommNone
+		student.AdvisorCommissionPercent = nil
+		student.AdvisorCommissionFixedCents = nil
+		student.AdvisorAccrualMonths = nil
+		student.AdvisorAccrualMonthMask = nil
+		payload.RolePayouts = nil
+	} else {
+		if payload.DeliveryMode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
+			return
+		}
+		student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
+		student.SchoolContractID = nil
+		if payload.CurrentPlanID != nil {
+			student.CurrentPlanID = payload.CurrentPlanID
+		}
+		if payload.BalanceCents != nil {
+			student.BalanceCents = *payload.BalanceCents
+		}
+		student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+		applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, true)
+		applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
+		if err := normalizeStudentAdvisorCommission(student); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	if err := h.service.Create(c.Request.Context(), student); err != nil {
@@ -559,12 +629,16 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID, payload.EnrollmentAmountCents); err != nil {
+	enrollCents := payload.EnrollmentAmountCents
+	if channel == models.RegistrationChannelSchool {
+		enrollCents = 0
+	}
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID, enrollCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 
-	if h.payments != nil {
+	if h.payments != nil && channel != models.RegistrationChannelSchool {
 		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), student.ID)
 	}
 
@@ -613,6 +687,8 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
 		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		RegistrationChannel         string                     `json:"registration_channel" binding:"omitempty,oneof=PRIVATE SCHOOL"`
+		SchoolContractID            *uint                      `json:"school_contract_id" binding:"omitempty"`
 		DeliveryMode                string                     `json:"delivery_mode" binding:"omitempty,oneof=ONLINE IN_PERSON"`
 		Status                      string                     `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE DELETED"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
@@ -647,6 +723,14 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		}
 	}
 
+	channel := student.RegistrationChannel
+	if channel == "" {
+		channel = models.RegistrationChannelPrivate
+	}
+	if payload.RegistrationChannel != "" {
+		channel = models.RegistrationChannel(payload.RegistrationChannel)
+	}
+
 	student.FirstName = payload.FirstName
 	student.LastName = payload.LastName
 	student.Email = payload.Email
@@ -656,13 +740,10 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	student.FatherPhone = payload.FatherPhone
 	student.MotherPhone = payload.MotherPhone
 	student.FatherJob = payload.FatherJob
-	if payload.DeliveryMode != "" {
-		student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
-	}
 	student.MotherJob = payload.MotherJob
-	student.SchoolName = payload.SchoolName
 	student.SchoolAddress = payload.SchoolAddress
 	student.HomeAddress = payload.HomeAddress
+	student.RegistrationChannel = channel
 	if payload.Status != "" {
 		student.Status = models.StudentStatus(payload.Status)
 	}
@@ -673,29 +754,71 @@ func (h *StudentHandler) Update(c *gin.Context) {
 			student.AdvisorID = nil
 		}
 	}
-	if payload.CurrentPlanID != nil {
-		student.CurrentPlanID = payload.CurrentPlanID
-	} else {
-		student.CurrentPlanID = nil
-	}
-	if payload.BalanceCents != nil {
-		student.BalanceCents = *payload.BalanceCents
-	}
-	student.EnrollmentAmountCents = payload.EnrollmentAmountCents
-	if payload.EnrollmentBillingMode != "" || payload.AdvisorAccrualMonths != nil || payload.AdvisorAccrualMonthMask != nil {
-		applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, false)
-	}
 	if payload.AdvisoryStartDate != nil {
 		if err := applyAdvisoryStartDateUpdate(student, *payload.AdvisoryStartDate); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
-	applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, false)
 
-	if err := normalizeStudentAdvisorCommission(student); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	enrollCents := payload.EnrollmentAmountCents
+	if channel == models.RegistrationChannelSchool {
+		cid := payload.SchoolContractID
+		if cid == nil || *cid == 0 {
+			cid = student.SchoolContractID
+		}
+		if cid == nil || *cid == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "school_contract_id is required for school registration"})
+			return
+		}
+		if h.schoolContracts == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "school contracts unavailable"})
+			return
+		}
+		contract, _, err := h.schoolContracts.GetByID(c.Request.Context(), *cid)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "school contract not found"})
+			return
+		}
+		student.SchoolContractID = cid
+		student.SchoolName = contract.SchoolName
+		student.DeliveryMode = ""
+		student.EnrollmentAmountCents = 0
+		student.CurrentPlanID = nil
+		student.EnrollmentBillingMode = models.EnrollmentBillingMonthly
+		student.AdvisorCommissionKind = models.StudentAdvisorCommNone
+		student.AdvisorCommissionPercent = nil
+		student.AdvisorCommissionFixedCents = nil
+		student.AdvisorAccrualMonths = nil
+		student.AdvisorAccrualMonthMask = nil
+		payload.RolePayouts = nil
+		enrollCents = 0
+	} else {
+		student.SchoolContractID = nil
+		student.SchoolName = payload.SchoolName
+		if payload.DeliveryMode != "" {
+			student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
+		} else if student.DeliveryMode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
+			return
+		}
+		if payload.CurrentPlanID != nil {
+			student.CurrentPlanID = payload.CurrentPlanID
+		} else {
+			student.CurrentPlanID = nil
+		}
+		if payload.BalanceCents != nil {
+			student.BalanceCents = *payload.BalanceCents
+		}
+		student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+		if payload.EnrollmentBillingMode != "" || payload.AdvisorAccrualMonths != nil || payload.AdvisorAccrualMonthMask != nil {
+			applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, false)
+		}
+		applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, false)
+		if err := normalizeStudentAdvisorCommission(student); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	if err := h.service.Update(c.Request.Context(), student); err != nil {
@@ -712,12 +835,12 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id), payload.EnrollmentAmountCents); err != nil {
+	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), uint(id), enrollCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 
-	if h.payments != nil {
+	if h.payments != nil && channel != models.RegistrationChannelSchool {
 		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), uint(id))
 	}
 

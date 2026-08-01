@@ -71,8 +71,8 @@ func main() {
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
-	studentHandler := handlers.NewStudentHandler(studentService, paymentService)
-	schoolContractHandler := handlers.NewSchoolContractHandler(schoolContractService)
+	studentHandler := handlers.NewStudentHandler(studentService, paymentService, schoolContractService)
+	schoolContractHandler := handlers.NewSchoolContractHandler(schoolContractService, studentService)
 	userHandler := handlers.NewUserHandler(userService, permService)
 	roleHandler := handlers.NewRoleHandler(roleService, paymentService)
 	planHandler := handlers.NewPlanHandler(planService)

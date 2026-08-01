@@ -56,6 +56,7 @@ import {
 } from "@/api/paymentsApi";
 import { listStudents } from "@/api/studentsApi";
 import { listAllSchoolContracts, type SchoolContractApi } from "@/api/schoolContractsApi";
+import { SchoolContractsPaymentsPanel } from "@/components/payments/SchoolContractsPaymentsPanel";
 
 const statusLabels: Record<string, string> = {
   PAID: "پرداخت شده",
@@ -329,7 +330,8 @@ const Payments = () => {
     }
   }, [isCreateOpen]);
 
-  const statusParam = activeTab === "all" ? undefined : activeTab.toUpperCase();
+  const statusParam =
+    activeTab === "all" || activeTab === "schools" ? undefined : activeTab.toUpperCase();
 
   const paymentsListParams = {
     search: searchQuery || undefined,
@@ -370,6 +372,7 @@ const Payments = () => {
     queryFn: () =>
       listStudents({
         search: debouncedStudentSearch.trim() || undefined,
+        registration_channel: "PRIVATE",
         page: 1,
         page_size: 50,
       }),
@@ -715,9 +718,23 @@ const Payments = () => {
           <TabsTrigger value="overdue" className="data-[state=active]:bg-background">
             معوق
           </TabsTrigger>
+          <TabsTrigger value="schools" className="data-[state=active]:bg-background">
+            مدارس
+          </TabsTrigger>
         </TabsList>
         </div>
 
+        {activeTab === "schools" ? (
+          <SchoolContractsPaymentsPanel
+            search={searchQuery}
+            onRegisterPayment={(c) => {
+              setCreatePayerType("SCHOOL");
+              setCreateSchoolContractId(String(c.id));
+              setIsCreateOpen(true);
+            }}
+          />
+        ) : (
+        <>
         <div className="grid gap-3 md:hidden">
           {payments.map((payment) => (
             <div key={payment.id} className="card-elevated p-3">
@@ -1006,6 +1023,8 @@ const Payments = () => {
               </Button>
             </div>
           </div>
+        )}
+        </>
         )}
       </Tabs>
 

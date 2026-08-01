@@ -27,6 +27,11 @@ func (s *StudentService) List(ctx context.Context, limit, offset int, filter rep
 	return s.repo.List(ctx, limit, offset, filter)
 }
 
+// CountBySchoolContractIDs returns registered (non-deleted) student counts per school contract.
+func (s *StudentService) CountBySchoolContractIDs(ctx context.Context, ids []uint) (map[uint]int64, error) {
+	return s.repo.CountBySchoolContractIDs(ctx, ids)
+}
+
 // SchoolNames lists distinct school names for the students the user may see.
 func (s *StudentService) SchoolNames(ctx context.Context, scopeUser *uint) ([]string, error) {
 	return s.repo.DistinctSchoolNames(ctx, scopeUser)

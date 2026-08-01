@@ -86,7 +86,32 @@ func (r *GormSchoolContractRepository) Update(ctx context.Context, c *models.Sch
 }
 
 func (r *GormSchoolContractRepository) SoftDelete(ctx context.Context, id uint) error {
-	return r.db.WithContext(ctx).Delete(&models.SchoolContract{}, id).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Soft-delete related payments so they disappear from /payments lists.
+		var paymentIDs []uint
+		if err := tx.Model(&models.Payment{}).
+			Where("school_contract_id = ?", id).
+			Pluck("id", &paymentIDs).Error; err != nil {
+			return err
+		}
+		if len(paymentIDs) > 0 {
+			if err := tx.Where("payment_id IN ?", paymentIDs).
+				Delete(&models.PaymentPayrollShare{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id IN ?", paymentIDs).
+				Delete(&models.Payment{}).Error; err != nil {
+				return err
+			}
+		}
+		// Unlink school-channel students so FK RESTRICT does not block cleanup / hard deletes later.
+		if err := tx.Model(&models.Student{}).
+			Where("school_contract_id = ?", id).
+			Update("school_contract_id", nil).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.SchoolContract{}, id).Error
+	})
 }
 
 func (r *GormSchoolContractRepository) SumPaidCents(ctx context.Context, contractID uint) (int64, error) {

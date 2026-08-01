@@ -595,6 +595,10 @@ const Payroll = () => {
 
   return (
     <MainLayout title="حقوق و دستمزد" subtitle="مدیریت ساختار حقوق و محاسبات">
+      <div
+        dir="rtl"
+        className="space-y-0 text-right [unicode-bidi:isolate] [&_table]:w-full [&_th]:text-right [&_td]:text-right"
+      >
       {/* Summary Cards */}
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <div className="card-elevated p-5">
@@ -1355,7 +1359,7 @@ const Payroll = () => {
           )}
         </DialogContent>
       </Dialog>
-
+      </div>
     </MainLayout>
   );
 };

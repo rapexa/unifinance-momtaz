@@ -14,7 +14,9 @@ const (
 	SchoolContractStatusSettled  SchoolContractStatus = "SETTLED"
 )
 
-// SchoolContract is a bulk enrollment deal with a school (no per-student Student rows).
+// SchoolContract is a bulk enrollment deal with a school.
+// Individual pupils are Student rows with registration_channel=SCHOOL and school_contract_id set.
+// Payments for the deal attach to this contract (not to each student).
 type SchoolContract struct {
 	gorm.Model
 	SchoolName       string               `gorm:"size:200;not null;index"`

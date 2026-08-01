@@ -145,6 +145,12 @@ func (r *GormPaymentRepository) List(
 	studentsJoined := false
 	schoolsJoined := false
 
+	// Hide payments whose school contract was soft-deleted (safety net for legacy rows).
+	query = query.
+		Joins("LEFT JOIN school_contracts ON school_contracts.id = payments.school_contract_id AND school_contracts.deleted_at IS NULL").
+		Where("(payments.school_contract_id IS NULL OR school_contracts.id IS NOT NULL)")
+	schoolsJoined = true
+
 	if scopeUser != nil {
 		uid := *scopeUser
 		query = query.
@@ -164,7 +170,7 @@ func (r *GormPaymentRepository) List(
 			studentsJoined = true
 		}
 		if !schoolsJoined {
-			query = query.Joins("LEFT JOIN school_contracts ON school_contracts.id = payments.school_contract_id")
+			query = query.Joins("LEFT JOIN school_contracts ON school_contracts.id = payments.school_contract_id AND school_contracts.deleted_at IS NULL")
 			schoolsJoined = true
 		}
 		query = query.Where(

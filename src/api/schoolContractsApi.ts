@@ -4,6 +4,8 @@ export interface SchoolContractApi {
   id: number;
   school_name: string;
   student_count: number;
+  /** تعداد دانش‌آموزان ثبت‌شده زیر این قرارداد */
+  registered_student_count?: number;
   unit_price_cents: number;
   total_amount_cents: number;
   paid_total_cents: number;

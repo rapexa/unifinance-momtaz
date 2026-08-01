@@ -826,7 +826,7 @@ func (s *PayrollService) ListAdvisorOps(ctx context.Context, year, month int, sc
 		}
 		for _, st := range sts {
 			row.StudentsTotal++
-			if st.EnrollmentBillingMode == models.EnrollmentBillingSchoolEnrollment {
+			if st.IsSchoolChannel() || st.EnrollmentBillingMode == models.EnrollmentBillingSchoolEnrollment {
 				row.StudentsSchool++
 			} else {
 				row.StudentsPrivate++

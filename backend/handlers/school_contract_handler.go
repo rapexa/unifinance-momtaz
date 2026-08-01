@@ -13,40 +13,43 @@ import (
 )
 
 type SchoolContractHandler struct {
-	service *services.SchoolContractService
+	service  *services.SchoolContractService
+	students *services.StudentService
 }
 
-func NewSchoolContractHandler(service *services.SchoolContractService) *SchoolContractHandler {
-	return &SchoolContractHandler{service: service}
+func NewSchoolContractHandler(service *services.SchoolContractService, students *services.StudentService) *SchoolContractHandler {
+	return &SchoolContractHandler{service: service, students: students}
 }
 
 type SchoolContractDTO struct {
-	ID                    uint       `json:"id"`
-	SchoolName            string     `json:"school_name"`
-	StudentCount          int        `json:"student_count"`
-	UnitPriceCents        int64      `json:"unit_price_cents"`
-	TotalAmountCents      int64      `json:"total_amount_cents"`
-	PaidTotalCents        int64      `json:"paid_total_cents"`
-	RemainingBalanceCents int64      `json:"remaining_balance_cents"`
-	Status                string     `json:"status"`
-	Notes                 string     `json:"notes,omitempty"`
-	StartDate             *time.Time `json:"start_date,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
+	ID                      uint       `json:"id"`
+	SchoolName              string     `json:"school_name"`
+	StudentCount            int        `json:"student_count"`
+	RegisteredStudentCount  int64      `json:"registered_student_count"`
+	UnitPriceCents          int64      `json:"unit_price_cents"`
+	TotalAmountCents        int64      `json:"total_amount_cents"`
+	PaidTotalCents          int64      `json:"paid_total_cents"`
+	RemainingBalanceCents   int64      `json:"remaining_balance_cents"`
+	Status                  string     `json:"status"`
+	Notes                   string     `json:"notes,omitempty"`
+	StartDate               *time.Time `json:"start_date,omitempty"`
+	CreatedAt               time.Time  `json:"created_at"`
 }
 
-func toSchoolContractDTO(c *models.SchoolContract, paid int64) SchoolContractDTO {
+func toSchoolContractDTO(c *models.SchoolContract, paid int64, registered int64) SchoolContractDTO {
 	return SchoolContractDTO{
-		ID:                    c.ID,
-		SchoolName:            c.SchoolName,
-		StudentCount:          c.StudentCount,
-		UnitPriceCents:        c.UnitPriceCents,
-		TotalAmountCents:      c.TotalAmountCents,
-		PaidTotalCents:        paid,
-		RemainingBalanceCents: c.RemainingBalanceCents(paid),
-		Status:                string(c.Status),
-		Notes:                 c.Notes,
-		StartDate:             c.StartDate,
-		CreatedAt:             c.CreatedAt,
+		ID:                     c.ID,
+		SchoolName:             c.SchoolName,
+		StudentCount:           c.StudentCount,
+		RegisteredStudentCount: registered,
+		UnitPriceCents:         c.UnitPriceCents,
+		TotalAmountCents:       c.TotalAmountCents,
+		PaidTotalCents:         paid,
+		RemainingBalanceCents:  c.RemainingBalanceCents(paid),
+		Status:                 string(c.Status),
+		Notes:                  c.Notes,
+		StartDate:              c.StartDate,
+		CreatedAt:              c.CreatedAt,
 	}
 }
 
@@ -82,9 +85,19 @@ func (h *SchoolContractHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list school contracts"})
 		return
 	}
+	ids := make([]uint, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	regMap := map[uint]int64{}
+	if h.students != nil && len(ids) > 0 {
+		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), ids); err == nil {
+			regMap = m
+		}
+	}
 	out := make([]SchoolContractDTO, len(rows))
 	for i := range rows {
-		out[i] = toSchoolContractDTO(&rows[i], paidMap[rows[i].ID])
+		out[i] = toSchoolContractDTO(&rows[i], paidMap[rows[i].ID], regMap[rows[i].ID])
 	}
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize != 0 {
@@ -116,7 +129,13 @@ func (h *SchoolContractHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get school contract"})
 		return
 	}
-	c.JSON(http.StatusOK, toSchoolContractDTO(contract, paid))
+	var registered int64
+	if h.students != nil {
+		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), []uint{contract.ID}); err == nil {
+			registered = m[contract.ID]
+		}
+	}
+	c.JSON(http.StatusOK, toSchoolContractDTO(contract, paid, registered))
 }
 
 func (h *SchoolContractHandler) Create(c *gin.Context) {
@@ -142,7 +161,7 @@ func (h *SchoolContractHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, toSchoolContractDTO(created, 0))
+	c.JSON(http.StatusCreated, toSchoolContractDTO(created, 0, 0))
 }
 
 func (h *SchoolContractHandler) Update(c *gin.Context) {
@@ -178,7 +197,13 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 		return
 	}
 	_, paid, _ := h.service.GetByID(c.Request.Context(), updated.ID)
-	c.JSON(http.StatusOK, toSchoolContractDTO(updated, paid))
+	var registered int64
+	if h.students != nil {
+		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), []uint{updated.ID}); err == nil {
+			registered = m[updated.ID]
+		}
+	}
+	c.JSON(http.StatusOK, toSchoolContractDTO(updated, paid, registered))
 }
 
 func (h *SchoolContractHandler) Delete(c *gin.Context) {

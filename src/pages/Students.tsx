@@ -58,9 +58,13 @@ import {
   type StudentSort,
   type StudentStatusFilter,
 } from "@/api/studentsApi";
-import { createSchoolContract } from "@/api/schoolContractsApi";
+import {
+  createSchoolContract,
+  listAllSchoolContracts,
+  type SchoolContractApi,
+} from "@/api/schoolContractsApi";
 import { SchoolContractsSection } from "@/components/students/SchoolContractsSection";
-import { listAllUsers, UserApi } from "@/api/usersApi";
+import { listAdvisors, listAllUsers, UserApi } from "@/api/usersApi";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { listActivePlans, PlanApi } from "@/api/plansApi";
@@ -395,12 +399,21 @@ function EditStudentForm({
   const [motherPhone, setMotherPhone] = useState(student.mother_phone || "");
   const [fatherJob, setFatherJob] = useState(student.father_job || "");
   const [motherJob, setMotherJob] = useState(student.mother_job || "");
+  const isSchoolChannel = student.registration_channel === "SCHOOL";
   const [schoolName, setSchoolName] = useState(student.school_name || "");
   const [schoolAddress, setSchoolAddress] = useState(student.school_address || "");
   const [homeAddress, setHomeAddress] = useState(student.home_address || "");
+  const [schoolContractId, setSchoolContractId] = useState(
+    student.school_contract_id != null ? String(student.school_contract_id) : "",
+  );
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>(
     student.delivery_mode === "ONLINE" ? "ONLINE" : "IN_PERSON",
   );
+  const { data: editSchoolContracts = [] } = useQuery({
+    queryKey: ["school-contracts", "all-active"],
+    queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
+    enabled: isSchoolChannel,
+  });
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE" | "DELETED">(
     student.status === "DELETED" ? "DELETED" : student.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"
   );
@@ -527,32 +540,76 @@ function EditStudentForm({
             <Input value={motherJob} onChange={(e) => setMotherJob(e.target.value)} placeholder="شغل مادر" />
           </div>
         </div>
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
-          <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
-        </div>
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
-          <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
-        </div>
+        {isSchoolChannel ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">مدرسه</label>
+            <Select value={schoolContractId} onValueChange={setSchoolContractId}>
+              <SelectTrigger>
+                <SelectValue placeholder="انتخاب مدرسه" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                {editSchoolContracts.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.school_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              اطلاعات پرداخت این دانش‌آموز روی قرارداد مدرسه ثبت می‌شود.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
+              <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
+            </div>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
+              <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
+            </div>
+          </>
+        )}
         <div className="mt-3">
           <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
           <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
         </div>
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">نحوه برگزاری</label>
-          <Select value={deliveryMode} onValueChange={(v) => setDeliveryMode(v as DeliveryMode)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="IN_PERSON">حضوری</SelectItem>
-              <SelectItem value="ONLINE">آنلاین</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {!isSchoolChannel && (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">نحوه برگزاری</label>
+            <Select value={deliveryMode} onValueChange={(v) => setDeliveryMode(v as DeliveryMode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="IN_PERSON">حضوری</SelectItem>
+                <SelectItem value="ONLINE">آنلاین</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {isSchoolChannel && (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+            <Select value={advisorId} onValueChange={setAdvisorId}>
+              <SelectTrigger>
+                <SelectValue placeholder="انتخاب مشاور" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                <SelectItem value="none">بدون مشاور</SelectItem>
+                {advisors.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.first_name} {u.last_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
+      {!isSchoolChannel && (
       <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
         <Separator className="mb-3" />
@@ -594,6 +651,7 @@ function EditStudentForm({
           onCommFixedChange={setCommFixed}
         />
       </div>
+      )}
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">وضعیت</span>
@@ -628,32 +686,44 @@ function EditStudentForm({
               mother_phone: motherPhone.trim() || undefined,
               father_job: fatherJob.trim() || undefined,
               mother_job: motherJob.trim() || undefined,
-              school_name: schoolName.trim() || undefined,
-              school_address: schoolAddress.trim() || undefined,
               home_address: homeAddress.trim() || undefined,
-              delivery_mode: deliveryMode,
+              registration_channel: isSchoolChannel ? "SCHOOL" : "PRIVATE",
               status,
               advisor_id: advisorId === "none" ? null : Number(advisorId),
-              current_plan_id: planId === "none" ? null : Number(planId),
-              enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0,
             };
+            if (isSchoolChannel) {
+              payload.school_contract_id = Number(schoolContractId);
+            } else {
+              payload.school_name = schoolName.trim() || undefined;
+              payload.school_address = schoolAddress.trim() || undefined;
+              payload.delivery_mode = deliveryMode;
+              payload.current_plan_id = planId === "none" ? null : Number(planId);
+              payload.enrollment_amount_cents = enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0;
+              appendAdvisorCommissionFields(payload, {
+                advisorSelected,
+                billingMode,
+                kind: advisorCommKind,
+                commPercent,
+                commFixed,
+                accrualMonthMask,
+              });
+              payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
+            }
             if (advTrim && advGregorian) {
               payload.advisory_start_date = advGregorian;
             } else if (student.advisory_start_date) {
               payload.advisory_start_date = "";
             }
-            appendAdvisorCommissionFields(payload, {
-              advisorSelected,
-              billingMode,
-              kind: advisorCommKind,
-              commPercent,
-              commFixed,
-              accrualMonthMask,
-            });
-            payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
             mutation.mutate({ id: student.id, payload }, { onSuccess });
           }}
-          disabled={mutation.isPending || !firstName.trim() || !lastName.trim() || commissionInvalid || rolePayoutInvalid}
+          disabled={
+            mutation.isPending ||
+            !firstName.trim() ||
+            !lastName.trim() ||
+            (isSchoolChannel
+              ? !schoolContractId
+              : commissionInvalid || rolePayoutInvalid)
+          }
         >
           {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
         </Button>
@@ -692,6 +762,7 @@ const Students = () => {
   const [pageSize, setPageSize] = useState(25);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateSchoolOpen, setIsCreateSchoolOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
   const [editStudentId, setEditStudentId] = useState<number | null>(null);
@@ -720,14 +791,16 @@ const Students = () => {
   const [commFixed, setCommFixed] = useState("");
   const [rolePayoutRows, setRolePayoutRows] = useState<RolePayoutFormRow[]>([]);
   const [createAdvisoryStartDate, setCreateAdvisoryStartDate] = useState(todayJalaliDate);
-  const [listTab, setListTab] = useState<"students" | "schools">("students");
+  const [listTab, setListTab] = useState<"private" | "schools">("private");
   const [registrationChannel, setRegistrationChannel] = useState<RegistrationChannel>("PRIVATE");
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("IN_PERSON");
+  const [createSchoolContractId, setCreateSchoolContractId] = useState("");
   const [contractSchoolName, setContractSchoolName] = useState("");
   const [contractStudentCount, setContractStudentCount] = useState("");
   const [contractUnitPrice, setContractUnitPrice] = useState("");
   const [contractNotes, setContractNotes] = useState("");
   const [createError, setCreateError] = useState("");
+  const [createSchoolError, setCreateSchoolError] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -737,36 +810,65 @@ const Students = () => {
       setRolePayoutRows([]);
       setBillingMode("MONTHLY");
       setAccrualMonthMask(defaultAccrualMonthMask(10));
-      setRegistrationChannel("PRIVATE");
       setDeliveryMode("IN_PERSON");
+      setCreateError("");
+      if (!createSchoolContractId) {
+        setRegistrationChannel("PRIVATE");
+      }
+    }
+  }, [isCreateOpen, createSchoolContractId]);
+
+  useEffect(() => {
+    if (isCreateSchoolOpen) {
       setContractSchoolName("");
       setContractStudentCount("");
       setContractUnitPrice("");
       setContractNotes("");
-      setCreateError("");
+      setCreateSchoolError("");
     }
-  }, [isCreateOpen]);
+  }, [isCreateSchoolOpen]);
 
   const contractCountNum = parseLocalizedInt(contractStudentCount);
   const contractUnitTomans = parseLocalizedInt(contractUnitPrice);
   const contractTotalPreview =
     contractCountNum > 0 && contractUnitTomans > 0 ? contractCountNum * contractUnitTomans : 0;
 
+  const { data: activeSchoolContracts = [] } = useQuery({
+    queryKey: ["school-contracts", "all-active"],
+    queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
+    enabled: isCreateOpen && registrationChannel === "SCHOOL",
+  });
+
   const createSchoolMutation = useMutation({
     mutationFn: createSchoolContract,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
-      setIsCreateOpen(false);
+      setIsCreateSchoolOpen(false);
       setListTab("schools");
       setContractSchoolName("");
       setContractStudentCount("");
       setContractUnitPrice("");
       setContractNotes("");
-      setCreateError("");
+      setCreateSchoolError("");
     },
-    onError: (e: Error) => setCreateError(e.message),
+    onError: (e: Error) => setCreateSchoolError(e.message),
   });
+
+  const openCreateStudent = (opts?: {
+    channel?: RegistrationChannel;
+    schoolContractId?: number;
+  }) => {
+    setRegistrationChannel(opts?.channel ?? "PRIVATE");
+    setCreateSchoolContractId(
+      opts?.schoolContractId != null ? String(opts.schoolContractId) : "",
+    );
+    setIsCreateOpen(true);
+  };
+
+  const openCreateStudentForSchool = (contract: SchoolContractApi) => {
+    openCreateStudent({ channel: "SCHOOL", schoolContractId: contract.id });
+  };
 
   const createCommissionInvalid = isAdvisorCommissionInvalid(
     !!advisorId,
@@ -853,6 +955,7 @@ const Students = () => {
     billing_mode:
       billingFilter === "all" ? undefined : (billingFilter as EnrollmentBillingMode),
     school_name: schoolFilter === "all" ? undefined : schoolFilter,
+    registration_channel: "PRIVATE" as const,
     plan_id: planFilter === "all" ? undefined : Number(planFilter),
     has_debt: debtOnly || undefined,
     sort: sortBy,
@@ -889,6 +992,7 @@ const Students = () => {
     queryKey: ["students", { ...listParams, page, pageSize }],
     queryFn: () => listStudents({ ...listParams, page, page_size: pageSize }),
     placeholderData: (prev) => prev,
+    enabled: listTab === "private",
   });
 
   const { data: schoolNames = [] } = useQuery({
@@ -905,12 +1009,17 @@ const Students = () => {
     queryFn: getStudentsSummary,
   });
 
-  // همه کاربران فعال (پیمایش همه صفحات) تا هیچ مشاوری از فهرست انتخاب جا نیفتد.
+  // همه کاربران فعال — برای سهم نقش‌ها؛ مشاوران جداگانه فقط نقش مشاور.
   const { data: usersData } = useQuery({
     queryKey: ["users", "student-role-payouts"],
     queryFn: () => listAllUsers({ status: "active" }),
   });
   const users = usersData ?? [];
+  const { data: advisorsData } = useQuery({
+    queryKey: ["users", "advisors"],
+    queryFn: listAdvisors,
+  });
+  const advisors = advisorsData ?? [];
   const { data: roles = [] } = useQuery({
     queryKey: ["roles", "student-role-payouts"],
     queryFn: listRoles,
@@ -918,8 +1027,8 @@ const Students = () => {
 
   useEffect(() => {
     if (billingMode !== "SCHOOL_ENROLLMENT" || !advisorId) return;
-    setAccrualMonthMask(defaultAccrualMonthMask(advisorPayrollMonths(advisorId, users, roles)));
-  }, [advisorId, billingMode, users, roles]);
+    setAccrualMonthMask(defaultAccrualMonthMask(advisorPayrollMonths(advisorId, advisors, roles)));
+  }, [advisorId, billingMode, advisors, roles]);
 
   const { data: plans } = useQuery({
     queryKey: ["plans-active"],
@@ -958,15 +1067,21 @@ const Students = () => {
 
   const createMutation = useMutation({
     mutationFn: createStudent,
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
       queryClient.invalidateQueries({ queryKey: ["student-schools"] });
+      queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       setIsCreateOpen(false);
+      setCreateSchoolContractId("");
+      if (created.registration_channel === "SCHOOL") {
+        setListTab("schools");
+      }
+      setRegistrationChannel("PRIVATE");
       setFirstName("");
       setLastName("");
       setEmail("");
@@ -1004,9 +1119,9 @@ const Students = () => {
     <MainLayout title="دانش‌آموزان" subtitle="مدیریت پروفایل، قرارداد مدارس و اطلاعات مالی">
       <div className="mb-4 flex rounded-lg border p-1 w-fit">
         <Button
-          variant={listTab === "students" ? "secondary" : "ghost"}
+          variant={listTab === "private" ? "secondary" : "ghost"}
           size="sm"
-          onClick={() => setListTab("students")}
+          onClick={() => setListTab("private")}
         >
           دانش‌آموزان خصوصی
         </Button>
@@ -1015,7 +1130,7 @@ const Students = () => {
           size="sm"
           onClick={() => setListTab("schools")}
         >
-          قراردادهای مدرسه
+          مدارس
         </Button>
       </div>
 
@@ -1031,6 +1146,8 @@ const Students = () => {
           />
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {listTab === "private" && (
+          <>
           <div className="flex w-full overflow-x-auto rounded-lg border p-1 sm:w-auto">
             <Button
               variant={statusFilter === "all" ? "secondary" : "ghost"}
@@ -1104,7 +1221,7 @@ const Students = () => {
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
                     <SelectItem value="all">همه مشاوران</SelectItem>
-                    {users.map((u) => (
+                    {advisors.map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>
                         {u.first_name} {u.last_name}
                         {u.role_name ? ` — ${u.role_name}` : ""}
@@ -1204,17 +1321,36 @@ const Students = () => {
             <Download className="ml-2 h-4 w-4" />
             {isExporting ? "در حال دانلود..." : "خروجی اکسل"}
           </Button>
-          <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setIsCreateOpen(true)}>
-            <Plus className="ml-2 h-4 w-4" />
-            ثبت‌نام جدید
-          </Button>
+          </>
+          )}
+          {listTab === "private" ? (
+            <Button size="sm" className="flex-1 sm:flex-none" onClick={() => openCreateStudent()}>
+              <Plus className="ml-2 h-4 w-4" />
+              افزودن دانش‌آموز
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="flex-1 sm:flex-none"
+              onClick={() => setIsCreateSchoolOpen(true)}
+            >
+              <Plus className="ml-2 h-4 w-4" />
+              افزودن مدرسه
+            </Button>
+          )}
         </div>
       </div>
 
-      {listTab === "schools" && <SchoolContractsSection search={debouncedSearch} />}
+      {listTab === "schools" && (
+        <SchoolContractsSection
+          search={debouncedSearch}
+          onAddStudentForSchool={openCreateStudentForSchool}
+          onOpenStudent={(st) => setDetailsStudentId(st.id)}
+        />
+      )}
 
       {/* Stats */}
-      {listTab === "students" && <div className="mb-6 grid gap-4 sm:grid-cols-5">
+      {listTab === "private" && <div className="mb-6 grid gap-4 sm:grid-cols-5">
         <div className="card-elevated p-4">
           <p className="text-sm text-muted-foreground">کل دانش‌آموزان</p>
           <p className="text-2xl font-bold text-foreground">
@@ -1258,24 +1394,24 @@ const Students = () => {
       </div>}
 
       {/* Students grid/list */}
-      {listTab === "students" && isLoading && (
+      {listTab === "private" && isLoading && (
         <div className="card-elevated p-6 text-sm text-muted-foreground">
           در حال بارگذاری لیست دانش‌آموزان...
         </div>
       )}
-      {listTab === "students" && isError && (
+      {listTab === "private" && isError && (
         <div className="card-elevated p-6 text-sm text-destructive">
           {(error as Error)?.message || "خطا در دریافت لیست دانش‌آموزان"}
         </div>
       )}
-      {listTab === "students" && !isLoading && !isError && students.length === 0 && (
+      {listTab === "private" && !isLoading && !isError && students.length === 0 && (
         <div className="card-elevated p-6 text-sm text-muted-foreground">
           {debouncedSearch || activeFilterCount > 0 || statusFilter !== "all"
             ? "دانش‌آموزی با این جستجو/فیلتر پیدا نشد."
             : "هیچ دانش‌آموزی ثبت نشده است."}
         </div>
       )}
-      {listTab === "students" && !isLoading && !isError && students.length > 0 && (viewMode === "grid" ? (
+      {listTab === "private" && !isLoading && !isError && students.length > 0 && (viewMode === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {students.map((student) => (
             <div
@@ -1456,7 +1592,7 @@ const Students = () => {
       )}
 
       {/* Pagination */}
-      {listTab === "students" && !isError && totalItems > 0 && (
+      {listTab === "private" && !isError && totalItems > 0 && (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
             نمایش {rangeFrom.toLocaleString("fa-IR")} تا {rangeTo.toLocaleString("fa-IR")} از{" "}
@@ -1531,8 +1667,21 @@ const Students = () => {
               <p><span className="text-muted-foreground">شماره مادر:</span> {detailsStudentData.mother_phone ? <span dir="ltr">{detailsStudentData.mother_phone}</span> : "—"}</p>
               <p><span className="text-muted-foreground">شغل پدر:</span> {detailsStudentData.father_job || "—"}</p>
               <p><span className="text-muted-foreground">شغل مادر:</span> {detailsStudentData.mother_job || "—"}</p>
-              <p><span className="text-muted-foreground">اسم مدرسه:</span> {detailsStudentData.school_name || "—"}</p>
-              <p><span className="text-muted-foreground">آدرس مدرسه:</span> {detailsStudentData.school_address || "—"}</p>
+              <p>
+                <span className="text-muted-foreground">نوع ثبت‌نام:</span>{" "}
+                {detailsStudentData.registration_channel === "SCHOOL" ? "مدرسه‌ای" : "خصوصی"}
+              </p>
+              {detailsStudentData.registration_channel === "SCHOOL" ? (
+                <p>
+                  <span className="text-muted-foreground">مدرسه:</span>{" "}
+                  {detailsStudentData.school_contract_name || detailsStudentData.school_name || "—"}
+                </p>
+              ) : (
+                <>
+                  <p><span className="text-muted-foreground">اسم مدرسه:</span> {detailsStudentData.school_name || "—"}</p>
+                  <p><span className="text-muted-foreground">آدرس مدرسه:</span> {detailsStudentData.school_address || "—"}</p>
+                </>
+              )}
               <p><span className="text-muted-foreground">آدرس خانه:</span> {detailsStudentData.home_address || "—"}</p>
               <p>
                 <span className="text-muted-foreground">تاریخ شروع مشاوره:</span>{" "}
@@ -1540,6 +1689,8 @@ const Students = () => {
                   ? gregorianIsoToJalali(detailsStudentData.advisory_start_date) || detailsStudentData.advisory_start_date
                   : "—"}
               </p>
+              {detailsStudentData.registration_channel !== "SCHOOL" && (
+                <>
               <p>
                 <span className="text-muted-foreground">نحوه برگزاری:</span>{" "}
                 {detailsStudentData.delivery_mode === "ONLINE"
@@ -1552,7 +1703,15 @@ const Students = () => {
                 <span className="text-muted-foreground">نوع پرداخت:</span>{" "}
                 {billingModeLabel(parseBillingMode(detailsStudentData.enrollment_billing_mode))}
               </p>
-              {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" && (
+                </>
+              )}
+              {detailsStudentData.registration_channel === "SCHOOL" && (
+                <p className="text-xs text-muted-foreground">
+                  پرداخت این دانش‌آموز از طریق قرارداد مدرسه انجام می‌شود.
+                </p>
+              )}
+              {detailsStudentData.registration_channel !== "SCHOOL" &&
+                detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" && (
                 <p>
                   <span className="text-muted-foreground">ماه‌های حقوق:</span>{" "}
                   {(() => {
@@ -1569,7 +1728,7 @@ const Students = () => {
                 </p>
               )}
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
-              {detailsStudentData.advisor_id != null && (
+              {detailsStudentData.registration_channel !== "SCHOOL" && detailsStudentData.advisor_id != null && (
                 <p>
                   <span className="text-muted-foreground">
                     {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT"
@@ -1667,7 +1826,7 @@ const Students = () => {
             <EditStudentForm
               key={editStudentData.id}
               student={editStudentData}
-              advisors={users}
+              advisors={advisors}
               users={users}
               roles={roles}
               plans={plans || []}
@@ -1750,18 +1909,31 @@ const Students = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Create student / school contract dialog */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-2xl">
+      {/* Create student dialog */}
+      <Dialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open);
+          if (!open) {
+            setCreateSchoolContractId("");
+            setRegistrationChannel("PRIVATE");
+          }
+        }}
+      >
+        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>ثبت‌نام جدید</DialogTitle>
+            <DialogTitle>افزودن دانش‌آموز</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام</label>
               <Select
                 value={registrationChannel}
-                onValueChange={(v) => setRegistrationChannel(v as RegistrationChannel)}
+                onValueChange={(v) => {
+                  const ch = v as RegistrationChannel;
+                  setRegistrationChannel(ch);
+                  if (ch === "PRIVATE") setCreateSchoolContractId("");
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1773,62 +1945,6 @@ const Students = () => {
               </Select>
             </div>
 
-            {registrationChannel === "SCHOOL" && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-foreground">قرارداد مدرسه</h3>
-                <Separator />
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مدرسه</label>
-                  <Input
-                    value={contractSchoolName}
-                    onChange={(e) => setContractSchoolName(e.target.value)}
-                    placeholder="مثلاً شهید بهشتی"
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">تعداد دانش‌آموز</label>
-                    <Input
-                      inputMode="numeric"
-                      dir="ltr"
-                      value={contractStudentCount}
-                      onChange={(e) => setContractStudentCount(formatGroupedFaIntInput(e.target.value))}
-                      placeholder="مثلاً ۴۰"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      مبلغ هر دانش‌آموز (تومان)
-                    </label>
-                    <Input
-                      inputMode="numeric"
-                      dir="ltr"
-                      value={contractUnitPrice}
-                      onChange={(e) => setContractUnitPrice(formatGroupedFaIntInput(e.target.value))}
-                      placeholder="مثلاً ۱۰,۰۰۰,۰۰۰"
-                    />
-                  </div>
-                </div>
-                <p className="text-sm text-primary">
-                  مبلغ کل قرارداد:{" "}
-                  {contractTotalPreview > 0
-                    ? `${contractTotalPreview.toLocaleString("fa-IR")} تومان`
-                    : "—"}
-                  <span className="mr-2 text-xs text-muted-foreground">(فقط نمایش)</span>
-                </p>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">توضیحات</label>
-                  <Input
-                    value={contractNotes}
-                    onChange={(e) => setContractNotes(e.target.value)}
-                    placeholder="اختیاری"
-                  />
-                </div>
-              </div>
-            )}
-
-            {registrationChannel === "PRIVATE" && (
-            <>
             <div>
               <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات اولیه دانش‌آموز</h3>
               <Separator className="mb-3" />
@@ -1901,162 +2017,297 @@ const Students = () => {
                   <Input value={motherJob} onChange={(e) => setMotherJob(e.target.value)} placeholder="شغل مادر" />
                 </div>
               </div>
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
-                <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
-              </div>
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
-                <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
-              </div>
+
+              {registrationChannel === "SCHOOL" ? (
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مدرسه</label>
+                  <Select value={createSchoolContractId} onValueChange={setCreateSchoolContractId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="انتخاب مدرسه ثبت‌شده" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {activeSchoolContracts.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.school_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {activeSchoolContracts.length === 0 && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      ابتدا از تب مدارس، یک مدرسه اضافه کنید.
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    اطلاعات پرداخت روی قرارداد مدرسه است و اینجا ثبت نمی‌شود.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">اسم مدرسه</label>
+                    <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="نام مدرسه" />
+                  </div>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس مدرسه</label>
+                    <Input value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} placeholder="آدرس مدرسه" />
+                  </div>
+                </>
+              )}
+
               <div className="mt-3">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">آدرس خانه</label>
                 <Input value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} placeholder="آدرس منزل" />
               </div>
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">نحوه برگزاری</label>
-                <Select value={deliveryMode} onValueChange={(v) => setDeliveryMode(v as DeliveryMode)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IN_PERSON">حضوری</SelectItem>
-                    <SelectItem value="ONLINE">آنلاین</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+              {registrationChannel === "PRIVATE" && (
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">نحوه برگزاری</label>
+                  <Select value={deliveryMode} onValueChange={(v) => setDeliveryMode(v as DeliveryMode)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IN_PERSON">حضوری</SelectItem>
+                      <SelectItem value="ONLINE">آنلاین</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {registrationChannel === "SCHOOL" && (
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+                  <Select value={advisorId || "none"} onValueChange={(v) => setAdvisorId(v === "none" ? "" : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="انتخاب مشاور" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      <SelectItem value="none">بدون مشاور</SelectItem>
+                      {advisors.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>
+                          {u.first_name} {u.last_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
-              <Separator className="mb-3" />
-              <EnrollmentRegistrationFields
-                billingMode={billingMode}
-                onBillingModeChange={setBillingMode}
-                planId={planId}
-                onPlanIdChange={setPlanId}
-                plans={plans || []}
-                enrollmentAmount={enrollmentAmount}
-                onEnrollmentAmountChange={setEnrollmentAmount}
-                accrualMonthMask={accrualMonthMask}
-                onAccrualMonthMaskChange={setAccrualMonthMask}
-                rolePayoutRows={rolePayoutRows}
-                onRolePayoutRowsChange={setRolePayoutRows}
-                roles={roles}
-                users={users}
-                advisorId={advisorId}
-                onAdvisorIdChange={setAdvisorId}
-                advisorOptions={users}
-                advisorCommKind={advisorCommKind}
-                onAdvisorCommKindChange={setAdvisorCommKind}
-                commPercent={commPercent}
-                onCommPercentChange={setCommPercent}
-                commFixed={commFixed}
-                onCommFixedChange={setCommFixed}
-              />
-            </div>
-            </>
+            {registrationChannel === "PRIVATE" && (
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
+                <Separator className="mb-3" />
+                <EnrollmentRegistrationFields
+                  billingMode={billingMode}
+                  onBillingModeChange={setBillingMode}
+                  planId={planId}
+                  onPlanIdChange={setPlanId}
+                  plans={plans || []}
+                  enrollmentAmount={enrollmentAmount}
+                  onEnrollmentAmountChange={setEnrollmentAmount}
+                  accrualMonthMask={accrualMonthMask}
+                  onAccrualMonthMaskChange={setAccrualMonthMask}
+                  rolePayoutRows={rolePayoutRows}
+                  onRolePayoutRowsChange={setRolePayoutRows}
+                  roles={roles}
+                  users={users}
+                  advisorId={advisorId}
+                  onAdvisorIdChange={setAdvisorId}
+                  advisorOptions={advisors}
+                  advisorCommKind={advisorCommKind}
+                  onAdvisorCommKindChange={setAdvisorCommKind}
+                  commPercent={commPercent}
+                  onCommPercentChange={setCommPercent}
+                  commFixed={commFixed}
+                  onCommFixedChange={setCommFixed}
+                />
+              </div>
             )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setIsCreateOpen(false)}
-              disabled={createMutation.isPending || createSchoolMutation.isPending}
+              disabled={createMutation.isPending}
             >
               انصراف
             </Button>
-            {registrationChannel === "SCHOOL" ? (
-              <Button
-                disabled={
-                  createSchoolMutation.isPending ||
-                  !contractSchoolName.trim() ||
-                  contractCountNum <= 0 ||
-                  contractUnitTomans <= 0
+            <Button
+              onClick={() => {
+                setCreateError("");
+                const base: CreateStudentPayload = {
+                  first_name: firstName.trim(),
+                  last_name: lastName.trim(),
+                  email: email.trim() || undefined,
+                  phone: phone.trim() || undefined,
+                  father_name: fatherName.trim() || undefined,
+                  mother_name: motherName.trim() || undefined,
+                  father_phone: fatherPhone.trim() || undefined,
+                  mother_phone: motherPhone.trim() || undefined,
+                  father_job: fatherJob.trim() || undefined,
+                  mother_job: motherJob.trim() || undefined,
+                  home_address: homeAddress.trim() || undefined,
+                  registration_channel: registrationChannel,
+                  advisory_start_date: (() => {
+                    const g = jalaliToGregorianIso(createAdvisoryStartDate.trim());
+                    return g || undefined;
+                  })(),
+                  advisor_id: advisorId ? Number(advisorId) : undefined,
+                };
+                if (registrationChannel === "SCHOOL") {
+                  if (!createSchoolContractId) {
+                    setCreateError("مدرسه را انتخاب کنید");
+                    return;
+                  }
+                  base.school_contract_id = Number(createSchoolContractId);
+                  createMutation.mutate(base);
+                  return;
                 }
-                onClick={() => {
-                  setCreateError("");
-                  createSchoolMutation.mutate({
-                    school_name: contractSchoolName.trim(),
-                    student_count: contractCountNum,
-                    unit_price_cents: contractUnitTomans * 10,
-                    notes: contractNotes.trim() || undefined,
-                  });
-                }}
-              >
-                {createSchoolMutation.isPending ? "در حال ثبت..." : "ثبت قرارداد مدرسه"}
-              </Button>
-            ) : (
-              <Button
-                onClick={() => {
-                  const createRolePayoutInvalid = rolePayoutRows.some((r) =>
-                    !r.roleId ||
-                    !r.userId ||
-                    (r.amountKind === "PERCENT" &&
-                      (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                    (r.amountKind === "FIXED_PER_PAYMENT" &&
-                      (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
-                  );
-                  if (createCommissionInvalid || createRolePayoutInvalid) return;
-                  const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
-                  const payload: CreateStudentPayload = {
-                    first_name: firstName.trim(),
-                    last_name: lastName.trim(),
-                    email: email.trim() || undefined,
-                    phone: phone.trim() || undefined,
-                    father_name: fatherName.trim() || undefined,
-                    mother_name: motherName.trim() || undefined,
-                    father_phone: fatherPhone.trim() || undefined,
-                    mother_phone: motherPhone.trim() || undefined,
-                    father_job: fatherJob.trim() || undefined,
-                    mother_job: motherJob.trim() || undefined,
-                    school_name: schoolName.trim() || undefined,
-                    school_address: schoolAddress.trim() || undefined,
-                    home_address: homeAddress.trim() || undefined,
-                    delivery_mode: deliveryMode,
-                    advisory_start_date: (() => {
-                      const g = jalaliToGregorianIso(createAdvisoryStartDate.trim());
-                      return g || undefined;
-                    })(),
-                    advisor_id: advisorId ? Number(advisorId) : undefined,
-                    role_payouts: buildRolePayoutPayload(rolePayoutRows),
-                    current_plan_id: planId ? Number(planId) : undefined,
-                    enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined,
-                  };
-                  appendAdvisorCommissionFields(payload, {
-                    advisorSelected: !!advisorId,
-                    billingMode,
-                    kind: advisorCommKind,
-                    commPercent,
-                    commFixed,
-                    accrualMonthMask,
-                  });
-                  createMutation.mutate(payload);
-                }}
-                disabled={
-                  createMutation.isPending ||
-                  !firstName.trim() ||
-                  !lastName.trim() ||
-                  createCommissionInvalid ||
-                  rolePayoutRows.some((r) =>
-                    !r.roleId ||
-                    !r.userId ||
-                    (r.amountKind === "PERCENT" &&
-                      (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                    (r.amountKind === "FIXED_PER_PAYMENT" &&
-                      (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
-                  )
-                }
-              >
-                {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}
-              </Button>
-            )}
+                const createRolePayoutInvalid = rolePayoutRows.some((r) =>
+                  !r.roleId ||
+                  !r.userId ||
+                  (r.amountKind === "PERCENT" &&
+                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                );
+                if (createCommissionInvalid || createRolePayoutInvalid) return;
+                const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
+                base.school_name = schoolName.trim() || undefined;
+                base.school_address = schoolAddress.trim() || undefined;
+                base.delivery_mode = deliveryMode;
+                base.role_payouts = buildRolePayoutPayload(rolePayoutRows);
+                base.current_plan_id = planId ? Number(planId) : undefined;
+                base.enrollment_amount_cents = enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined;
+                appendAdvisorCommissionFields(base, {
+                  advisorSelected: !!advisorId,
+                  billingMode,
+                  kind: advisorCommKind,
+                  commPercent,
+                  commFixed,
+                  accrualMonthMask,
+                });
+                createMutation.mutate(base);
+              }}
+              disabled={
+                createMutation.isPending ||
+                !firstName.trim() ||
+                !lastName.trim() ||
+                (registrationChannel === "SCHOOL"
+                  ? !createSchoolContractId
+                  : createCommissionInvalid ||
+                    rolePayoutRows.some((r) =>
+                      !r.roleId ||
+                      !r.userId ||
+                      (r.amountKind === "PERCENT" &&
+                        (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                      (r.amountKind === "FIXED_PER_PAYMENT" &&
+                        (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                    ))
+              }
+            >
+              {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}
+            </Button>
           </DialogFooter>
           {(createMutation.isError || createError) && (
             <p className="pt-2 text-xs text-destructive">
               {createError ||
                 (createMutation.error as Error)?.message ||
                 "ثبت با خطا مواجه شد"}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create school dialog */}
+      <Dialog open={isCreateSchoolOpen} onOpenChange={setIsCreateSchoolOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>افزودن مدرسه</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مدرسه</label>
+              <Input
+                value={contractSchoolName}
+                onChange={(e) => setContractSchoolName(e.target.value)}
+                placeholder="مثلاً شهید بهشتی"
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">تعداد دانش‌آموز</label>
+                <Input
+                  inputMode="numeric"
+                  dir="ltr"
+                  value={contractStudentCount}
+                  onChange={(e) => setContractStudentCount(formatGroupedFaIntInput(e.target.value))}
+                  placeholder="مثلاً ۴۰"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  مبلغ هر دانش‌آموز (تومان)
+                </label>
+                <Input
+                  inputMode="numeric"
+                  dir="ltr"
+                  value={contractUnitPrice}
+                  onChange={(e) => setContractUnitPrice(formatGroupedFaIntInput(e.target.value))}
+                  placeholder="مثلاً ۱۰,۰۰۰,۰۰۰"
+                />
+              </div>
+            </div>
+            <p className="text-sm text-primary">
+              مبلغ کل قرارداد:{" "}
+              {contractTotalPreview > 0
+                ? `${contractTotalPreview.toLocaleString("fa-IR")} تومان`
+                : "—"}
+            </p>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">توضیحات</label>
+              <Input
+                value={contractNotes}
+                onChange={(e) => setContractNotes(e.target.value)}
+                placeholder="اختیاری"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateSchoolOpen(false)}
+              disabled={createSchoolMutation.isPending}
+            >
+              انصراف
+            </Button>
+            <Button
+              disabled={
+                createSchoolMutation.isPending ||
+                !contractSchoolName.trim() ||
+                contractCountNum <= 0 ||
+                contractUnitTomans <= 0
+              }
+              onClick={() => {
+                setCreateSchoolError("");
+                createSchoolMutation.mutate({
+                  school_name: contractSchoolName.trim(),
+                  student_count: contractCountNum,
+                  unit_price_cents: contractUnitTomans * 10,
+                  notes: contractNotes.trim() || undefined,
+                });
+              }}
+            >
+              {createSchoolMutation.isPending ? "در حال ثبت..." : "ثبت مدرسه"}
+            </Button>
+          </DialogFooter>
+          {(createSchoolMutation.isError || createSchoolError) && (
+            <p className="pt-2 text-xs text-destructive">
+              {createSchoolError ||
+                (createSchoolMutation.error as Error)?.message ||
+                "ثبت مدرسه با خطا مواجه شد"}
             </p>
           )}
         </DialogContent>

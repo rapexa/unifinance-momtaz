@@ -28,29 +28,25 @@ export interface PaginatedUsersResponse {
   };
 }
 
+/** True when the user's RBAC role is an advisor (code/name). */
+export function isAdvisorRoleUser(u: Pick<UserApi, "role_code" | "role" | "role_name">): boolean {
+  const code = (u.role_code || u.role || "").toLowerCase().trim();
+  const name = (u.role_name || "").trim();
+  if (code === "advisor") return true;
+  if (name === "مشاور") return true;
+  // Custom roles that are clearly advisor (exclude lead/manager titles).
+  if (name.includes("مشاور") && !name.includes("سرپرست") && !name.includes("مدیر")) return true;
+  return false;
+}
+
+/** Active users whose RBAC role is مشاور. */
 export async function listAdvisors(): Promise<UserApi[]> {
-  const url = new URL(`${API_BASE}/users`);
-  url.searchParams.set("role_code", "advisor");
-  url.searchParams.set("status", "active");
-  url.searchParams.set("page", "1");
-  url.searchParams.set("page_size", "100");
-
-  const res = await authFetch(url.toString(), {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
-  });
-
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت لیست مشاوران";
-    throw new Error(message);
-  }
-
-  const typed = data as PaginatedUsersResponse;
-  return typed.data ?? [];
+  const byCode = (await listAllUsers({ status: "active", role_code: "advisor" })).filter(
+    isAdvisorRoleUser,
+  );
+  if (byCode.length > 0) return byCode;
+  const all = await listAllUsers({ status: "active" });
+  return all.filter(isAdvisorRoleUser);
 }
 
 export interface RoleCountRow {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,6 +25,7 @@ import {
   type SchoolContractApi,
   type UpdateSchoolContractPayload,
 } from "@/api/schoolContractsApi";
+import { listStudents, type StudentApi } from "@/api/studentsApi";
 
 function formatTomansFromCents(cents: number): string {
   return Math.round(cents / 10).toLocaleString("fa-IR");
@@ -133,11 +135,128 @@ function EditSchoolContractForm({
   );
 }
 
-export function SchoolContractsSection({ search }: { search: string }) {
+function SchoolStudentsPanel({
+  contract,
+  onBack,
+  onAddStudent,
+  onOpenStudent,
+}: {
+  contract: SchoolContractApi;
+  onBack: () => void;
+  onAddStudent: (contract: SchoolContractApi) => void;
+  onOpenStudent?: (student: StudentApi) => void;
+}) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["students", { school_contract_id: contract.id, registration_channel: "SCHOOL" }],
+    queryFn: () =>
+      listStudents({
+        school_contract_id: contract.id,
+        registration_channel: "SCHOOL",
+        page: 1,
+        page_size: 200,
+        sort: "name",
+      }),
+  });
+
+  const students = data?.data ?? [];
+  const registered = contract.registered_student_count ?? students.length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2">
+          <Button type="button" variant="ghost" size="sm" className="mt-0.5 gap-1" onClick={onBack}>
+            <ArrowRight className="h-4 w-4" />
+            بازگشت به مدارس
+          </Button>
+          <div>
+            <h3 className="text-base font-semibold text-foreground">{contract.school_name}</h3>
+            <p className="text-xs text-muted-foreground">
+              ثبت‌شده {registered.toLocaleString("fa-IR")} از{" "}
+              {contract.student_count.toLocaleString("fa-IR")} نفر
+              <span className="mx-1">·</span>
+              اطلاعات پرداخت در منوی «پرداخت‌ها ← مدارس»
+            </p>
+          </div>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => onAddStudent(contract)}>
+          <Plus className="h-4 w-4" />
+          افزودن دانش‌آموز این مدرسه
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead className="bg-muted/40 text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 text-right font-medium">نام</th>
+              <th className="px-3 py-2 text-right font-medium">موبایل</th>
+              <th className="px-3 py-2 text-right font-medium">مشاور</th>
+              <th className="px-3 py-2 text-right font-medium">وضعیت</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                  در حال بارگذاری...
+                </td>
+              </tr>
+            )}
+            {isError && (
+              <tr>
+                <td colSpan={4} className="px-3 py-8 text-center text-destructive">
+                  {(error as Error)?.message || "خطا در دریافت دانش‌آموزان"}
+                </td>
+              </tr>
+            )}
+            {!isLoading && !isError && students.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                  هنوز دانش‌آموزی برای این مدرسه ثبت نشده است.
+                </td>
+              </tr>
+            )}
+            {students.map((st) => {
+              const name = [st.first_name, st.last_name].filter(Boolean).join(" ") || "—";
+              return (
+                <tr
+                  key={st.id}
+                  className="border-t border-border hover:bg-muted/30 cursor-pointer"
+                  onClick={() => onOpenStudent?.(st)}
+                >
+                  <td className="px-3 py-2 font-medium">{name}</td>
+                  <td className="px-3 py-2 number-display" dir="ltr">
+                    {st.phone || "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{st.advisor_name || "—"}</td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {st.status === "ACTIVE" ? "فعال" : st.status === "INACTIVE" ? "غیرفعال" : "حذف‌شده"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function SchoolContractsSection({
+  search,
+  onAddStudentForSchool,
+  onOpenStudent,
+}: {
+  search: string;
+  onAddStudentForSchool?: (contract: SchoolContractApi) => void;
+  onOpenStudent?: (student: StudentApi) => void;
+}) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [editContract, setEditContract] = useState<SchoolContractApi | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<SchoolContractApi | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["school-contracts", { search, page }],
@@ -155,7 +274,9 @@ export function SchoolContractsSection({ search }: { search: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
       setDeleteId(null);
+      setSelected(null);
     },
   });
 
@@ -163,69 +284,83 @@ export function SchoolContractsSection({ search }: { search: string }) {
   const totalPages = data?.meta.total_pages ?? 1;
 
   const emptyHint = useMemo(
-    () => (search ? "قراردادی با این جستجو یافت نشد." : "هنوز قرارداد مدرسه‌ای ثبت نشده است."),
+    () => (search ? "مدرسه‌ای با این جستجو یافت نشد." : "هنوز مدرسه‌ای ثبت نشده است."),
     [search],
   );
+
+  if (selected) {
+    return (
+      <SchoolStudentsPanel
+        contract={selected}
+        onBack={() => setSelected(null)}
+        onAddStudent={(c) => onAddStudentForSchool?.(c)}
+        onOpenStudent={onOpenStudent}
+      />
+    );
+  }
 
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[780px] text-sm">
           <thead className="bg-muted/40 text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-right font-medium">مدرسه</th>
-              <th className="px-3 py-2 text-right font-medium">تعداد دانش‌آموز</th>
-              <th className="px-3 py-2 text-right font-medium">مبلغ واحد</th>
-              <th className="px-3 py-2 text-right font-medium">مبلغ کل</th>
-              <th className="px-3 py-2 text-right font-medium">پرداخت‌شده</th>
-              <th className="px-3 py-2 text-right font-medium">مانده</th>
+              <th className="px-3 py-2 text-right font-medium">ثبت‌شده / توافق</th>
+              <th className="px-3 py-2 text-right font-medium">وضعیت</th>
               <th className="px-3 py-2 text-right font-medium">عملیات</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
                   در حال بارگذاری...
                 </td>
               </tr>
             )}
             {isError && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-destructive">
-                  {(error as Error)?.message || "خطا در دریافت قراردادها"}
+                <td colSpan={4} className="px-3 py-8 text-center text-destructive">
+                  {(error as Error)?.message || "خطا در دریافت مدارس"}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
                   {emptyHint}
                 </td>
               </tr>
             )}
-            {rows.map((c) => (
-              <tr key={c.id} className="border-t border-border">
-                <td className="px-3 py-2 font-medium">{c.school_name}</td>
-                <td className="px-3 py-2 number-display">{c.student_count.toLocaleString("fa-IR")}</td>
-                <td className="px-3 py-2 number-display">{formatTomansFromCents(c.unit_price_cents)}</td>
-                <td className="px-3 py-2 number-display">{formatTomansFromCents(c.total_amount_cents)}</td>
-                <td className="px-3 py-2 number-display">{formatTomansFromCents(c.paid_total_cents)}</td>
-                <td className="px-3 py-2 number-display">
-                  {formatTomansFromCents(c.remaining_balance_cents)}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditContract(c)}>
-                      ویرایش
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setDeleteId(c.id)}>
-                      حذف
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {rows.map((c) => {
+              const registered = c.registered_student_count ?? 0;
+              return (
+                <tr
+                  key={c.id}
+                  className="border-t border-border hover:bg-muted/30 cursor-pointer"
+                  onClick={() => setSelected(c)}
+                >
+                  <td className="px-3 py-2 font-medium">{c.school_name}</td>
+                  <td className="px-3 py-2 number-display">
+                    {registered.toLocaleString("fa-IR")} / {c.student_count.toLocaleString("fa-IR")}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {c.status === "ACTIVE" ? "فعال" : c.status === "SETTLED" ? "تسویه" : "غیرفعال"}
+                  </td>
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setEditContract(c)}>
+                        ویرایش
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteId(c.id)}>
+                        حذف
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -257,7 +392,7 @@ export function SchoolContractsSection({ search }: { search: string }) {
       <Dialog open={!!editContract} onOpenChange={(o) => !o && setEditContract(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>ویرایش قرارداد مدرسه</DialogTitle>
+            <DialogTitle>ویرایش مدرسه</DialogTitle>
           </DialogHeader>
           {editContract && (
             <EditSchoolContractForm
@@ -272,10 +407,11 @@ export function SchoolContractsSection({ search }: { search: string }) {
       <Dialog open={deleteId != null} onOpenChange={(o) => !o && setDeleteId(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>حذف قرارداد مدرسه؟</DialogTitle>
+            <DialogTitle>حذف مدرسه؟</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            با حذف قرارداد، پرداخت‌های متصل نیز حذف می‌شوند.
+            با حذف مدرسه، تمام تراکنش‌های پرداخت متصل به آن نیز حذف می‌شوند و از منوی پرداخت‌ها پاک
+            می‌گردند. ارتباط دانش‌آموزان با این مدرسه قطع می‌شود.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteId(null)}>

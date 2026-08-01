@@ -371,6 +371,16 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		ReferenceCode: p.ReferenceCode,
 	}
 	if hasStudent {
+		var st models.Student
+		if err := s.db.WithContext(ctx).Select("id", "registration_channel").First(&st, *p.StudentID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("student not found")
+			}
+			return nil, err
+		}
+		if st.IsSchoolChannel() {
+			return nil, errors.New("school-channel students are billed via school contract payments, not student payments")
+		}
 		payment.StudentID = p.StudentID
 	}
 	if hasSchool {
