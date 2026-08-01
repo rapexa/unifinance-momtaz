@@ -237,10 +237,55 @@ export interface AdvisorOpsStudentApi {
   last_name: string;
   delivery_mode?: string;
   enrollment_billing_mode: string;
+  registration_channel: string;
+  school_name?: string;
   enrollment_amount_cents: number;
   paid_total_cents: number;
   remaining_balance_cents: number;
   has_paid_this_month: boolean;
+}
+
+export interface AdvisorOpsSalaryApi {
+  id: number;
+  period_year: number;
+  period_month: number;
+  base_salary_cents: number;
+  variable_salary_cents: number;
+  total_salary_cents: number;
+  students_count: number;
+  status: string;
+  paid_at?: string | null;
+}
+
+export interface AdvisorOpsPaymentApi {
+  id: number;
+  student_id: number;
+  student_name: string;
+  amount_cents: number;
+  status: string;
+  paid_at?: string | null;
+  description?: string;
+}
+
+export interface AdvisorOpsUserDetailApi {
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  role_code: string;
+  role_name: string;
+  students_total: number;
+  payments_count: number;
+  payments_total_cents: number;
+  salaries_count: number;
+  salaries_paid_count: number;
+  salaries_total_cents: number;
+  salaries_paid_cents: number;
+  expected_total_cents: number;
+  students_paid_total_cents: number;
+  remaining_cents: number;
+  students: AdvisorOpsStudentApi[];
+  salaries: AdvisorOpsSalaryApi[];
+  payments: AdvisorOpsPaymentApi[];
 }
 
 export async function listAdvisorOps(params?: {
@@ -275,4 +320,21 @@ export async function listAdvisorOpsStudents(
     throw new Error((data && data.error) || "خطا در دریافت لیست دانش‌آموزان");
   }
   return ((data as { data?: AdvisorOpsStudentApi[] })?.data ?? []) as AdvisorOpsStudentApi[];
+}
+
+export async function getAdvisorOpsUserDetail(
+  userId: number,
+  params?: { year?: number; month?: number },
+): Promise<AdvisorOpsUserDetailApi> {
+  const url = new URL(`${API_BASE}/payroll/advisor-ops/${userId}/detail`);
+  if (params?.year != null) url.searchParams.set("year", String(params.year));
+  if (params?.month != null) url.searchParams.set("month", String(params.month));
+  const res = await authFetch(url.toString(), {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در دریافت جزئیات کاربر");
+  }
+  return data as AdvisorOpsUserDetailApi;
 }

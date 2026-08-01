@@ -379,7 +379,7 @@ export function EnrollmentRegistrationFields({
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-        <label className="block text-xs font-medium text-muted-foreground">مشاور (اختیاری)</label>
+        <label className="block text-xs font-medium text-muted-foreground">کاربر سازمانی (اختیاری)</label>
         <Select
           value={advisorId || "none"}
           onValueChange={(val) => {
@@ -392,10 +392,10 @@ export function EnrollmentRegistrationFields({
           }}
         >
           <SelectTrigger>
-            <SelectValue placeholder="انتخاب مشاور" />
+            <SelectValue placeholder="انتخاب کاربر" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">بدون مشاور</SelectItem>
+            <SelectItem value="none">بدون انتساب</SelectItem>
             {advisorOptions.map((a) => (
               <SelectItem key={a.id} value={String(a.id)}>
                 {a.first_name} {a.last_name}

@@ -250,6 +250,7 @@ func main() {
 		payroll.POST("/recalculate-period", payrollHandler.RecalculatePeriod)
 		payroll.GET("/preview", payrollHandler.PreviewCompensation)
 		payroll.GET("/advisor-ops", payrollHandler.ListAdvisorOps)
+		payroll.GET("/advisor-ops/:user_id/detail", payrollHandler.GetAdvisorOpsUserDetail)
 		payroll.GET("/advisor-ops/:user_id/students", payrollHandler.ListAdvisorOpsStudents)
 		payroll.GET("/entries", payrollHandler.ListEntries)
 		payroll.POST("/entries", payrollHandler.CreateEntry)

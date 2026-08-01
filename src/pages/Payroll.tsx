@@ -22,10 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus,
   Pencil,
-  Settings,
   Download,
   Eye,
-  CheckCircle2,
   RefreshCw,
   Info,
 } from "lucide-react";
@@ -41,7 +39,7 @@ import {
   getPayrollPreview,
   recalculatePayrollPeriod,
   listAdvisorOps,
-  listAdvisorOpsStudents,
+  getAdvisorOpsUserDetail,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
@@ -152,7 +150,7 @@ function EditPayrollForm({
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">
-          تعداد دانش‌آموزان (یکتا با پرداخت در این ماه، کل سازمان)
+          تعداد دانش‌آموزان منتسب
         </label>
         <Input
           type="text"
@@ -190,7 +188,7 @@ function EditPayrollForm({
           محاسبه مجدد از قوانین نقش و پرداخت‌ها
         </Button>
         <p className="text-xs text-muted-foreground">
-          حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود. شمارش دانش‌آموزان برای همه نقش‌ها یکسان است: تعداد یکتای دانش‌آموزانی که در این ماه حداقل یک پرداخت پرداخت‌شده داشته‌اند.
+          حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود. تعداد دانش‌آموزان = دانش‌آموزان فعالی که به این کاربر منتسب شده‌اند.
         </p>
       </div>
       <DialogFooter>
@@ -216,10 +214,15 @@ function monthName(month: number): string {
   return names[month] ?? String(month);
 }
 
-function deliveryModeLabel(mode?: string): string {
-  if (mode === "ONLINE") return "آنلاین";
-  if (mode === "IN_PERSON") return "حضوری";
-  return "—";
+function registrationChannelLabel(channel?: string): string {
+  if (channel === "SCHOOL") return "مدرسه‌ای";
+  if (channel === "PRIVATE" || !channel) return "خصوصی";
+  return channel;
+}
+
+function contractTypeLabel(billingMode?: string, channel?: string): string {
+  if (channel === "SCHOOL") return "قرارداد مدرسه";
+  return billingModeLabel(parseBillingMode(billingMode));
 }
 
 function rbacRoleLabel(row: Pick<AdvisorOpsApi, "role_name" | "role_code">): string {
@@ -233,14 +236,12 @@ const Payroll = () => {
   const [currentYear] = useState(now.getFullYear());
   const [currentMonth] = useState(now.getMonth() + 1);
 
-  const [mainTab, setMainTab] = useState<"payslips" | "advisor-ops">("payslips");
+  const [mainTab, setMainTab] = useState<"payslips" | "advisor-ops">("advisor-ops");
   const [selectedAdvisor, setSelectedAdvisor] = useState<AdvisorOpsApi | null>(null);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
   const [editEntryId, setEditEntryId] = useState<number | null>(null);
-  const [markPaidEntryId, setMarkPaidEntryId] = useState<number | null>(null);
-  const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString);
 
   // Create form
   const [createUserId, setCreateUserId] = useState("");
@@ -324,19 +325,19 @@ const Payroll = () => {
   });
 
   const {
-    data: advisorStudents = [],
-    isLoading: isAdvisorStudentsLoading,
-    isError: isAdvisorStudentsError,
-    error: advisorStudentsError,
+    data: advisorDetail,
+    isLoading: isAdvisorDetailLoading,
+    isError: isAdvisorDetailError,
+    error: advisorDetailError,
   } = useQuery({
     queryKey: [
-      "payroll-advisor-ops-students",
+      "payroll-advisor-ops-detail",
       selectedAdvisor?.user_id,
       currentYear,
       currentMonth,
     ],
     queryFn: () =>
-      listAdvisorOpsStudents(selectedAdvisor!.user_id, {
+      getAdvisorOpsUserDetail(selectedAdvisor!.user_id, {
         year: currentYear,
         month: currentMonth,
       }),
@@ -413,41 +414,6 @@ const Payroll = () => {
       });
     },
   });
-
-  const quickMarkPaidMutation = useMutation({
-    mutationFn: ({ id, paid_at }: { id: number; paid_at: string }) =>
-      updatePayrollEntry(id, { status: "PAID", paid_at }),
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-      setMarkPaidEntryId(null);
-      toast({ title: "پرداخت حقوق ثبت شد" });
-    },
-    onError: (err: Error) => {
-      toast({
-        variant: "destructive",
-        title: "خطا در ثبت پرداخت",
-        description: err?.message ?? "درخواست ناموفق بود",
-      });
-    },
-  });
-
-  const handleConfirmMarkPaid = useCallback(() => {
-    if (markPaidEntryId == null) return;
-    const paidTrimmed = markPaidDate.trim();
-    if (!paidTrimmed) {
-      toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
-      return;
-    }
-    const paidAtGregorian = jalaliToGregorianIso(paidTrimmed);
-    if (!paidAtGregorian) {
-      toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
-      return;
-    }
-    quickMarkPaidMutation.mutate({ id: markPaidEntryId, paid_at: paidAtGregorian });
-  }, [markPaidEntryId, markPaidDate, quickMarkPaidMutation]);
 
   const recalculateMutation = useMutation({
     mutationFn: (id: number) => updatePayrollEntry(id, { recalculate_from_role_rules: true }),
@@ -556,7 +522,7 @@ const Payroll = () => {
         <hr/>
         <p><strong>حقوق ثابت:</strong> ${formatCentsToToman(entry.base_salary_cents)} تومان</p>
         <p><strong>حقوق متغیر:</strong> ${formatCentsToToman(entry.variable_salary_cents)} تومان</p>
-        <p><strong>دانش‌آموزان یکتا (کل سازمان، این ماه):</strong> ${entry.students_count}</p>
+        <p><strong>دانش‌آموزان منتسب:</strong> ${entry.students_count}</p>
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(entry.total_salary_cents)} تومان</p>
         <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
@@ -594,10 +560,10 @@ const Payroll = () => {
       : 0;
 
   return (
-    <MainLayout title="حقوق و دستمزد" subtitle="مدیریت ساختار حقوق و محاسبات">
+    <MainLayout title="حقوق و دستمزد" subtitle="مشاهده حساب‌کتاب کاربران سازمانی و دانش‌آموزان">
       <div
         dir="rtl"
-        className="space-y-0 text-right [unicode-bidi:isolate] [&_table]:w-full [&_th]:text-right [&_td]:text-right"
+        className="space-y-0 text-right [unicode-bidi:isolate] [&_table]:w-full [&_table]:text-right [&_th]:text-right [&_td]:text-right"
       >
       {/* Summary Cards */}
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
@@ -638,11 +604,11 @@ const Payroll = () => {
       >
         <div className="overflow-x-auto">
           <TabsList className="min-w-max bg-muted/50">
+            <TabsTrigger value="advisor-ops" className="data-[state=active]:bg-background">
+              حساب‌کتاب کاربران
+            </TabsTrigger>
             <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
               فیش حقوقی
-            </TabsTrigger>
-            <TabsTrigger value="advisor-ops" className="data-[state=active]:bg-background">
-              خلاصه افراد و دانش‌آموزان
             </TabsTrigger>
           </TabsList>
         </div>
@@ -685,12 +651,12 @@ const Payroll = () => {
             <span className="font-medium text-foreground">حقوق مدیرکل</span> به‌صورت «مجموع پرداخت‌های ماه − سهم‌های تخصیص‌یافته به نقش‌ها» در ستون حقوق متغیر محاسبه می‌شود. با هر بار ورود به این صفحه، فیش‌های{" "}
             <span className="font-medium text-foreground">در انتظار</span> از روی پرداخت‌ها تا همان لحظه به‌روز می‌شوند.
             {" "}
-            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> با این بازمحاسبه عوض نمی‌شود (همان مبلغ تصفیه‌شده می‌ماند). اگر بعد از ثبت «پرداخت شد» هنوز همان ماه پرداخت جدیدی ثبت شد و باید سهم جدید در حقوق دیده شود، یا وضعیت فیش را از ویرایش به «در انتظار» برگردانید و دوباره وارد همین صفحه شوید، یا برای دوره بعد فیش بگیرید.
-            {" "}پس از تسویه واقعی، وضعیت را با «پرداخت شد» ثبت کنید.
+            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> با این بازمحاسبه عوض نمی‌شود.
+            {" "}این صفحه برای مشاهده حساب‌کتاب است؛ ثبت وضعیت پرداخت حقوق از اینجا انجام نمی‌شود.
           </div>
         </div>
         <div className="card-elevated overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" dir="rtl">
               {payrollTableLoading && (
                 <div className="p-6 text-sm text-muted-foreground">
                   {isBootstrapFetching ? "همگام‌سازی با پرداخت‌ها…" : "در حال بارگذاری..."}
@@ -702,13 +668,13 @@ const Payroll = () => {
                 </div>
               )}
               {!payrollTableLoading && !isEntriesError && (
-                <table className="w-full">
+                <table className="w-full text-right" dir="rtl">
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش (RBAC) / نوع حقوق</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
-                        دانش‌آموزان
+                        دانش‌آموزان منتسب
                       </th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
@@ -794,22 +760,6 @@ const Payroll = () => {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="gap-1 text-success hover:text-success hover:bg-success/10"
-                                    onClick={() => {
-                                      setMarkPaidDate(todayJalaliString());
-                                      setMarkPaidEntryId(entry.id);
-                                    }}
-                                    disabled={quickMarkPaidMutation.isPending}
-                                    title="تأیید پرداخت حقوق"
-                                  >
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    پرداخت شد
-                                  </Button>
-                                )}
-                                {entry.status !== "PAID" && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
                                     className="gap-1 text-muted-foreground"
                                     onClick={() => recalculateMutation.mutate(entry.id)}
                                     disabled={recalculateMutation.isPending}
@@ -863,17 +813,19 @@ const Payroll = () => {
         </TabsContent>
 
         <TabsContent value="advisor-ops" className="mt-0 space-y-4">
-          <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
+          <div
+            dir="rtl"
+            className="rounded-lg border border-border bg-muted/30 p-3 flex flex-row items-start gap-2.5 text-right"
+          >
             <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-            <div className="text-xs text-muted-foreground leading-relaxed">
-              هر ردیف یک کاربر با{" "}
-              <span className="font-medium text-foreground">نقش RBAC</span>{" "}
-              (مثلاً مشاور) است که دانش‌آموز فعال دارد. روی ردیف کلیک کنید تا لیست دانش‌آموزان، نوع ثبت‌نام و مبلغ ثبت‌نام را ببینید.
-              ستون حقوق از فیش حقوقی همین ماه خوانده می‌شود (اگر ثبت شده باشد).
+            <div className="text-xs text-muted-foreground leading-relaxed text-right">
+              هر ردیف یک{" "}
+              <span className="font-medium text-foreground">کاربر سازمانی</span>{" "}
+              (مشاور، حسابدار و …) با دانش‌آموز فعال است. روی ردیف کلیک کنید تا دانش‌آموزان، پرداخت‌ها، حقوق‌ها و KPIها را ببینید.
             </div>
           </div>
           <div className="card-elevated overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" dir="rtl">
               {isAdvisorOpsLoading && (
                 <div className="p-6 text-sm text-muted-foreground">در حال بارگذاری...</div>
               )}
@@ -883,11 +835,11 @@ const Payroll = () => {
                 </div>
               )}
               {!isAdvisorOpsLoading && !isAdvisorOpsError && (
-                <table className="w-full">
+                <table className="w-full text-right" dir="rtl">
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نام</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش کاربر</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مدرسه / خصوصی</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">آنلاین / حضوری</th>
@@ -991,10 +943,10 @@ const Payroll = () => {
           if (!open) setSelectedAdvisor(null);
         }}
       >
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto" dir="rtl">
           <DialogHeader>
-            <DialogTitle>
-              دانش‌آموزان{" "}
+            <DialogTitle className="text-right">
+              حساب‌کتاب{" "}
               {selectedAdvisor
                 ? [selectedAdvisor.first_name, selectedAdvisor.last_name]
                     .filter(Boolean)
@@ -1007,75 +959,212 @@ const Payroll = () => {
               ) : null}
             </DialogTitle>
           </DialogHeader>
-          {isAdvisorStudentsLoading && (
-            <p className="text-sm text-muted-foreground py-4">در حال بارگذاری...</p>
+          {isAdvisorDetailLoading && (
+            <p className="text-sm text-muted-foreground py-4 text-right">در حال بارگذاری...</p>
           )}
-          {isAdvisorStudentsError && (
-            <p className="text-sm text-destructive py-4">
-              {(advisorStudentsError as Error)?.message ?? "خطا در دریافت لیست"}
+          {isAdvisorDetailError && (
+            <p className="text-sm text-destructive py-4 text-right">
+              {(advisorDetailError as Error)?.message ?? "خطا در دریافت جزئیات"}
             </p>
           )}
-          {!isAdvisorStudentsLoading && !isAdvisorStudentsError && (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع پرداخت</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نحوه برگزاری</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مبلغ ثبت‌نام</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مانده</th>
-                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">این ماه</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {advisorStudents.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-6 text-center text-muted-foreground">
-                        دانش‌آموزی ثبت نشده است.
-                      </td>
-                    </tr>
-                  ) : (
-                    advisorStudents.map((st) => {
-                      const stName =
-                        [st.first_name, st.last_name].filter(Boolean).join(" ") || "—";
-                      return (
-                        <tr key={st.student_id} className="border-b last:border-0">
-                          <td className="p-3 font-medium text-foreground">{stName}</td>
-                          <td className="p-3 text-muted-foreground">
-                            {billingModeLabel(parseBillingMode(st.enrollment_billing_mode))}
-                          </td>
-                          <td className="p-3 text-muted-foreground">
-                            {deliveryModeLabel(st.delivery_mode)}
-                          </td>
-                          <td className="p-3 number-display">
-                            {formatCentsToToman(st.enrollment_amount_cents)}
-                          </td>
-                          <td className="p-3 number-display">
-                            {formatCentsToToman(st.paid_total_cents)}
-                          </td>
-                          <td className="p-3 number-display">
-                            {formatCentsToToman(st.remaining_balance_cents)}
-                          </td>
-                          <td className="p-3">
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                                st.has_paid_this_month
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                              )}
-                            >
-                              {st.has_paid_this_month ? "پرداخت دارد" : "بدون پرداخت"}
-                            </span>
+          {!isAdvisorDetailLoading && !isAdvisorDetailError && advisorDetail && (
+            <div className="space-y-6 text-right" dir="rtl">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">دانش‌آموزان</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {advisorDetail.students_total.toLocaleString("fa-IR")}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">تعداد پرداخت‌ها</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {advisorDetail.payments_count.toLocaleString("fa-IR")}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">مجموع پرداخت دانش‌آموزان</p>
+                  <p className="mt-1 text-xl font-bold number-display text-success">
+                    {formatCentsToToman(advisorDetail.payments_total_cents)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">تومان</p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">مانده ثبت‌نام</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {formatCentsToToman(advisorDetail.remaining_cents)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">تومان</p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">تعداد فیش حقوق</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {advisorDetail.salaries_count.toLocaleString("fa-IR")}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">حقوق پرداخت‌شده</p>
+                  <p className="mt-1 text-xl font-bold number-display text-primary">
+                    {formatCentsToToman(advisorDetail.salaries_paid_cents)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {advisorDetail.salaries_paid_count.toLocaleString("fa-IR")} فیش · تومان
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">جمع کل حقوق (همه فیش‌ها)</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {formatCentsToToman(advisorDetail.salaries_total_cents)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">تومان</p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">مبلغ مورد انتظار ثبت‌نام</p>
+                  <p className="mt-1 text-xl font-bold number-display">
+                    {formatCentsToToman(advisorDetail.expected_total_cents)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">تومان</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">دانش‌آموزان</h3>
+                <div className="overflow-x-auto rounded-lg border" dir="rtl">
+                  <table className="w-full text-right" dir="rtl">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام خانوادگی</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع قرارداد</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع ثبت‌نام</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مدرسه</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {advisorDetail.students.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-6 text-center text-muted-foreground">
+                            دانش‌آموزی ثبت نشده است.
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                      ) : (
+                        advisorDetail.students.map((st) => (
+                          <tr key={st.student_id} className="border-b last:border-0">
+                            <td className="p-3 font-medium text-foreground">{st.first_name || "—"}</td>
+                            <td className="p-3 font-medium text-foreground">{st.last_name || "—"}</td>
+                            <td className="p-3 text-muted-foreground">
+                              {contractTypeLabel(st.enrollment_billing_mode, st.registration_channel)}
+                            </td>
+                            <td className="p-3 text-muted-foreground">
+                              {registrationChannelLabel(st.registration_channel)}
+                            </td>
+                            <td className="p-3 text-muted-foreground">{st.school_name?.trim() || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">حقوق‌های پرداختی به کاربر</h3>
+                <div className="overflow-x-auto rounded-lg border" dir="rtl">
+                  <table className="w-full text-right" dir="rtl">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">دوره</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">جمع</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">تاریخ پرداخت</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {advisorDetail.salaries.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                            فیش حقوقی ثبت نشده است.
+                          </td>
+                        </tr>
+                      ) : (
+                        advisorDetail.salaries.map((sal) => (
+                          <tr key={sal.id} className="border-b last:border-0">
+                            <td className="p-3 text-foreground">
+                              {monthName(sal.period_month)} {sal.period_year}
+                            </td>
+                            <td className="p-3 number-display">
+                              {formatCentsToToman(sal.base_salary_cents)}
+                            </td>
+                            <td className="p-3 number-display text-primary">
+                              {formatCentsToToman(sal.variable_salary_cents)}
+                            </td>
+                            <td className="p-3 number-display font-medium">
+                              {formatCentsToToman(sal.total_salary_cents)}
+                            </td>
+                            <td className="p-3">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                                  sal.status === "PAID" ? "status-paid" : "status-pending",
+                                )}
+                              >
+                                {sal.status === "PAID" ? "پرداخت شده" : "در انتظار"}
+                              </span>
+                            </td>
+                            <td className="p-3 text-muted-foreground">
+                              {sal.paid_at ? formatIsoDateShamsi(sal.paid_at) : "—"}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">پرداخت‌های دانش‌آموزان</h3>
+                <div className="overflow-x-auto rounded-lg border" dir="rtl">
+                  <table className="w-full text-right" dir="rtl">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">دانش‌آموز</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مبلغ</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">تاریخ</th>
+                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">توضیح</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {advisorDetail.payments.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-6 text-center text-muted-foreground">
+                            پرداختی ثبت نشده است.
+                          </td>
+                        </tr>
+                      ) : (
+                        advisorDetail.payments.map((pay) => (
+                          <tr key={pay.id} className="border-b last:border-0">
+                            <td className="p-3 font-medium text-foreground">
+                              {pay.student_name || "—"}
+                            </td>
+                            <td className="p-3 number-display text-success">
+                              {formatCentsToToman(pay.amount_cents)}
+                            </td>
+                            <td className="p-3 text-muted-foreground">
+                              {pay.paid_at ? formatIsoDateShamsi(pay.paid_at) : "—"}
+                            </td>
+                            <td className="p-3 text-muted-foreground">
+                              {pay.description?.trim() || "—"}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
           <DialogFooter>
@@ -1190,7 +1279,7 @@ const Payroll = () => {
                       {formatCentsToToman(payrollPreview.variable_salary_cents)} تومان
                     </p>
                     <p>
-                      <span className="text-muted-foreground">دانش‌آموزان یکتا (کل سازمان، با پرداخت در این ماه):</span>{" "}
+                      <span className="text-muted-foreground">دانش‌آموزان منتسب:</span>{" "}
                       {payrollPreview.students_count}
                     </p>
                     {payrollPreview.role_gross_share_cents != null &&
@@ -1230,7 +1319,7 @@ const Payroll = () => {
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-medium">
-                    تعداد دانش‌آموزان (یکتا با پرداخت در این ماه، کل سازمان)
+                    تعداد دانش‌آموزان منتسب
                   </label>
                   <Input
                     type="text"
@@ -1286,7 +1375,7 @@ const Payroll = () => {
               <p><strong>سمت:</strong> {roleLabels[detailEntry.user_role] ?? detailEntry.user_role}</p>
               <p><strong>حقوق ثابت:</strong> {formatCentsToToman(detailEntry.base_salary_cents)} تومان</p>
               <p><strong>حقوق متغیر:</strong> {formatCentsToToman(detailEntry.variable_salary_cents)} تومان</p>
-              <p><strong>دانش‌آموزان یکتا (کل سازمان، این ماه):</strong> {detailEntry.students_count}</p>
+              <p><strong>دانش‌آموزان منتسب:</strong> {detailEntry.students_count}</p>
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
               <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
               {detailEntry.status === "PAID" && (
@@ -1294,39 +1383,6 @@ const Payroll = () => {
               )}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Mark Paid Dialog */}
-      <Dialog
-        open={markPaidEntryId != null}
-        onOpenChange={(open) => {
-          if (!open) setMarkPaidEntryId(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>ثبت پرداخت حقوق</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-2 py-2">
-            <label className="text-sm font-medium">تاریخ پرداخت</label>
-            <JalaliDatePicker
-              value={markPaidDate}
-              onChange={setMarkPaidDate}
-              clearable={false}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMarkPaidEntryId(null)}>
-              انصراف
-            </Button>
-            <Button
-              onClick={handleConfirmMarkPaid}
-              disabled={quickMarkPaidMutation.isPending}
-            >
-              {quickMarkPaidMutation.isPending ? "در حال ثبت..." : "ثبت پرداخت"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

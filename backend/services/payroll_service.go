@@ -358,22 +358,39 @@ func (s *PayrollService) sumPaidPaymentsInPeriod(ctx context.Context, year, mont
 	return sum, nil
 }
 
-func (s *PayrollService) countStudentsForUserInPeriod(ctx context.Context, userID uint, year, month int) (int, error) {
-	start, endEx := payrollPeriodBounds(year, month)
+// countAssignedStudentsForUser returns active students assigned to the user (students.advisor_id).
+func (s *PayrollService) countAssignedStudentsForUser(ctx context.Context, userID uint) (int, error) {
 	var cnt int64
-	if err := s.db.WithContext(ctx).Raw(`
-SELECT COUNT(DISTINCT payments.student_id)
-FROM payment_payroll_shares pps
-INNER JOIN payments ON payments.id = pps.payment_id AND payments.deleted_at IS NULL
-WHERE pps.deleted_at IS NULL
-  AND pps.user_id = ?
-  AND payments.status = ?
-  AND payments.paid_at IS NOT NULL
-  AND payments.paid_at >= ? AND payments.paid_at < ?
-`, userID, models.PaymentStatusPaid, start, endEx).Scan(&cnt).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&models.Student{}).
+		Where("advisor_id = ? AND status = ?", userID, models.StudentStatusActive).
+		Count(&cnt).Error; err != nil {
 		return 0, err
 	}
 	return int(cnt), nil
+}
+
+// CountAssignedStudentsByUserIDs returns active assigned-student counts keyed by user id.
+func (s *PayrollService) CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int, error) {
+	out := make(map[uint]int, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		AdvisorID uint
+		Cnt       int64
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).Model(&models.Student{}).
+		Select("advisor_id, COUNT(*) AS cnt").
+		Where("advisor_id IN ? AND status = ?", userIDs, models.StudentStatusActive).
+		Group("advisor_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.AdvisorID] = int(r.Cnt)
+	}
+	return out, nil
 }
 
 // ComputeCompensationForUser derives base / variable / students_count from the user's role and StudentRolePayout shares.
@@ -392,11 +409,16 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	}
 	r := u.Role
 
+	studentsCount, err := s.countAssignedStudentsForUser(ctx, userID)
+	if err != nil {
+		return PayrollCompensationBreakdown{}, err
+	}
+
 	monthIndex := s.payrollMonthIndexInYear(ctx, year, month)
 	if r.CompensationKind != models.CompNetRevenue && !r.RolePaysInPayrollMonth(monthIndex) {
 		return PayrollCompensationBreakdown{
 			CompensationKind: r.CompensationKind,
-			StudentsCount:    0,
+			StudentsCount:    studentsCount,
 		}, nil
 	}
 
@@ -409,15 +431,6 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		return PayrollCompensationBreakdown{}, err
 	}
 	variableFromShares += accrualShares
-	studentsCount, err := s.countStudentsForUserInPeriod(ctx, userID, year, month)
-	if err != nil {
-		return PayrollCompensationBreakdown{}, err
-	}
-	accrualStudents, err := s.countAccrualStudentsForUserInPeriod(ctx, userID, year, month)
-	if err != nil {
-		return PayrollCompensationBreakdown{}, err
-	}
-	studentsCount += accrualStudents
 
 	out := PayrollCompensationBreakdown{
 		CompensationKind:    r.CompensationKind,
@@ -449,7 +462,7 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		}
 		out.BaseSalaryCents = 0
 		out.VariableSalaryCents = net
-		out.StudentsCount = 0
+		// Keep StudentsCount as assigned active students (already set).
 	default:
 		out.BaseSalaryCents = 0
 	}
@@ -687,10 +700,58 @@ type AdvisorOpsStudentRow struct {
 	LastName              string
 	DeliveryMode          string
 	EnrollmentBillingMode string
+	RegistrationChannel   string
+	SchoolName            string
 	EnrollmentAmountCents int64
 	PaidTotalCents        int64
 	RemainingBalanceCents int64
 	HasPaidThisMonth      bool
+}
+
+// AdvisorOpsSalaryRow is one historical payslip for a staff user.
+type AdvisorOpsSalaryRow struct {
+	ID                  uint
+	PeriodYear          int
+	PeriodMonth         int
+	BaseSalaryCents     int64
+	VariableSalaryCents int64
+	TotalSalaryCents    int64
+	StudentsCount       int
+	Status              string
+	PaidAt              *time.Time
+}
+
+// AdvisorOpsPaymentRow is a PAID student payment attributed to an advisor's students.
+type AdvisorOpsPaymentRow struct {
+	ID            uint
+	StudentID     uint
+	StudentName   string
+	AmountCents   int64
+	Status        string
+	PaidAt        *time.Time
+	Description   string
+}
+
+// AdvisorOpsUserDetail aggregates KPIs, salaries, payments and students for one staff user.
+type AdvisorOpsUserDetail struct {
+	UserID               uint
+	FirstName            string
+	LastName             string
+	RoleCode             string
+	RoleName             string
+	StudentsTotal        int
+	PaymentsCount        int64
+	PaymentsTotalCents   int64
+	SalariesCount        int
+	SalariesPaidCount    int
+	SalariesTotalCents   int64
+	SalariesPaidCents    int64
+	ExpectedTotalCents   int64
+	StudentsPaidTotal    int64
+	RemainingCents       int64
+	Students             []AdvisorOpsStudentRow
+	Salaries             []AdvisorOpsSalaryRow
+	Payments             []AdvisorOpsPaymentRow
 }
 
 func periodBounds(year, month int) (from, to time.Time) {
@@ -924,12 +985,18 @@ func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID u
 		if mode == "" {
 			mode = string(models.EnrollmentBillingMonthly)
 		}
+		channel := string(st.RegistrationChannel)
+		if channel == "" {
+			channel = string(models.RegistrationChannelPrivate)
+		}
 		out = append(out, AdvisorOpsStudentRow{
 			StudentID:             st.ID,
 			FirstName:             st.FirstName,
 			LastName:              st.LastName,
 			DeliveryMode:          string(st.DeliveryMode),
 			EnrollmentBillingMode: mode,
+			RegistrationChannel:   channel,
+			SchoolName:            st.SchoolName,
 			EnrollmentAmountCents: enroll,
 			PaidTotalCents:        paid,
 			RemainingBalanceCents: enroll - paid,
@@ -937,4 +1004,132 @@ func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID u
 		})
 	}
 	return out, nil
+}
+
+// GetAdvisorOpsUserDetail returns KPIs, salary history, student payments and students for one staff user.
+func (s *PayrollService) GetAdvisorOpsUserDetail(ctx context.Context, userID uint, year, month int, scopeUser *uint) (*AdvisorOpsUserDetail, error) {
+	if scopeUser != nil && *scopeUser != userID {
+		return nil, errors.New("forbidden")
+	}
+
+	var user models.User
+	if err := s.db.WithContext(ctx).Preload("Role").First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPayrollUserNotFound
+		}
+		return nil, err
+	}
+
+	students, err := s.ListAdvisorOpsStudents(ctx, userID, year, month, scopeUser)
+	if err != nil {
+		return nil, err
+	}
+
+	detail := &AdvisorOpsUserDetail{
+		UserID:    user.ID,
+		FirstName: user.FirstName,
+		LastName:  user.LastName,
+		Students:  students,
+	}
+	if user.Role != nil {
+		detail.RoleCode = user.Role.Code
+		detail.RoleName = user.Role.Name
+	}
+	detail.StudentsTotal = len(students)
+	for _, st := range students {
+		detail.ExpectedTotalCents += st.EnrollmentAmountCents
+		detail.StudentsPaidTotal += st.PaidTotalCents
+	}
+	detail.RemainingCents = detail.ExpectedTotalCents - detail.StudentsPaidTotal
+
+	var salaryEntries []models.PayrollEntry
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("period_year DESC, period_month DESC, id DESC").
+		Find(&salaryEntries).Error; err != nil {
+		return nil, err
+	}
+	detail.Salaries = make([]AdvisorOpsSalaryRow, 0, len(salaryEntries))
+	for _, e := range salaryEntries {
+		detail.SalariesCount++
+		detail.SalariesTotalCents += e.TotalSalaryCents
+		if e.Status == models.PayrollStatusPaid {
+			detail.SalariesPaidCount++
+			detail.SalariesPaidCents += e.TotalSalaryCents
+		}
+		detail.Salaries = append(detail.Salaries, AdvisorOpsSalaryRow{
+			ID:                  e.ID,
+			PeriodYear:          e.PeriodYear,
+			PeriodMonth:         e.PeriodMonth,
+			BaseSalaryCents:     e.BaseSalaryCents,
+			VariableSalaryCents: e.VariableSalaryCents,
+			TotalSalaryCents:    e.TotalSalaryCents,
+			StudentsCount:       e.StudentsCount,
+			Status:              string(e.Status),
+			PaidAt:              e.PaidAt,
+		})
+	}
+
+	studentIDs := make([]uint, 0, len(students))
+	nameByStudent := make(map[uint]string, len(students))
+	for _, st := range students {
+		studentIDs = append(studentIDs, st.StudentID)
+		name := st.FirstName
+		if st.LastName != "" {
+			if name != "" {
+				name += " "
+			}
+			name += st.LastName
+		}
+		if name == "" {
+			name = "—"
+		}
+		nameByStudent[st.StudentID] = name
+	}
+
+	detail.Payments = []AdvisorOpsPaymentRow{}
+	if len(studentIDs) > 0 {
+		var payments []models.Payment
+		if err := s.db.WithContext(ctx).
+			Where("student_id IN ? AND status = ?", studentIDs, models.PaymentStatusPaid).
+			Order("paid_at DESC, id DESC").
+			Limit(200).
+			Find(&payments).Error; err != nil {
+			return nil, err
+		}
+		detail.Payments = make([]AdvisorOpsPaymentRow, 0, len(payments))
+		for _, p := range payments {
+			detail.PaymentsCount++
+			detail.PaymentsTotalCents += p.AmountCents
+			var sid uint
+			if p.StudentID != nil {
+				sid = *p.StudentID
+			}
+			detail.Payments = append(detail.Payments, AdvisorOpsPaymentRow{
+				ID:          p.ID,
+				StudentID:   sid,
+				StudentName: nameByStudent[sid],
+				AmountCents: p.AmountCents,
+				Status:      string(p.Status),
+				PaidAt:      p.PaidAt,
+				Description: p.Description,
+			})
+		}
+		// Accurate totals even if list is capped.
+		type payAgg struct {
+			Cnt int64
+			Sum int64
+		}
+		var agg payAgg
+		if err := s.db.WithContext(ctx).Model(&models.Payment{}).
+			Select("COUNT(*) AS cnt, COALESCE(SUM(amount_cents), 0) AS sum").
+			Where("student_id IN ? AND status = ?", studentIDs, models.PaymentStatusPaid).
+			Scan(&agg).Error; err != nil {
+			return nil, err
+		}
+		detail.PaymentsCount = agg.Cnt
+		detail.PaymentsTotalCents = agg.Sum
+	}
+
+	return detail, nil
 }

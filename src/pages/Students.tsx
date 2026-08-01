@@ -591,16 +591,17 @@ function EditStudentForm({
         )}
         {isSchoolChannel && (
           <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">کاربر سازمانی</label>
             <Select value={advisorId} onValueChange={setAdvisorId}>
               <SelectTrigger>
-                <SelectValue placeholder="انتخاب مشاور" />
+                <SelectValue placeholder="انتخاب کاربر" />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
-                <SelectItem value="none">بدون مشاور</SelectItem>
-                {advisors.map((u) => (
+                <SelectItem value="none">بدون انتساب</SelectItem>
+                {users.map((u) => (
                   <SelectItem key={u.id} value={String(u.id)}>
                     {u.first_name} {u.last_name}
+                    {u.role_name ? ` — ${u.role_name}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -642,7 +643,7 @@ function EditStudentForm({
           users={users}
           advisorId={advisorId === "none" ? "" : advisorId}
           onAdvisorIdChange={(id) => setAdvisorId(id || "none")}
-          advisorOptions={advisors}
+          advisorOptions={users}
           advisorCommKind={advisorCommKind}
           onAdvisorCommKindChange={setAdvisorCommKind}
           commPercent={commPercent}
@@ -1027,8 +1028,8 @@ const Students = () => {
 
   useEffect(() => {
     if (billingMode !== "SCHOOL_ENROLLMENT" || !advisorId) return;
-    setAccrualMonthMask(defaultAccrualMonthMask(advisorPayrollMonths(advisorId, advisors, roles)));
-  }, [advisorId, billingMode, advisors, roles]);
+    setAccrualMonthMask(defaultAccrualMonthMask(advisorPayrollMonths(advisorId, users, roles)));
+  }, [advisorId, billingMode, users, roles]);
 
   const { data: plans } = useQuery({
     queryKey: ["plans-active"],
@@ -2077,16 +2078,17 @@ const Students = () => {
 
               {registrationChannel === "SCHOOL" && (
                 <div className="mt-3">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">مشاور</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">کاربر سازمانی</label>
                   <Select value={advisorId || "none"} onValueChange={(v) => setAdvisorId(v === "none" ? "" : v)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="انتخاب مشاور" />
+                      <SelectValue placeholder="انتخاب کاربر" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
-                      <SelectItem value="none">بدون مشاور</SelectItem>
-                      {advisors.map((u) => (
+                      <SelectItem value="none">بدون انتساب</SelectItem>
+                      {users.map((u) => (
                         <SelectItem key={u.id} value={String(u.id)}>
                           {u.first_name} {u.last_name}
+                          {u.role_name ? ` — ${u.role_name}` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -2115,7 +2117,7 @@ const Students = () => {
                   users={users}
                   advisorId={advisorId}
                   onAdvisorIdChange={setAdvisorId}
-                  advisorOptions={advisors}
+                  advisorOptions={users}
                   advisorCommKind={advisorCommKind}
                   onAdvisorCommKindChange={setAdvisorCommKind}
                   commPercent={commPercent}

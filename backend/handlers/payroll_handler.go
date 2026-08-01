@@ -318,6 +318,20 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 	}
 
 	dtos := toPayrollEntryDTOSlice(entries)
+	userIDs := make([]uint, 0, len(entries))
+	seen := make(map[uint]struct{}, len(entries))
+	for _, e := range entries {
+		if _, ok := seen[e.UserID]; ok {
+			continue
+		}
+		seen[e.UserID] = struct{}{}
+		userIDs = append(userIDs, e.UserID)
+	}
+	if counts, err := h.service.CountAssignedStudentsByUserIDs(c.Request.Context(), userIDs); err == nil {
+		for i := range dtos {
+			dtos[i].StudentsCount = counts[dtos[i].UserID]
+		}
+	}
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -479,7 +493,11 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
+	dto := toPayrollEntryDTO(entry)
+	if counts, err := h.service.CountAssignedStudentsByUserIDs(c.Request.Context(), []uint{entry.UserID}); err == nil {
+		dto.StudentsCount = counts[entry.UserID]
+	}
+	c.JSON(http.StatusOK, dto)
 }
 
 // updatePayrollEntryRequest is the body for PUT /payroll/entries/:id.
@@ -610,10 +628,55 @@ type AdvisorOpsStudentDTO struct {
 	LastName              string `json:"last_name"`
 	DeliveryMode          string `json:"delivery_mode,omitempty"`
 	EnrollmentBillingMode string `json:"enrollment_billing_mode"`
+	RegistrationChannel   string `json:"registration_channel"`
+	SchoolName            string `json:"school_name,omitempty"`
 	EnrollmentAmountCents int64  `json:"enrollment_amount_cents"`
 	PaidTotalCents        int64  `json:"paid_total_cents"`
 	RemainingBalanceCents int64  `json:"remaining_balance_cents"`
 	HasPaidThisMonth      bool   `json:"has_paid_this_month"`
+}
+
+type AdvisorOpsSalaryDTO struct {
+	ID                  uint       `json:"id"`
+	PeriodYear          int        `json:"period_year"`
+	PeriodMonth         int        `json:"period_month"`
+	BaseSalaryCents     int64      `json:"base_salary_cents"`
+	VariableSalaryCents int64      `json:"variable_salary_cents"`
+	TotalSalaryCents    int64      `json:"total_salary_cents"`
+	StudentsCount       int        `json:"students_count"`
+	Status              string     `json:"status"`
+	PaidAt              *time.Time `json:"paid_at,omitempty"`
+}
+
+type AdvisorOpsPaymentDTO struct {
+	ID          uint       `json:"id"`
+	StudentID   uint       `json:"student_id"`
+	StudentName string     `json:"student_name"`
+	AmountCents int64      `json:"amount_cents"`
+	Status      string     `json:"status"`
+	PaidAt      *time.Time `json:"paid_at,omitempty"`
+	Description string     `json:"description,omitempty"`
+}
+
+type AdvisorOpsUserDetailDTO struct {
+	UserID             uint                   `json:"user_id"`
+	FirstName          string                 `json:"first_name"`
+	LastName           string                 `json:"last_name"`
+	RoleCode           string                 `json:"role_code"`
+	RoleName           string                 `json:"role_name"`
+	StudentsTotal      int                    `json:"students_total"`
+	PaymentsCount      int64                  `json:"payments_count"`
+	PaymentsTotalCents int64                  `json:"payments_total_cents"`
+	SalariesCount      int                    `json:"salaries_count"`
+	SalariesPaidCount  int                    `json:"salaries_paid_count"`
+	SalariesTotalCents int64                  `json:"salaries_total_cents"`
+	SalariesPaidCents  int64                  `json:"salaries_paid_cents"`
+	ExpectedTotalCents int64                  `json:"expected_total_cents"`
+	StudentsPaidTotal  int64                  `json:"students_paid_total_cents"`
+	RemainingCents     int64                  `json:"remaining_cents"`
+	Students           []AdvisorOpsStudentDTO `json:"students"`
+	Salaries           []AdvisorOpsSalaryDTO  `json:"salaries"`
+	Payments           []AdvisorOpsPaymentDTO `json:"payments"`
 }
 
 // ListAdvisorOps handles GET /payroll/advisor-ops
@@ -693,6 +756,8 @@ func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
 			LastName:              r.LastName,
 			DeliveryMode:          r.DeliveryMode,
 			EnrollmentBillingMode: r.EnrollmentBillingMode,
+			RegistrationChannel:   r.RegistrationChannel,
+			SchoolName:            r.SchoolName,
 			EnrollmentAmountCents: r.EnrollmentAmountCents,
 			PaidTotalCents:        r.PaidTotalCents,
 			RemainingBalanceCents: r.RemainingBalanceCents,
@@ -700,4 +765,96 @@ func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"data": out})
+}
+
+// GetAdvisorOpsUserDetail handles GET /payroll/advisor-ops/:user_id/detail
+func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+	detail, err := h.service.GetAdvisorOpsUserDetail(c.Request.Context(), uint(uid), year, month, middleware.DataScopeUserID(c))
+	if err != nil {
+		if err.Error() == "forbidden" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
+			return
+		}
+		if err == services.ErrPayrollUserNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load user detail"})
+		return
+	}
+	students := make([]AdvisorOpsStudentDTO, len(detail.Students))
+	for i, r := range detail.Students {
+		students[i] = AdvisorOpsStudentDTO{
+			StudentID:             r.StudentID,
+			FirstName:             r.FirstName,
+			LastName:              r.LastName,
+			DeliveryMode:          r.DeliveryMode,
+			EnrollmentBillingMode: r.EnrollmentBillingMode,
+			RegistrationChannel:   r.RegistrationChannel,
+			SchoolName:            r.SchoolName,
+			EnrollmentAmountCents: r.EnrollmentAmountCents,
+			PaidTotalCents:        r.PaidTotalCents,
+			RemainingBalanceCents: r.RemainingBalanceCents,
+			HasPaidThisMonth:      r.HasPaidThisMonth,
+		}
+	}
+	salaries := make([]AdvisorOpsSalaryDTO, len(detail.Salaries))
+	for i, r := range detail.Salaries {
+		salaries[i] = AdvisorOpsSalaryDTO{
+			ID:                  r.ID,
+			PeriodYear:          r.PeriodYear,
+			PeriodMonth:         r.PeriodMonth,
+			BaseSalaryCents:     r.BaseSalaryCents,
+			VariableSalaryCents: r.VariableSalaryCents,
+			TotalSalaryCents:    r.TotalSalaryCents,
+			StudentsCount:       r.StudentsCount,
+			Status:              r.Status,
+			PaidAt:              r.PaidAt,
+		}
+	}
+	payments := make([]AdvisorOpsPaymentDTO, len(detail.Payments))
+	for i, r := range detail.Payments {
+		payments[i] = AdvisorOpsPaymentDTO{
+			ID:          r.ID,
+			StudentID:   r.StudentID,
+			StudentName: r.StudentName,
+			AmountCents: r.AmountCents,
+			Status:      r.Status,
+			PaidAt:      r.PaidAt,
+			Description: r.Description,
+		}
+	}
+	c.JSON(http.StatusOK, AdvisorOpsUserDetailDTO{
+		UserID:             detail.UserID,
+		FirstName:          detail.FirstName,
+		LastName:           detail.LastName,
+		RoleCode:           detail.RoleCode,
+		RoleName:           detail.RoleName,
+		StudentsTotal:      detail.StudentsTotal,
+		PaymentsCount:      detail.PaymentsCount,
+		PaymentsTotalCents: detail.PaymentsTotalCents,
+		SalariesCount:      detail.SalariesCount,
+		SalariesPaidCount:  detail.SalariesPaidCount,
+		SalariesTotalCents: detail.SalariesTotalCents,
+		SalariesPaidCents:  detail.SalariesPaidCents,
+		ExpectedTotalCents: detail.ExpectedTotalCents,
+		StudentsPaidTotal:  detail.StudentsPaidTotal,
+		RemainingCents:     detail.RemainingCents,
+		Students:           students,
+		Salaries:           salaries,
+		Payments:           payments,
+	})
 }
