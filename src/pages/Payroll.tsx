@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus,
   Pencil,
@@ -39,13 +40,17 @@ import {
   getPayrollEntry,
   getPayrollPreview,
   recalculatePayrollPeriod,
+  listAdvisorOps,
+  listAdvisorOpsStudents,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
+  type AdvisorOpsApi,
 } from "@/api/payrollApi";
 import { listUsers } from "@/api/usersApi";
 import { getPaymentsSummary } from "@/api/paymentsApi";
 import { listRoles } from "@/api/rolesApi";
+import { billingModeLabel, parseBillingMode } from "@/components/students/enrollmentBillingUtils";
 import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import {
   jalaliToGregorianIso,
@@ -211,11 +216,25 @@ function monthName(month: number): string {
   return names[month] ?? String(month);
 }
 
+function deliveryModeLabel(mode?: string): string {
+  if (mode === "ONLINE") return "آنلاین";
+  if (mode === "IN_PERSON") return "حضوری";
+  return "—";
+}
+
+function rbacRoleLabel(row: Pick<AdvisorOpsApi, "role_name" | "role_code">): string {
+  if (row.role_name?.trim()) return row.role_name;
+  return roleLabels[row.role_code] ?? (row.role_code || "—");
+}
+
 const Payroll = () => {
   const queryClient = useQueryClient();
   const now = new Date();
   const [currentYear] = useState(now.getFullYear());
   const [currentMonth] = useState(now.getMonth() + 1);
+
+  const [mainTab, setMainTab] = useState<"payslips" | "advisor-ops">("payslips");
+  const [selectedAdvisor, setSelectedAdvisor] = useState<AdvisorOpsApi | null>(null);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
@@ -291,6 +310,37 @@ const Payroll = () => {
     queryKey: ["roles"],
     queryFn: listRoles,
     enabled: isCreateOpen,
+  });
+
+  const {
+    data: advisorOpsData,
+    isLoading: isAdvisorOpsLoading,
+    isError: isAdvisorOpsError,
+    error: advisorOpsError,
+  } = useQuery({
+    queryKey: ["payroll-advisor-ops", currentYear, currentMonth],
+    queryFn: () => listAdvisorOps({ year: currentYear, month: currentMonth }),
+    enabled: mainTab === "advisor-ops",
+  });
+
+  const {
+    data: advisorStudents = [],
+    isLoading: isAdvisorStudentsLoading,
+    isError: isAdvisorStudentsError,
+    error: advisorStudentsError,
+  } = useQuery({
+    queryKey: [
+      "payroll-advisor-ops-students",
+      selectedAdvisor?.user_id,
+      currentYear,
+      currentMonth,
+    ],
+    queryFn: () =>
+      listAdvisorOpsStudents(selectedAdvisor!.user_id, {
+        year: currentYear,
+        month: currentMonth,
+      }),
+    enabled: selectedAdvisor != null,
   });
 
   const { data: paymentsSummary } = useQuery({
@@ -577,7 +627,23 @@ const Payroll = () => {
         </div>
       </div>
 
-      <div className="space-y-4">
+      <Tabs
+        value={mainTab}
+        onValueChange={(v) => setMainTab(v as "payslips" | "advisor-ops")}
+        className="space-y-4"
+      >
+        <div className="overflow-x-auto">
+          <TabsList className="min-w-max bg-muted/50">
+            <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
+              فیش حقوقی
+            </TabsTrigger>
+            <TabsTrigger value="advisor-ops" className="data-[state=active]:bg-background">
+              خلاصه افراد و دانش‌آموزان
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="payslips" className="mt-0 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div />
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
@@ -636,7 +702,7 @@ const Payroll = () => {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">سمت / نوع حقوق</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش (RBAC) / نوع حقوق</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
                         دانش‌آموزان
                       </th>
@@ -790,8 +856,231 @@ const Payroll = () => {
               )}
             </div>
           </div>
+        </TabsContent>
 
-      </div>
+        <TabsContent value="advisor-ops" className="mt-0 space-y-4">
+          <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
+            <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              هر ردیف یک کاربر با{" "}
+              <span className="font-medium text-foreground">نقش RBAC</span>{" "}
+              (مثلاً مشاور) است که دانش‌آموز فعال دارد. روی ردیف کلیک کنید تا لیست دانش‌آموزان، نوع ثبت‌نام و مبلغ ثبت‌نام را ببینید.
+              ستون حقوق از فیش حقوقی همین ماه خوانده می‌شود (اگر ثبت شده باشد).
+            </div>
+          </div>
+          <div className="card-elevated overflow-hidden">
+            <div className="overflow-x-auto">
+              {isAdvisorOpsLoading && (
+                <div className="p-6 text-sm text-muted-foreground">در حال بارگذاری...</div>
+              )}
+              {isAdvisorOpsError && (
+                <div className="p-6 text-sm text-destructive">
+                  {(advisorOpsError as Error)?.message ?? "خطا در دریافت خلاصه"}
+                </div>
+              )}
+              {!isAdvisorOpsLoading && !isAdvisorOpsError && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نام</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مدرسه / خصوصی</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">آنلاین / حضوری</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده این ماه</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">بدون پرداخت این ماه</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مبلغ مورد انتظار</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده (کل)</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مانده</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق (فیش)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(advisorOpsData?.data ?? []).length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="p-6 text-center text-muted-foreground">
+                          کاربری با دانش‌آموز فعال یافت نشد.
+                        </td>
+                      </tr>
+                    ) : (
+                      (advisorOpsData?.data ?? []).map((row) => {
+                        const name =
+                          [row.first_name, row.last_name].filter(Boolean).join(" ") || "—";
+                        return (
+                          <tr
+                            key={row.user_id}
+                            className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                            onClick={() => setSelectedAdvisor(row)}
+                          >
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                                  {name.charAt(0)}
+                                </div>
+                                <span className="font-medium text-foreground">{name}</span>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className="font-medium text-foreground">
+                                {rbacRoleLabel(row)}
+                              </span>
+                            </td>
+                            <td className="p-4 number-display text-foreground">
+                              {row.students_total.toLocaleString("fa-IR")}
+                            </td>
+                            <td className="p-4 text-sm text-muted-foreground">
+                              {row.students_school.toLocaleString("fa-IR")} /{" "}
+                              {row.students_private.toLocaleString("fa-IR")}
+                            </td>
+                            <td className="p-4 text-sm text-muted-foreground">
+                              {row.students_online.toLocaleString("fa-IR")} /{" "}
+                              {row.students_in_person.toLocaleString("fa-IR")}
+                            </td>
+                            <td className="p-4 number-display text-success">
+                              {row.paid_count_this_month.toLocaleString("fa-IR")}
+                            </td>
+                            <td className="p-4 number-display text-destructive">
+                              {row.unpaid_count_this_month.toLocaleString("fa-IR")}
+                            </td>
+                            <td className="p-4 number-display text-foreground">
+                              {formatCentsToToman(row.expected_total_cents)}
+                            </td>
+                            <td className="p-4 number-display text-foreground">
+                              {formatCentsToToman(row.paid_total_cents)}
+                            </td>
+                            <td className="p-4 number-display text-foreground">
+                              {formatCentsToToman(row.remaining_cents)}
+                            </td>
+                            <td className="p-4">
+                              {row.salary_total_cents > 0 ? (
+                                <div>
+                                  <p className="number-display font-medium text-primary">
+                                    {formatCentsToToman(row.salary_total_cents)}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {row.salary_status === "PAID"
+                                      ? "پرداخت شده"
+                                      : row.salary_status === "PENDING"
+                                        ? "در انتظار"
+                                        : ""}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog
+        open={selectedAdvisor != null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAdvisor(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              دانش‌آموزان{" "}
+              {selectedAdvisor
+                ? [selectedAdvisor.first_name, selectedAdvisor.last_name]
+                    .filter(Boolean)
+                    .join(" ")
+                : ""}
+              {selectedAdvisor ? (
+                <span className="mr-2 text-sm font-normal text-muted-foreground">
+                  ({rbacRoleLabel(selectedAdvisor)})
+                </span>
+              ) : null}
+            </DialogTitle>
+          </DialogHeader>
+          {isAdvisorStudentsLoading && (
+            <p className="text-sm text-muted-foreground py-4">در حال بارگذاری...</p>
+          )}
+          {isAdvisorStudentsError && (
+            <p className="text-sm text-destructive py-4">
+              {(advisorStudentsError as Error)?.message ?? "خطا در دریافت لیست"}
+            </p>
+          )}
+          {!isAdvisorStudentsLoading && !isAdvisorStudentsError && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع پرداخت</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نحوه برگزاری</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مبلغ ثبت‌نام</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مانده</th>
+                    <th className="p-3 text-right text-xs font-semibold text-muted-foreground">این ماه</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {advisorStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                        دانش‌آموزی ثبت نشده است.
+                      </td>
+                    </tr>
+                  ) : (
+                    advisorStudents.map((st) => {
+                      const stName =
+                        [st.first_name, st.last_name].filter(Boolean).join(" ") || "—";
+                      return (
+                        <tr key={st.student_id} className="border-b last:border-0">
+                          <td className="p-3 font-medium text-foreground">{stName}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {billingModeLabel(parseBillingMode(st.enrollment_billing_mode))}
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {deliveryModeLabel(st.delivery_mode)}
+                          </td>
+                          <td className="p-3 number-display">
+                            {formatCentsToToman(st.enrollment_amount_cents)}
+                          </td>
+                          <td className="p-3 number-display">
+                            {formatCentsToToman(st.paid_total_cents)}
+                          </td>
+                          <td className="p-3 number-display">
+                            {formatCentsToToman(st.remaining_balance_cents)}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                st.has_paid_this_month
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                              )}
+                            >
+                              {st.has_paid_this_month ? "پرداخت دارد" : "بدون پرداخت"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedAdvisor(null)}>
+              بستن
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Register Payroll Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

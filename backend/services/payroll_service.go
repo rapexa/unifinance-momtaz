@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -655,4 +656,285 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		return nil, err
 	}
 	return s.GetEntryByID(ctx, entry.ID)
+}
+
+// AdvisorOpsRow is one staff member (with RBAC role) and their assigned-student ops stats for a month.
+type AdvisorOpsRow struct {
+	UserID               uint
+	FirstName            string
+	LastName             string
+	RoleID               uint
+	RoleCode             string
+	RoleName             string
+	StudentsTotal        int
+	StudentsSchool       int // enrollment_billing_mode = SCHOOL_ENROLLMENT
+	StudentsPrivate      int // MONTHLY / SINGLE_SESSION / empty
+	StudentsOnline       int // delivery_mode = ONLINE
+	StudentsInPerson     int // delivery_mode = IN_PERSON
+	PaidCountThisMonth   int // students with ≥1 PAID payment in period
+	UnpaidCountThisMonth int // active students with 0 PAID payments in period
+	ExpectedTotalCents   int64
+	PaidTotalCents       int64 // lifetime PAID sum for assigned students
+	RemainingCents       int64
+	SalaryTotalCents     int64  // payslip total for period if any
+	SalaryStatus         string // PAID / PENDING / ""
+}
+
+// AdvisorOpsStudentRow is a drill-down student under one advisor.
+type AdvisorOpsStudentRow struct {
+	StudentID             uint
+	FirstName             string
+	LastName              string
+	DeliveryMode          string
+	EnrollmentBillingMode string
+	EnrollmentAmountCents int64
+	PaidTotalCents        int64
+	RemainingBalanceCents int64
+	HasPaidThisMonth      bool
+}
+
+func periodBounds(year, month int) (from, to time.Time) {
+	loc := time.Local
+	from = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+	to = from.AddDate(0, 1, 0)
+	return from, to
+}
+
+// ListAdvisorOps returns ops stats for users who advise at least one ACTIVE student.
+// scopeUser: when set, only that user is returned (if they have students).
+func (s *PayrollService) ListAdvisorOps(ctx context.Context, year, month int, scopeUser *uint) ([]AdvisorOpsRow, error) {
+	from, to := periodBounds(year, month)
+
+	type advID struct {
+		AdvisorID uint
+	}
+	var advIDs []advID
+	q := s.db.WithContext(ctx).Model(&models.Student{}).
+		Select("DISTINCT advisor_id").
+		Where("status = ? AND advisor_id IS NOT NULL", models.StudentStatusActive)
+	if scopeUser != nil {
+		q = q.Where("advisor_id = ?", *scopeUser)
+	}
+	if err := q.Scan(&advIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(advIDs) == 0 {
+		return []AdvisorOpsRow{}, nil
+	}
+	ids := make([]uint, len(advIDs))
+	for i, a := range advIDs {
+		ids[i] = a.AdvisorID
+	}
+
+	var users []models.User
+	if err := s.db.WithContext(ctx).Preload("Role").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	userByID := make(map[uint]models.User, len(users))
+	for i := range users {
+		userByID[users[i].ID] = users[i]
+	}
+
+	var students []models.Student
+	sq := s.db.WithContext(ctx).
+		Where("status = ? AND advisor_id IN ?", models.StudentStatusActive, ids)
+	if err := sq.Find(&students).Error; err != nil {
+		return nil, err
+	}
+
+	studentIDs := make([]uint, len(students))
+	byAdvisor := make(map[uint][]models.Student)
+	for i, st := range students {
+		studentIDs[i] = st.ID
+		if st.AdvisorID == nil {
+			continue
+		}
+		byAdvisor[*st.AdvisorID] = append(byAdvisor[*st.AdvisorID], st)
+	}
+
+	// Students with ≥1 PAID payment in this calendar month.
+	paidThisMonth := map[uint]bool{}
+	if len(studentIDs) > 0 {
+		type row struct {
+			StudentID uint
+		}
+		var rows []row
+		if err := s.db.WithContext(ctx).Model(&models.Payment{}).
+			Select("DISTINCT student_id").
+			Where("student_id IN ? AND status = ? AND paid_at >= ? AND paid_at < ?",
+				studentIDs, models.PaymentStatusPaid, from, to).
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			paidThisMonth[r.StudentID] = true
+		}
+	}
+
+	// Lifetime PAID totals per student.
+	paidLifetime := map[uint]int64{}
+	if len(studentIDs) > 0 {
+		type row struct {
+			StudentID uint
+			PaidSum   int64
+		}
+		var rows []row
+		if err := s.db.WithContext(ctx).Model(&models.Payment{}).
+			Select("student_id, COALESCE(SUM(amount_cents), 0) AS paid_sum").
+			Where("student_id IN ? AND status = ?", studentIDs, models.PaymentStatusPaid).
+			Group("student_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			paidLifetime[r.StudentID] = r.PaidSum
+		}
+	}
+
+	// Payslips for the period (salary column).
+	type payRow struct {
+		UserID           uint
+		TotalSalaryCents int64
+		Status           string
+	}
+	var pays []payRow
+	pq := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
+		Select("user_id, total_salary_cents, status").
+		Where("period_year = ? AND period_month = ? AND user_id IN ?", year, month, ids)
+	_ = pq.Scan(&pays)
+	salaryByUser := map[uint]payRow{}
+	for _, p := range pays {
+		salaryByUser[p.UserID] = p
+	}
+
+	out := make([]AdvisorOpsRow, 0, len(ids))
+	for _, uid := range ids {
+		u, ok := userByID[uid]
+		if !ok {
+			continue
+		}
+		sts := byAdvisor[uid]
+		row := AdvisorOpsRow{
+			UserID:    u.ID,
+			FirstName: u.FirstName,
+			LastName:  u.LastName,
+			RoleID:    u.RoleID,
+		}
+		if u.Role != nil {
+			row.RoleCode = u.Role.Code
+			row.RoleName = u.Role.Name
+		}
+		for _, st := range sts {
+			row.StudentsTotal++
+			if st.EnrollmentBillingMode == models.EnrollmentBillingSchoolEnrollment {
+				row.StudentsSchool++
+			} else {
+				row.StudentsPrivate++
+			}
+			switch st.DeliveryMode {
+			case models.DeliveryModeOnline:
+				row.StudentsOnline++
+			case models.DeliveryModeInPerson:
+				row.StudentsInPerson++
+			}
+			enroll := EffectiveEnrollmentCents(&st)
+			row.ExpectedTotalCents += enroll
+			paid := paidLifetime[st.ID]
+			row.PaidTotalCents += paid
+			if paidThisMonth[st.ID] {
+				row.PaidCountThisMonth++
+			} else {
+				row.UnpaidCountThisMonth++
+			}
+		}
+		row.RemainingCents = row.ExpectedTotalCents - row.PaidTotalCents
+		if sal, ok := salaryByUser[uid]; ok {
+			row.SalaryTotalCents = sal.TotalSalaryCents
+			row.SalaryStatus = sal.Status
+		}
+		out = append(out, row)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RoleName != out[j].RoleName {
+			return out[i].RoleName < out[j].RoleName
+		}
+		if out[i].LastName != out[j].LastName {
+			return out[i].LastName < out[j].LastName
+		}
+		return out[i].FirstName < out[j].FirstName
+	})
+	return out, nil
+}
+
+// ListAdvisorOpsStudents returns active students for one advisor with billing fields.
+func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID uint, year, month int, scopeUser *uint) ([]AdvisorOpsStudentRow, error) {
+	if scopeUser != nil && *scopeUser != advisorID {
+		return nil, errors.New("forbidden")
+	}
+	from, to := periodBounds(year, month)
+
+	var students []models.Student
+	if err := s.db.WithContext(ctx).
+		Where("status = ? AND advisor_id = ?", models.StudentStatusActive, advisorID).
+		Order("last_name ASC, first_name ASC").
+		Find(&students).Error; err != nil {
+		return nil, err
+	}
+	if len(students) == 0 {
+		return []AdvisorOpsStudentRow{}, nil
+	}
+	ids := make([]uint, len(students))
+	for i, st := range students {
+		ids[i] = st.ID
+	}
+
+	paidThisMonth := map[uint]bool{}
+	type sidRow struct{ StudentID uint }
+	var monthRows []sidRow
+	_ = s.db.WithContext(ctx).Model(&models.Payment{}).
+		Select("DISTINCT student_id").
+		Where("student_id IN ? AND status = ? AND paid_at >= ? AND paid_at < ?",
+			ids, models.PaymentStatusPaid, from, to).
+		Scan(&monthRows)
+	for _, r := range monthRows {
+		paidThisMonth[r.StudentID] = true
+	}
+
+	paidLife := map[uint]int64{}
+	type sumRow struct {
+		StudentID uint
+		PaidSum   int64
+	}
+	var sums []sumRow
+	_ = s.db.WithContext(ctx).Model(&models.Payment{}).
+		Select("student_id, COALESCE(SUM(amount_cents), 0) AS paid_sum").
+		Where("student_id IN ? AND status = ?", ids, models.PaymentStatusPaid).
+		Group("student_id").
+		Scan(&sums)
+	for _, r := range sums {
+		paidLife[r.StudentID] = r.PaidSum
+	}
+
+	out := make([]AdvisorOpsStudentRow, 0, len(students))
+	for _, st := range students {
+		enroll := EffectiveEnrollmentCents(&st)
+		paid := paidLife[st.ID]
+		mode := string(st.EnrollmentBillingMode)
+		if mode == "" {
+			mode = string(models.EnrollmentBillingMonthly)
+		}
+		out = append(out, AdvisorOpsStudentRow{
+			StudentID:             st.ID,
+			FirstName:             st.FirstName,
+			LastName:              st.LastName,
+			DeliveryMode:          string(st.DeliveryMode),
+			EnrollmentBillingMode: mode,
+			EnrollmentAmountCents: enroll,
+			PaidTotalCents:        paid,
+			RemainingBalanceCents: enroll - paid,
+			HasPaidThisMonth:      paidThisMonth[st.ID],
+		})
+	}
+	return out, nil
 }

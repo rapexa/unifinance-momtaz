@@ -582,3 +582,122 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 
 	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
 }
+
+type AdvisorOpsDTO struct {
+	UserID               uint   `json:"user_id"`
+	FirstName            string `json:"first_name"`
+	LastName             string `json:"last_name"`
+	RoleID               uint   `json:"role_id"`
+	RoleCode             string `json:"role_code"`
+	RoleName             string `json:"role_name"`
+	StudentsTotal        int    `json:"students_total"`
+	StudentsSchool       int    `json:"students_school"`
+	StudentsPrivate      int    `json:"students_private"`
+	StudentsOnline       int    `json:"students_online"`
+	StudentsInPerson     int    `json:"students_in_person"`
+	PaidCountThisMonth   int    `json:"paid_count_this_month"`
+	UnpaidCountThisMonth int    `json:"unpaid_count_this_month"`
+	ExpectedTotalCents   int64  `json:"expected_total_cents"`
+	PaidTotalCents       int64  `json:"paid_total_cents"`
+	RemainingCents       int64  `json:"remaining_cents"`
+	SalaryTotalCents     int64  `json:"salary_total_cents"`
+	SalaryStatus         string `json:"salary_status,omitempty"`
+}
+
+type AdvisorOpsStudentDTO struct {
+	StudentID             uint   `json:"student_id"`
+	FirstName             string `json:"first_name"`
+	LastName              string `json:"last_name"`
+	DeliveryMode          string `json:"delivery_mode,omitempty"`
+	EnrollmentBillingMode string `json:"enrollment_billing_mode"`
+	EnrollmentAmountCents int64  `json:"enrollment_amount_cents"`
+	PaidTotalCents        int64  `json:"paid_total_cents"`
+	RemainingBalanceCents int64  `json:"remaining_balance_cents"`
+	HasPaidThisMonth      bool   `json:"has_paid_this_month"`
+}
+
+// ListAdvisorOps handles GET /payroll/advisor-ops
+func (h *PayrollHandler) ListAdvisorOps(c *gin.Context) {
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+	rows, err := h.service.ListAdvisorOps(c.Request.Context(), year, month, middleware.DataScopeUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load advisor ops"})
+		return
+	}
+	out := make([]AdvisorOpsDTO, len(rows))
+	for i, r := range rows {
+		out[i] = AdvisorOpsDTO{
+			UserID:               r.UserID,
+			FirstName:            r.FirstName,
+			LastName:             r.LastName,
+			RoleID:               r.RoleID,
+			RoleCode:             r.RoleCode,
+			RoleName:             r.RoleName,
+			StudentsTotal:        r.StudentsTotal,
+			StudentsSchool:       r.StudentsSchool,
+			StudentsPrivate:      r.StudentsPrivate,
+			StudentsOnline:       r.StudentsOnline,
+			StudentsInPerson:     r.StudentsInPerson,
+			PaidCountThisMonth:   r.PaidCountThisMonth,
+			UnpaidCountThisMonth: r.UnpaidCountThisMonth,
+			ExpectedTotalCents:   r.ExpectedTotalCents,
+			PaidTotalCents:       r.PaidTotalCents,
+			RemainingCents:       r.RemainingCents,
+			SalaryTotalCents:     r.SalaryTotalCents,
+			SalaryStatus:         r.SalaryStatus,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"period_year":  year,
+		"period_month": month,
+		"data":         out,
+	})
+}
+
+// ListAdvisorOpsStudents handles GET /payroll/advisor-ops/:user_id/students
+func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		return
+	}
+	rows, err := h.service.ListAdvisorOpsStudents(c.Request.Context(), uint(uid), year, month, middleware.DataScopeUserID(c))
+	if err != nil {
+		if err.Error() == "forbidden" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students"})
+		return
+	}
+	out := make([]AdvisorOpsStudentDTO, len(rows))
+	for i, r := range rows {
+		out[i] = AdvisorOpsStudentDTO{
+			StudentID:             r.StudentID,
+			FirstName:             r.FirstName,
+			LastName:              r.LastName,
+			DeliveryMode:          r.DeliveryMode,
+			EnrollmentBillingMode: r.EnrollmentBillingMode,
+			EnrollmentAmountCents: r.EnrollmentAmountCents,
+			PaidTotalCents:        r.PaidTotalCents,
+			RemainingBalanceCents: r.RemainingBalanceCents,
+			HasPaidThisMonth:      r.HasPaidThisMonth,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": out})
+}
