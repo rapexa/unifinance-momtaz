@@ -21,7 +21,16 @@ func NewPaymentHandler(service *services.PaymentService) *PaymentHandler {
 	return &PaymentHandler{service: service}
 }
 
-func (h *PaymentHandler) requirePaymentAccess(c *gin.Context, studentID uint) bool {
+func (h *PaymentHandler) requirePaymentAccess(c *gin.Context, p *models.Payment) bool {
+	su := middleware.DataScopeUserID(c)
+	if su == nil {
+		return true
+	}
+	ok, err := h.service.IsPaymentRecordVisibleToUser(c.Request.Context(), p, *su)
+	return err == nil && ok
+}
+
+func (h *PaymentHandler) requireStudentPaymentAccess(c *gin.Context, studentID uint) bool {
 	su := middleware.DataScopeUserID(c)
 	if su == nil {
 		return true
@@ -31,30 +40,36 @@ func (h *PaymentHandler) requirePaymentAccess(c *gin.Context, studentID uint) bo
 }
 
 type PaymentDTO struct {
-	ID                uint       `json:"id"`
-	StudentID         uint       `json:"student_id"`
-	StudentName       string     `json:"student_name"`
-	StudentPhone      string     `json:"student_phone,omitempty"`
-	AdvisorName       string     `json:"advisor_name,omitempty"`
-	EnrollmentID      *uint      `json:"enrollment_id,omitempty"`
-	PlanName          *string    `json:"plan_name,omitempty"`
-	AmountCents       int64      `json:"amount_cents"`
-	AdvisorShareCents int64      `json:"advisor_share_cents"`
-	Currency          string     `json:"currency"`
-	Status            string     `json:"status"`
-	Method            string     `json:"method"`
-	Type              string     `json:"payment_type"`
-	DueDate           *time.Time `json:"due_date,omitempty"`
-	PaidAt            *time.Time `json:"paid_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	Description       string     `json:"description,omitempty"`
-	ReferenceCode     string     `json:"reference_code,omitempty"`
+	ID                   uint       `json:"id"`
+	StudentID            *uint      `json:"student_id,omitempty"`
+	StudentName          string     `json:"student_name"`
+	StudentPhone         string     `json:"student_phone,omitempty"`
+	AdvisorName          string     `json:"advisor_name,omitempty"`
+	SchoolContractID     *uint      `json:"school_contract_id,omitempty"`
+	SchoolName           string     `json:"school_name,omitempty"`
+	ContractStudentCount int        `json:"contract_student_count,omitempty"`
+	PerStudentAmountCents int64     `json:"per_student_amount_cents,omitempty"`
+	PayerType            string     `json:"payer_type"` // STUDENT | SCHOOL
+	EnrollmentID         *uint      `json:"enrollment_id,omitempty"`
+	PlanName             *string    `json:"plan_name,omitempty"`
+	AmountCents          int64      `json:"amount_cents"`
+	AdvisorShareCents    int64      `json:"advisor_share_cents"`
+	Currency             string     `json:"currency"`
+	Status               string     `json:"status"`
+	Method               string     `json:"method"`
+	Type                 string     `json:"payment_type"`
+	DueDate              *time.Time `json:"due_date,omitempty"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	Description          string     `json:"description,omitempty"`
+	ReferenceCode        string     `json:"reference_code,omitempty"`
 }
 
 func toPaymentDTO(p *models.Payment) PaymentDTO {
 	dto := PaymentDTO{
 		ID:                p.ID,
 		StudentID:         p.StudentID,
+		SchoolContractID:  p.SchoolContractID,
 		AmountCents:       p.AmountCents,
 		AdvisorShareCents: p.AdvisorShareCents,
 		Currency:          p.Currency,
@@ -66,9 +81,29 @@ func toPaymentDTO(p *models.Payment) PaymentDTO {
 		CreatedAt:         p.CreatedAt,
 		Description:       p.Description,
 		ReferenceCode:     p.ReferenceCode,
+		PayerType:         "STUDENT",
 	}
 
-	if p.Student.ID != 0 {
+	if p.IsSchoolContractPayment() {
+		dto.PayerType = "SCHOOL"
+		dto.ContractStudentCount = p.ContractStudentCount
+		dto.PerStudentAmountCents = p.PerStudentAmountCents()
+		if p.SchoolContract != nil {
+			dto.SchoolName = p.SchoolContract.SchoolName
+			dto.StudentName = p.SchoolContract.SchoolName
+			if dto.ContractStudentCount <= 0 {
+				dto.ContractStudentCount = p.SchoolContract.StudentCount
+				dto.PerStudentAmountCents = p.PerStudentAmountCents()
+				if dto.ContractStudentCount > 0 {
+					dto.PerStudentAmountCents = p.AmountCents / int64(dto.ContractStudentCount)
+				}
+			}
+		} else if dto.ContractStudentCount > 0 {
+			dto.PerStudentAmountCents = p.AmountCents / int64(dto.ContractStudentCount)
+		}
+	}
+
+	if p.Student != nil && p.Student.ID != 0 {
 		dto.StudentName = fmt.Sprintf("%s %s", p.Student.FirstName, p.Student.LastName)
 		dto.StudentPhone = p.Student.Phone
 		if p.Student.Advisor != nil && p.Student.Advisor.ID != 0 {
@@ -97,17 +132,18 @@ func toPaymentDTOSlice(payments []models.Payment) []PaymentDTO {
 }
 
 type createPaymentRequest struct {
-	StudentID     uint   `json:"student_id" binding:"required"`
-	AmountCents   int64  `json:"amount_cents" binding:"required,gt=0"`
-	PaidAtStr     string `json:"paid_at" binding:"omitempty"`
-	Method        string `json:"method" binding:"required"`
-	Description   string `json:"description" binding:"omitempty,max=500"`
-	ReferenceCode string `json:"reference_number" binding:"omitempty,max=255"`
-	Status        string `json:"status" binding:"required"`
-	Type          string `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
-	EnrollmentID  *uint  `json:"enrollment_id" binding:"omitempty"`
-	DueDateStr    string `json:"due_date" binding:"omitempty"`
-	Currency      string `json:"currency" binding:"omitempty"`
+	StudentID        *uint  `json:"student_id" binding:"omitempty"`
+	SchoolContractID *uint  `json:"school_contract_id" binding:"omitempty"`
+	AmountCents      int64  `json:"amount_cents" binding:"required,gt=0"`
+	PaidAtStr        string `json:"paid_at" binding:"omitempty"`
+	Method           string `json:"method" binding:"required"`
+	Description      string `json:"description" binding:"omitempty,max=500"`
+	ReferenceCode    string `json:"reference_number" binding:"omitempty,max=255"`
+	Status           string `json:"status" binding:"required"`
+	Type             string `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
+	EnrollmentID     *uint  `json:"enrollment_id" binding:"omitempty"`
+	DueDateStr       string `json:"due_date" binding:"omitempty"`
+	Currency         string `json:"currency" binding:"omitempty"`
 }
 
 type updatePaymentRequest struct {
@@ -265,7 +301,7 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 		}
 		return
 	}
-	if !h.requirePaymentAccess(c, p.StudentID) {
+	if !h.requirePaymentAccess(c, p) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
@@ -329,27 +365,43 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		return
 	}
 
-	params := services.CreatePaymentParams{
-		StudentID:     req.StudentID,
-		AmountCents:   req.AmountCents,
-		PaidAt:        paidAt,
-		Method:        req.Method,
-		Description:   req.Description,
-		ReferenceCode: req.ReferenceCode,
-		Status:        req.Status,
-		Type:          req.Type,
-		EnrollmentID:  req.EnrollmentID,
-		DueDate:       dueDate,
-		Currency:      req.Currency,
+	hasStudent := req.StudentID != nil && *req.StudentID > 0
+	hasSchool := req.SchoolContractID != nil && *req.SchoolContractID > 0
+	if hasStudent == hasSchool {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "یکی از student_id یا school_contract_id الزامی است"})
+		return
 	}
-
-	if !h.requirePaymentAccess(c, req.StudentID) {
+	if hasStudent && !h.requireStudentPaymentAccess(c, *req.StudentID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
 		return
 	}
 
+	params := services.CreatePaymentParams{
+		StudentID:        req.StudentID,
+		SchoolContractID: req.SchoolContractID,
+		AmountCents:      req.AmountCents,
+		PaidAt:           paidAt,
+		Method:           req.Method,
+		Description:      req.Description,
+		ReferenceCode:    req.ReferenceCode,
+		Status:           req.Status,
+		Type:             req.Type,
+		EnrollmentID:     req.EnrollmentID,
+		DueDate:          dueDate,
+		Currency:         req.Currency,
+	}
+
 	p, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
+		if err == services.ErrSchoolContractNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "school contract not found"})
+			return
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "student_id") || strings.Contains(msg, "amount") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ثبت پرداخت"})
 		return
 	}
@@ -416,7 +468,7 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 		}
 		return
 	}
-	if !h.requirePaymentAccess(c, existing.StudentID) {
+	if !h.requirePaymentAccess(c, existing) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
@@ -477,7 +529,7 @@ func (h *PaymentHandler) Delete(c *gin.Context) {
 		}
 		return
 	}
-	if !h.requirePaymentAccess(c, p.StudentID) {
+	if !h.requirePaymentAccess(c, p) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
@@ -574,8 +626,11 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 
 	header := []string{
 		"شناسه پرداخت",
-		"شناسه دانش‌آموز",
-		"نام دانش‌آموز",
+		"نوع",
+		"شناسه دانش‌آموز/قرارداد",
+		"نام دانش‌آموز / مدرسه",
+		"تعداد دانش‌آموز قرارداد",
+		"معادل هر دانش‌آموز (تومان)",
 		"مبلغ (تومان)",
 		"وضعیت",
 		"روش پرداخت",
@@ -587,14 +642,33 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 	rows := make([][]string, 0, len(payments))
 	for _, p := range payments {
 		dto := toPaymentDTO(&p)
+		payerLabel := "فردی"
+		refID := ""
+		if dto.PayerType == "SCHOOL" {
+			payerLabel = "مدرسه‌ای"
+			if dto.SchoolContractID != nil {
+				refID = strconv.FormatUint(uint64(*dto.SchoolContractID), 10)
+			}
+		} else if dto.StudentID != nil {
+			refID = strconv.FormatUint(uint64(*dto.StudentID), 10)
+		}
 		studentName := strings.TrimSpace(dto.StudentName)
 		if studentName == "" {
-			studentName = fmt.Sprintf("دانش‌آموز #%d", dto.StudentID)
+			studentName = "—"
+		}
+		countStr := ""
+		perStudentStr := ""
+		if dto.PayerType == "SCHOOL" && dto.ContractStudentCount > 0 {
+			countStr = strconv.Itoa(dto.ContractStudentCount)
+			perStudentStr = strconv.FormatInt(dto.PerStudentAmountCents/10, 10)
 		}
 		rows = append(rows, []string{
 			strconv.FormatUint(uint64(dto.ID), 10),
-			strconv.FormatUint(uint64(dto.StudentID), 10),
+			payerLabel,
+			refID,
 			studentName,
+			countStr,
+			perStudentStr,
 			strconv.FormatInt(dto.AmountCents/10, 10),
 			paymentStatusLabelFa(dto.Status),
 			paymentMethodLabelFa(dto.Method),
@@ -678,8 +752,12 @@ func (h *PaymentHandler) GenerateLink(c *gin.Context) {
 		}
 		return
 	}
-	if !h.requirePaymentAccess(c, p.StudentID) {
+	if !h.requirePaymentAccess(c, p) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		return
+	}
+	if p.IsSchoolContractPayment() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "لینک پرداخت برای قرارداد مدرسه پشتیبانی نمی‌شود"})
 		return
 	}
 

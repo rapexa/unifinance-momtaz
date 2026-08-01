@@ -1,8 +1,13 @@
-const DEFAULT_API_BASE = "https://api.mali-momtazisho.ir/api/v1";
+// Default: local backend. Override with VITE_API_BASE_URL for production builds.
+const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
 
 export const API_BASE =
   (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) ||
   DEFAULT_API_BASE;
+
+if (typeof console !== "undefined") {
+  console.info("[api] API_BASE =", API_BASE);
+}
 
 export function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};

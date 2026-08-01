@@ -26,13 +26,13 @@ func Init() (*gorm.DB, error) {
 		cfg := config.MustLoadConfig()
 
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True&loc=%s",
-			cfg.DBUser,
-			cfg.DBPass,
-			cfg.DBHost,
-			cfg.DBPort,
-			cfg.DBName,
-			cfg.DBCharset,
-			cfg.DBTimeZone,
+			cfg.DB.User,
+			cfg.DB.Pass,
+			cfg.DB.Host,
+			cfg.DB.Port,
+			cfg.DB.Name,
+			cfg.DB.Charset,
+			cfg.DB.Timezone,
 		)
 
 		logLevel := logger.Silent

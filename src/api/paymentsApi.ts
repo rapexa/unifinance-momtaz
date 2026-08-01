@@ -2,10 +2,16 @@ import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
 
 export interface PaymentApi {
   id: number;
-  student_id: number;
+  student_id?: number | null;
   student_name: string;
   student_phone?: string;
   advisor_name?: string;
+  school_contract_id?: number | null;
+  school_name?: string;
+  contract_student_count?: number;
+  per_student_amount_cents?: number;
+  /** STUDENT | SCHOOL */
+  payer_type?: string;
   enrollment_id?: number;
   plan_name?: string;
   amount_cents: number;
@@ -90,7 +96,8 @@ export async function getPaymentsSummary(): Promise<PaymentsSummary> {
 }
 
 export interface CreatePaymentPayload {
-  student_id: number;
+  student_id?: number;
+  school_contract_id?: number;
   amount_cents: number;
   method: string;
   status: string;

@@ -16,6 +16,7 @@ export interface StudentApi {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  delivery_mode?: "ONLINE" | "IN_PERSON" | string;
   advisor_id?: number;
   advisor_name?: string;
   advisor_commission_kind?: string;
@@ -48,6 +49,10 @@ export type AdvisorCommissionKind =
   | "FIXED_MONTHLY";
 
 export type EnrollmentBillingMode = "SINGLE_SESSION" | "MONTHLY" | "SCHOOL_ENROLLMENT";
+
+export type DeliveryMode = "ONLINE" | "IN_PERSON";
+
+export type RegistrationChannel = "PRIVATE" | "SCHOOL";
 
 export interface StudentRolePayoutApi {
   id: number;
@@ -186,6 +191,7 @@ export interface CreateStudentPayload {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  delivery_mode?: DeliveryMode;
   advisor_id?: number;
   advisor_commission_kind?: AdvisorCommissionKind;
   advisor_commission_percent?: number;
@@ -280,6 +286,7 @@ export interface UpdateStudentPayload {
   school_name?: string;
   school_address?: string;
   home_address?: string;
+  delivery_mode?: DeliveryMode;
   status?: "ACTIVE" | "INACTIVE" | "DELETED";
   advisor_id?: number | null;
   advisor_commission_kind?: AdvisorCommissionKind;

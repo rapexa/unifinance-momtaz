@@ -99,7 +99,7 @@ export async function updateProfile(payload: Partial<Profile>): Promise<Profile>
 
 /** Base URL for uploaded files (e.g. avatars). Same origin as API but without /api/v1. */
 export function getUploadsBase(): string {
-  return API_BASE.replace(/\/api\/v1\/?$/, "") || "https://api.mali-momtazisho.ir";
+  return API_BASE.replace(/\/api\/v1\/?$/, "") || "http://localhost:8081";
 }
 
 export async function uploadProfileAvatar(file: File): Promise<Profile> {

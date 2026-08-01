@@ -37,6 +37,8 @@ logs/
 # Environment / secrets
 .env
 .env.*
+config.yaml
+!config.example.yaml
 
 # Coverage and profiling
 coverage.out

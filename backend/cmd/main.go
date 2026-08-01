@@ -49,6 +49,7 @@ func main() {
 	studentRepo := repositories.NewStudentRepository(db)
 	planRepo := repositories.NewPlanRepository(db)
 	paymentRepo := repositories.NewPaymentRepository(db)
+	schoolContractRepo := repositories.NewSchoolContractRepository(db)
 
 	// Services (Service Layer)
 	permService := services.NewPermissionService(permRepo, roleRepo)
@@ -57,19 +58,21 @@ func main() {
 	roleService := services.NewRoleService(roleRepo)
 	studentService := services.NewStudentService(studentRepo)
 	planService := services.NewPlanService(planRepo)
+	schoolContractService := services.NewSchoolContractService(schoolContractRepo)
 	payrollService := services.NewPayrollService(db)
 	paymentService := services.NewPaymentService(paymentRepo, db, payrollService)
 	dashboardService := services.NewDashboardService(db, paymentRepo)
 	reportService := services.NewReportService(db, paymentService)
 	settingsService := services.NewSettingsService(db, userService)
-	melipayamakService := services.NewMelipayamakService(cfg.MelipayamakUsername, cfg.MelipayamakAPIKey)
+	melipayamakService := services.NewMelipayamakService(cfg.Melipayamak.Username, cfg.Melipayamak.APIKey)
 	reminderService := services.NewReminderService(db, melipayamakService)
 	fiscalYearService := services.NewFiscalYearService(db)
-	zarinpalService := services.NewZarinpalService(cfg.ZarinpalMerchantID, cfg.ZarinpalSandbox, cfg.ZarinpalCallbackURL)
+	zarinpalService := services.NewZarinpalService(cfg.Zarinpal.MerchantID, cfg.Zarinpal.Sandbox, cfg.Zarinpal.CallbackURL)
 
 	// Handlers (Controllers)
 	authHandler := handlers.NewAuthHandler(authService)
 	studentHandler := handlers.NewStudentHandler(studentService, paymentService)
+	schoolContractHandler := handlers.NewSchoolContractHandler(schoolContractService)
 	userHandler := handlers.NewUserHandler(userService, permService)
 	roleHandler := handlers.NewRoleHandler(roleService, paymentService)
 	planHandler := handlers.NewPlanHandler(planService)
@@ -85,18 +88,9 @@ func main() {
 	// Gin engine
 	r := gin.Default()
 
-	// CORS - allow frontend dev server on port 8080
+	// CORS origins come from config.yaml (local vs production).
 	corsConfig := cors.Config{
-		AllowOrigins: []string{
-			"http://localhost:8080",
-			"http://127.0.0.1:8080",
-			"http://130.185.75.183:8080",
-			"http://130.185.75.183",
-			"http://130.185.75.183:8081",
-			"https://mali-momtazisho.ir",
-			"https://api.mali-momtazisho.ir",
-			"https://checkout.momtaz-team.ir",
-		},
+		AllowOrigins:     cfg.CORS.AllowOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
@@ -175,6 +169,17 @@ func main() {
 		students.PUT("/:id", studentHandler.Update)
 		students.DELETE("/:id/permanent", studentHandler.HardDelete)
 		students.DELETE("/:id", studentHandler.Delete)
+	}
+
+	// School contracts (bulk school enrollments — same STUDENTS permission)
+	schoolContracts := protected.Group("/school-contracts")
+	schoolContracts.Use(middleware.PermissionMiddleware(permService, models.PermStudents))
+	{
+		schoolContracts.GET("", schoolContractHandler.List)
+		schoolContracts.GET("/:id", schoolContractHandler.Get)
+		schoolContracts.POST("", schoolContractHandler.Create)
+		schoolContracts.PUT("/:id", schoolContractHandler.Update)
+		schoolContracts.DELETE("/:id", schoolContractHandler.Delete)
 	}
 
 	// Users (admin: full access; others only if granted USERS permission)
@@ -345,8 +350,8 @@ func main() {
 		}
 	}()
 
-	addr := ":8081"
-	log.Printf("API server listening on %s", addr)
+	addr := cfg.Server.Addr
+	log.Printf("API server listening on %s (cors origins: %v)", addr, cfg.CORS.AllowOrigins)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}

@@ -64,6 +64,10 @@ func (h *PaymentGatewayHandler) GetPublicPayment(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "لینک پرداخت یافت نشد"})
 		return
 	}
+	if payment.Student == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "این پرداخت برای لینک عمومی پشتیبانی نمی‌شود"})
+		return
+	}
 
 	dto := publicPaymentDTO{
 		ID:           payment.ID,
@@ -97,6 +101,10 @@ func (h *PaymentGatewayHandler) InitiatePayment(c *gin.Context) {
 		Preload("Student").
 		First(&payment, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "لینک پرداخت یافت نشد"})
+		return
+	}
+	if payment.Student == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "این پرداخت برای درگاه عمومی پشتیبانی نمی‌شود"})
 		return
 	}
 

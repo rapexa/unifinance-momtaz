@@ -259,6 +259,9 @@ func (s *ReportService) GetPaidPaymentsDetail(ctx context.Context, from, to time
 	out := make([]PaidPaymentDetail, 0, len(rows))
 	for i := range rows {
 		p := &rows[i]
+		if p.StudentID == nil || p.Student == nil {
+			continue
+		}
 		name := fmt.Sprintf("%s %s", p.Student.FirstName, p.Student.LastName)
 		var adv string
 		if p.Student.Advisor != nil {
@@ -269,7 +272,7 @@ func (s *ReportService) GetPaidPaymentsDetail(ctx context.Context, from, to time
 			PaidAt:      p.PaidAt,
 			AmountCents: p.AmountCents,
 			Method:      string(p.Method),
-			StudentID:   p.StudentID,
+			StudentID:   *p.StudentID,
 			StudentName: name,
 			Description: p.Description,
 			AdvisorName: adv,
@@ -289,7 +292,7 @@ func (s *ReportService) GetRevenueByStudent(ctx context.Context, from, to time.T
 	if err := s.db.WithContext(ctx).
 		Model(&models.Payment{}).
 		Select("student_id, SUM(amount_cents) AS total_cents, COUNT(*) AS payment_count").
-		Where("status = ? AND paid_at IS NOT NULL AND paid_at >= ? AND paid_at < ?",
+		Where("student_id IS NOT NULL AND status = ? AND paid_at IS NOT NULL AND paid_at >= ? AND paid_at < ?",
 			models.PaymentStatusPaid, from, to).
 		Group("student_id").
 		Order("total_cents DESC").

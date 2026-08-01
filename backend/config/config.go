@@ -1,88 +1,164 @@
 package config
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/spf13/viper"
 )
 
+// Config is loaded from config.yaml (see config.example.yaml).
 type Config struct {
-	AppEnv       string `mapstructure:"APP_ENV"`
-	DBHost       string `mapstructure:"DB_HOST"`
-	DBPort       string `mapstructure:"DB_PORT"`
-	DBUser       string `mapstructure:"DB_USER"`
-	DBPass       string `mapstructure:"DB_PASS"`
-	DBName       string `mapstructure:"DB_NAME"`
-	DBCharset    string `mapstructure:"DB_CHARSET"`
-	DBTimeZone   string `mapstructure:"DB_TIMEZONE"`
-	JWTSecret    string `mapstructure:"JWT_SECRET"`
-	JWTIssuer    string `mapstructure:"JWT_ISSUER"`
-	JWTExpiryHrs int    `mapstructure:"JWT_EXPIRY_HOURS"`
-	// JWTRefreshExpiryHrs controls refresh token lifetime in hours.
-	JWTRefreshExpiryHrs int `mapstructure:"JWT_REFRESH_EXPIRY_HOURS"`
+	AppEnv string `mapstructure:"app_env"`
 
-	// ZarinPal payment gateway
-	ZarinpalMerchantID  string `mapstructure:"ZARINPAL_MERCHANT_ID"`
-	ZarinpalSandbox     bool   `mapstructure:"ZARINPAL_SANDBOX"`
-	ZarinpalCallbackURL string `mapstructure:"ZARINPAL_CALLBACK_URL"`
-	// FrontendURL is the base URL of the React frontend for post-payment redirects.
-	FrontendURL string `mapstructure:"FRONTEND_URL"`
+	Server ServerConfig `mapstructure:"server"`
+	DB     DBConfig     `mapstructure:"db"`
+	JWT    JWTConfig    `mapstructure:"jwt"`
+	CORS   CORSConfig   `mapstructure:"cors"`
 
-	// Melipayamak SMS gateway (ملی پیامک)
-	MelipayamakUsername string `mapstructure:"MELIPAYAMAK_USERNAME"`
-	MelipayamakAPIKey   string `mapstructure:"MELIPAYAMAK_API_KEY"`
+	Zarinpal    ZarinpalConfig    `mapstructure:"zarinpal"`
+	FrontendURL string            `mapstructure:"frontend_url"`
+	Melipayamak MelipayamakConfig `mapstructure:"melipayamak"`
+}
+
+type ServerConfig struct {
+	Addr string `mapstructure:"addr"`
+}
+
+type DBConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     string `mapstructure:"port"`
+	User     string `mapstructure:"user"`
+	Pass     string `mapstructure:"pass"`
+	Name     string `mapstructure:"name"`
+	Charset  string `mapstructure:"charset"`
+	Timezone string `mapstructure:"timezone"`
+}
+
+type JWTConfig struct {
+	Secret             string `mapstructure:"secret"`
+	Issuer             string `mapstructure:"issuer"`
+	ExpiryHours        int    `mapstructure:"expiry_hours"`
+	RefreshExpiryHours int    `mapstructure:"refresh_expiry_hours"`
+}
+
+type CORSConfig struct {
+	AllowOrigins []string `mapstructure:"allow_origins"`
+}
+
+type ZarinpalConfig struct {
+	MerchantID  string `mapstructure:"merchant_id"`
+	Sandbox     bool   `mapstructure:"sandbox"`
+	CallbackURL string `mapstructure:"callback_url"`
+}
+
+type MelipayamakConfig struct {
+	Username string `mapstructure:"username"`
+	APIKey   string `mapstructure:"api_key"`
 }
 
 var (
-	cfg  *Config
-	once sync.Once
+	cfg        *Config
+	once       sync.Once
+	configPath string
 )
 
-// LoadConfig loads configuration from .env (if present) and environment variables.
+// ConfigFilePath returns the path of the loaded config.yaml (empty if none).
+func ConfigFilePath() string { return configPath }
+
+// LoadConfig loads configuration from config.yaml (preferred) with sensible defaults.
 func LoadConfig() (*Config, error) {
 	var err error
 
 	once.Do(func() {
-		viper.SetConfigFile(".env")
-		viper.SetConfigType("env")
+		v := viper.New()
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("./backend")
+		if exe, e := os.Executable(); e == nil {
+			v.AddConfigPath(filepath.Dir(exe))
+		}
+		v.AutomaticEnv()
 
-		// Read from environment variables as well
-		viper.AutomaticEnv()
+		setDefaults(v)
 
-		// Defaults
-		viper.SetDefault("APP_ENV", "development")
-		viper.SetDefault("DB_HOST", "127.0.0.1")
-		viper.SetDefault("DB_PORT", "3306")
-		viper.SetDefault("DB_USER", "rapexa")
-		viper.SetDefault("DB_PASS", "mgstudio884")
-		viper.SetDefault("DB_NAME", "momtazuni")
-		viper.SetDefault("DB_CHARSET", "utf8mb4")
-		viper.SetDefault("DB_TIMEZONE", "Local")
-		viper.SetDefault("JWT_SECRET", "dev-secret-change-me")
-		viper.SetDefault("JWT_ISSUER", "unifinance-api")
-		viper.SetDefault("JWT_EXPIRY_HOURS", 24)
-		viper.SetDefault("JWT_REFRESH_EXPIRY_HOURS", 24*7)
-		viper.SetDefault("ZARINPAL_MERCHANT_ID", "c099634b-fbfa-4485-852a-5e88916d901c")
-		viper.SetDefault("ZARINPAL_SANDBOX", false)
-		viper.SetDefault("ZARINPAL_CALLBACK_URL", "https://checkout.momtaz-team.ir/payment/callback")
-		viper.SetDefault("FRONTEND_URL", "https://mali-momtazisho.ir")
-		viper.SetDefault("MELIPAYAMAK_USERNAME", "")
-		viper.SetDefault("MELIPAYAMAK_API_KEY", "2f8d3c35-160b-4d3c-9d29-b0a1b4d53b2a")
-
-		if readErr := viper.ReadInConfig(); readErr != nil {
-			log.Printf("config: could not read .env file: %v (falling back to env vars only)", readErr)
+		if readErr := v.ReadInConfig(); readErr != nil {
+			log.Printf("config: could not read config.yaml: %v (using defaults only)", readErr)
+			WarnIfMissingConfigFile()
+		} else {
+			configPath = v.ConfigFileUsed()
+			log.Printf("config: loaded %s", configPath)
 		}
 
 		c := &Config{}
-		if unmarshalErr := viper.Unmarshal(c); unmarshalErr != nil {
+		if unmarshalErr := v.Unmarshal(c); unmarshalErr != nil {
 			err = unmarshalErr
 			return
 		}
+		normalize(c)
 		cfg = c
+		log.Printf("config: app_env=%s db=%s@%s:%s/%s frontend=%s",
+			c.AppEnv, c.DB.User, c.DB.Host, c.DB.Port, c.DB.Name, c.FrontendURL)
 	})
 
 	return cfg, err
+}
+
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("app_env", "development")
+	v.SetDefault("server.addr", ":8081")
+
+	v.SetDefault("db.host", "127.0.0.1")
+	v.SetDefault("db.port", "3306")
+	v.SetDefault("db.user", "root")
+	v.SetDefault("db.pass", "")
+	v.SetDefault("db.name", "momtaz")
+	v.SetDefault("db.charset", "utf8mb4")
+	v.SetDefault("db.timezone", "Local")
+
+	v.SetDefault("jwt.secret", "dev-secret-change-me")
+	v.SetDefault("jwt.issuer", "unifinance-api")
+	v.SetDefault("jwt.expiry_hours", 24)
+	v.SetDefault("jwt.refresh_expiry_hours", 24*7)
+
+	v.SetDefault("cors.allow_origins", []string{
+		"http://localhost:8080",
+		"http://127.0.0.1:8080",
+	})
+
+	v.SetDefault("zarinpal.merchant_id", "")
+	v.SetDefault("zarinpal.sandbox", true)
+	v.SetDefault("zarinpal.callback_url", "http://localhost:8081/payment/callback")
+
+	v.SetDefault("frontend_url", "http://localhost:8080")
+
+	v.SetDefault("melipayamak.username", "")
+	v.SetDefault("melipayamak.api_key", "")
+}
+
+func normalize(c *Config) {
+	if c.Server.Addr == "" {
+		c.Server.Addr = ":8081"
+	}
+	if c.DB.Charset == "" {
+		c.DB.Charset = "utf8mb4"
+	}
+	if c.DB.Timezone == "" {
+		c.DB.Timezone = "Local"
+	}
+	if c.JWT.ExpiryHours <= 0 {
+		c.JWT.ExpiryHours = 24
+	}
+	if c.JWT.RefreshExpiryHours <= 0 {
+		c.JWT.RefreshExpiryHours = 24 * 7
+	}
+	if len(c.CORS.AllowOrigins) == 0 {
+		c.CORS.AllowOrigins = []string{"http://localhost:8080", "http://127.0.0.1:8080"}
+	}
 }
 
 func MustLoadConfig() *Config {
@@ -90,5 +166,15 @@ func MustLoadConfig() *Config {
 	if err != nil {
 		log.Fatalf("config: failed to load configuration: %v", err)
 	}
+	if c == nil {
+		log.Fatalf("config: configuration is nil")
+	}
 	return c
+}
+
+// WarnIfMissingConfigFile prints a tip when config.yaml is missing.
+func WarnIfMissingConfigFile() {
+	cwd, _ := os.Getwd()
+	hint := filepath.Join(cwd, "config.yaml")
+	fmt.Fprintf(os.Stderr, "config: tip — copy config.example.yaml to %s for local settings\n", hint)
 }

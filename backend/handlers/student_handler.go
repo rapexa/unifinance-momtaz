@@ -44,6 +44,7 @@ type StudentDoc struct {
 	SchoolName    string `json:"school_name,omitempty"`
 	SchoolAddress string `json:"school_address,omitempty"`
 	HomeAddress   string `json:"home_address,omitempty"`
+	DeliveryMode  string `json:"delivery_mode,omitempty"`
 	AdvisorName   string `json:"advisor_name,omitempty"`
 	AdvisorID     *uint  `json:"advisor_id,omitempty"`
 	// Per paid payment: how the assigned advisor is compensated (see models.StudentAdvisorCommissionKind).
@@ -98,6 +99,7 @@ func toStudentDoc(s *models.Student) StudentDoc {
 		SchoolName:                  s.SchoolName,
 		SchoolAddress:               s.SchoolAddress,
 		HomeAddress:                 s.HomeAddress,
+		DeliveryMode:                string(s.DeliveryMode),
 		BalanceCents:                s.BalanceCents,
 		AdvisorID:                   s.AdvisorID,
 		AdvisorCommissionKind:       string(s.AdvisorCommissionKind),
@@ -471,6 +473,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
 		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		DeliveryMode                string                     `json:"delivery_mode" binding:"omitempty,oneof=ONLINE IN_PERSON"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
 		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT PERCENT_OF_CONTRACT FIXED_MONTHLY"`
 		AdvisorCommissionPercent    *float64                   `json:"advisor_commission_percent" binding:"omitempty"`
@@ -489,6 +492,10 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if payload.DeliveryMode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
+		return
+	}
 
 	student := &models.Student{
 		FirstName:     payload.FirstName,
@@ -504,6 +511,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		SchoolName:    payload.SchoolName,
 		SchoolAddress: payload.SchoolAddress,
 		HomeAddress:   payload.HomeAddress,
+		DeliveryMode:  models.DeliveryMode(payload.DeliveryMode),
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		uid := *scope
@@ -605,6 +613,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		SchoolName                  string                     `json:"school_name" binding:"omitempty,max=200"`
 		SchoolAddress               string                     `json:"school_address" binding:"omitempty,max=500"`
 		HomeAddress                 string                     `json:"home_address" binding:"omitempty,max=500"`
+		DeliveryMode                string                     `json:"delivery_mode" binding:"omitempty,oneof=ONLINE IN_PERSON"`
 		Status                      string                     `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE DELETED"`
 		AdvisorID                   *uint                      `json:"advisor_id" binding:"omitempty"`
 		AdvisorCommissionKind       string                     `json:"advisor_commission_kind" binding:"omitempty,oneof=NONE PERCENT FIXED_PER_PAYMENT PERCENT_OF_CONTRACT FIXED_MONTHLY"`
@@ -647,6 +656,9 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	student.FatherPhone = payload.FatherPhone
 	student.MotherPhone = payload.MotherPhone
 	student.FatherJob = payload.FatherJob
+	if payload.DeliveryMode != "" {
+		student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
+	}
 	student.MotherJob = payload.MotherJob
 	student.SchoolName = payload.SchoolName
 	student.SchoolAddress = payload.SchoolAddress

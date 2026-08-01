@@ -5,12 +5,12 @@ This backend implements the database layer for the Unifinance frontend, using:
 - Go
 - GORM (ORM)
 - MySQL
-- Viper for configuration (.env)
+- Viper for configuration (`config.yaml`)
 
 ### Folder structure
 
 - `cmd/main.go` – HTTP entrypoint (Gin router, wiring of dependencies)
-- `config/config.go` – loads configuration via Viper (from `.env` + env vars, including JWT)
+- `config/config.go` – loads configuration via Viper from `config.yaml` (see `config.example.yaml`)
 - `database/database.go` – initializes GORM connection to MySQL (singleton)
 - `models/` – domain models inferred from the frontend:
   - `organization.go` – `Organization`
@@ -35,7 +35,7 @@ This backend implements the database layer for the Unifinance frontend, using:
   - `auth.go` – JWT auth + role-based authorization
 - `utils/jwt.go` – JWT helper functions (sign/parse tokens)
 - `migrations/migrate.go` – runs GORM AutoMigrate and seeds base data
-- `.env.example` – sample configuration
+- `config.example.yaml` – sample / production-oriented configuration (copy to `config.yaml`)
 
 ### Models overview
 
@@ -120,17 +120,18 @@ go mod tidy
 
 3. **Configure environment**
 
-- Copy `.env.example` to `.env` and adjust:
+- Copy `config.example.yaml` to `config.yaml` and adjust for local DB:
 
 ```bash
-cp .env.example .env
+cp config.example.yaml config.yaml
 ```
 
-Edit `.env` for your DB host, port, user, password, and database name.
+Edit `config.yaml` (`db.*`, `jwt.secret`, `cors.allow_origins`, …).  
+`config.yaml` is gitignored — never commit secrets.
 
 4. **Run API server**
 
-From the `backend` folder:
+From the `backend` folder (so `config.yaml` is found):
 
 ```bash
 go run ./cmd
@@ -145,7 +146,8 @@ go build -o unifinance-server ./cmd
 
 On startup the server **automatically**:
 
-- Connects to MySQL using `.env`
+- Loads `config.yaml`
+- Connects to MySQL using that config
 - Runs `AutoMigrate` for all models
 - Runs one-time backfills and seeds (default organization, admin user, roles)
 

@@ -34,13 +34,21 @@ const (
 )
 
 // Payment supports data on /payments and dashboard recent payments.
+// Either StudentID or SchoolContractID must be set (not both for school bulk payments).
 type Payment struct {
 	gorm.Model
-	StudentID uint    `gorm:"not null;index"`
-	Student   Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	StudentID *uint    `gorm:"index"`
+	Student   *Student `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	// Optional link to an Enrollment
 	EnrollmentID *uint
 	Enrollment   *Enrollment `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+
+	// SchoolContractID links a payment to a school bulk contract (no Student row).
+	SchoolContractID *uint
+	SchoolContract   *SchoolContract `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	// ContractStudentCount is a snapshot of school_contract.student_count at payment time
+	// (used for per-student display if the contract count is edited later).
+	ContractStudentCount int `gorm:"not null;default:0"`
 
 	AmountCents int64  `gorm:"not null"`
 	Currency    string `gorm:"size:3;not null;default:'IRR'"`
@@ -63,5 +71,18 @@ type Payment struct {
 	// ZarinpalAuthority stores the authority token from ZarinPal during an in-flight
 	// payment so the callback can look up the payment record.
 	ZarinpalAuthority string `gorm:"size:100;index"`
+}
+
+// IsSchoolContractPayment reports whether this payment belongs to a school contract.
+func (p *Payment) IsSchoolContractPayment() bool {
+	return p != nil && p.SchoolContractID != nil && *p.SchoolContractID > 0
+}
+
+// PerStudentAmountCents returns amount / snapshot student count (0 if not applicable).
+func (p *Payment) PerStudentAmountCents() int64 {
+	if p == nil || p.ContractStudentCount <= 0 || p.AmountCents == 0 {
+		return 0
+	}
+	return p.AmountCents / int64(p.ContractStudentCount)
 }
 

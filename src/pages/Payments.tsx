@@ -55,6 +55,7 @@ import {
   type UpdatePaymentPayload,
 } from "@/api/paymentsApi";
 import { listStudents } from "@/api/studentsApi";
+import { listAllSchoolContracts, type SchoolContractApi } from "@/api/schoolContractsApi";
 
 const statusLabels: Record<string, string> = {
   PAID: "پرداخت شده",
@@ -294,7 +295,9 @@ const Payments = () => {
   const [editPaymentId, setEditPaymentId] = useState<number | null>(null);
 
   // Create form state
+  const [createPayerType, setCreatePayerType] = useState<"STUDENT" | "SCHOOL">("STUDENT");
   const [createStudentId, setCreateStudentId] = useState("");
+  const [createSchoolContractId, setCreateSchoolContractId] = useState("");
   const [createAmountTomans, setCreateAmountTomans] = useState("");
   const [createMethod, setCreateMethod] = useState("");
   const [createStatus, setCreateStatus] = useState("PENDING");
@@ -320,6 +323,8 @@ const Payments = () => {
       setStudentComboOpen(false);
       setCreateStudentId("");
       setCreateStudentLabel("");
+      setCreateSchoolContractId("");
+      setCreatePayerType("STUDENT");
       setCreateError("");
     }
   }, [isCreateOpen]);
@@ -368,8 +373,26 @@ const Payments = () => {
         page: 1,
         page_size: 50,
       }),
-    enabled: isCreateOpen,
+    enabled: isCreateOpen && createPayerType === "STUDENT",
   });
+
+  const { data: schoolContractsPick = [] } = useQuery({
+    queryKey: ["school-contracts", "payment-picker"],
+    queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
+    enabled: isCreateOpen && createPayerType === "SCHOOL",
+  });
+
+  const selectedSchoolContract: SchoolContractApi | undefined = schoolContractsPick.find(
+    (c) => String(c.id) === createSchoolContractId,
+  );
+  const createAmountTomansNum = parseTomansInput(createAmountTomans);
+  const createPerStudentPreview =
+    createPayerType === "SCHOOL" &&
+    selectedSchoolContract &&
+    selectedSchoolContract.student_count > 0 &&
+    createAmountTomansNum > 0
+      ? Math.floor(createAmountTomansNum / selectedSchoolContract.student_count)
+      : 0;
 
   const createMutation = useMutation({
     mutationFn: (payload: CreatePaymentPayload) => createPayment(payload),
@@ -378,9 +401,11 @@ const Payments = () => {
       queryClient.invalidateQueries({ queryKey: ["payments-summary"] });
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["students-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateOpen(false);
       setCreateStudentId("");
+      setCreateSchoolContractId("");
       setCreateAmountTomans("");
       setCreateMethod("");
       setCreateStatus("PENDING");
@@ -479,11 +504,23 @@ const Payments = () => {
 
   const handleCreateSubmit = useCallback(() => {
     setCreateError("");
-    const studentId = parseInt(createStudentId, 10);
     const amountTomans = parseTomansInput(createAmountTomans);
-    if (!studentId || amountTomans <= 0 || !createMethod || !createStatus) {
-      setCreateError("دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند");
+    if (amountTomans <= 0 || !createMethod || !createStatus) {
+      setCreateError("مبلغ، روش پرداخت و وضعیت الزامی هستند");
       return;
+    }
+    if (createPayerType === "STUDENT") {
+      const studentId = parseInt(createStudentId, 10);
+      if (!studentId) {
+        setCreateError("دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند");
+        return;
+      }
+    } else {
+      const contractId = parseInt(createSchoolContractId, 10);
+      if (!contractId) {
+        setCreateError("قرارداد مدرسه، مبلغ، روش پرداخت و وضعیت الزامی هستند");
+        return;
+      }
     }
 
     const dueDateTrimmed = createDueDate.trim();
@@ -508,7 +545,6 @@ const Payments = () => {
 
     const amountCents = amountTomans * 10; // تومان به ریال
     const payload: CreatePaymentPayload = {
-      student_id: studentId,
       amount_cents: amountCents,
       method: createMethod,
       status: createStatus,
@@ -517,9 +553,16 @@ const Payments = () => {
       due_date: dueDateGregorian,
       paid_at: paidAtGregorian,
     };
+    if (createPayerType === "SCHOOL") {
+      payload.school_contract_id = parseInt(createSchoolContractId, 10);
+    } else {
+      payload.student_id = parseInt(createStudentId, 10);
+    }
     createMutation.mutate(payload);
   }, [
+    createPayerType,
     createStudentId,
+    createSchoolContractId,
     createAmountTomans,
     createMethod,
     createStatus,
@@ -681,9 +724,26 @@ const Payments = () => {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="font-medium text-foreground">
-                    {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
+                    {payment.payer_type === "SCHOOL"
+                      ? payment.school_name || payment.student_name || "مدرسه"
+                      : payment.student_name || "—"}{" "}
+                    <span className="text-xs text-muted-foreground">
+                      {payment.payer_type === "SCHOOL"
+                        ? `قرارداد #${payment.school_contract_id ?? "—"}`
+                        : `#${payment.student_id ?? "—"}`}
+                    </span>
                   </p>
-                  {payment.advisor_name ? (
+                  {payment.payer_type === "SCHOOL" ? (
+                    <p className="text-xs text-muted-foreground">
+                      مدرسه‌ای
+                      {payment.contract_student_count
+                        ? ` · ${payment.contract_student_count.toLocaleString("fa-IR")} نفر`
+                        : ""}
+                      {payment.per_student_amount_cents
+                        ? ` · سرانه ${formatCentsToToman(payment.per_student_amount_cents)} تومان`
+                        : ""}
+                    </p>
+                  ) : payment.advisor_name ? (
                     <p className="text-xs text-muted-foreground">مشاور: {payment.advisor_name}</p>
                   ) : null}
                 </div>
@@ -738,13 +798,16 @@ const Payments = () => {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
-                      دانش‌آموز
+                      پرداخت‌کننده
                     </th>
                     <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
                       شرح
                     </th>
                     <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
                       مبلغ (تومان)
+                    </th>
+                    <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
+                      سرانه / نفر
                     </th>
                     <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
                       سررسید
@@ -766,7 +829,7 @@ const Payments = () => {
                 <tbody>
                   {payments.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-muted-foreground">
+                      <td colSpan={9} className="p-6 text-center text-muted-foreground">
                         پرداختی یافت نشد.
                       </td>
                     </tr>
@@ -779,13 +842,27 @@ const Payments = () => {
                         <td className="p-4">
                           <div className="flex items-center gap-3">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                              {(payment.student_name || "—").charAt(0)}
+                              {(payment.student_name || payment.school_name || "—").charAt(0)}
                             </div>
                             <div>
                               <span className="font-medium text-foreground">
-                                {payment.student_name || "—"} <span className="text-xs text-muted-foreground">#{payment.student_id}</span>
+                                {payment.payer_type === "SCHOOL"
+                                  ? payment.school_name || payment.student_name || "مدرسه"
+                                  : payment.student_name || "—"}{" "}
+                                <span className="text-xs text-muted-foreground">
+                                  {payment.payer_type === "SCHOOL"
+                                    ? `قرارداد #${payment.school_contract_id ?? "—"}`
+                                    : `#${payment.student_id ?? "—"}`}
+                                </span>
                               </span>
-                              {payment.advisor_name ? (
+                              {payment.payer_type === "SCHOOL" ? (
+                                <p className="text-xs text-muted-foreground">
+                                  مدرسه‌ای
+                                  {payment.contract_student_count
+                                    ? ` · ${payment.contract_student_count.toLocaleString("fa-IR")} نفر`
+                                    : ""}
+                                </p>
+                              ) : payment.advisor_name ? (
                                 <p className="text-xs text-muted-foreground">مشاور: {payment.advisor_name}</p>
                               ) : null}
                             </div>
@@ -796,6 +873,11 @@ const Payments = () => {
                         </td>
                         <td className="p-4 font-bold number-display text-foreground">
                           {formatCentsToToman(payment.amount_cents)}
+                        </td>
+                        <td className="p-4 number-display text-muted-foreground">
+                          {payment.payer_type === "SCHOOL" && payment.per_student_amount_cents
+                            ? formatCentsToToman(payment.per_student_amount_cents)
+                            : "—"}
                         </td>
                         <td className="p-4 text-muted-foreground">
                           {formatDate(payment.due_date)}
@@ -936,10 +1018,21 @@ const Payments = () => {
           {isDetailLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
           {detailPayment && (
             <div className="space-y-3 text-sm">
-              <p><span className="text-muted-foreground">دانش‌آموز:</span> {detailPayment.student_name || "—"}</p>
-              <p><span className="text-muted-foreground">مشاور:</span> {detailPayment.advisor_name || "—"}</p>
-              <p><span className="text-muted-foreground">شناسه دانش‌آموز:</span> #{detailPayment.student_id}</p>
-              <p><span className="text-muted-foreground">شماره تماس:</span> {detailPayment.student_phone || "—"}</p>
+              {detailPayment.payer_type === "SCHOOL" ? (
+                <>
+                  <p><span className="text-muted-foreground">مدرسه:</span> {detailPayment.school_name || detailPayment.student_name || "—"}</p>
+                  <p><span className="text-muted-foreground">شناسه قرارداد:</span> #{detailPayment.school_contract_id ?? "—"}</p>
+                  <p><span className="text-muted-foreground">تعداد دانش‌آموز:</span> {(detailPayment.contract_student_count ?? 0).toLocaleString("fa-IR")}</p>
+                  <p><span className="text-muted-foreground">معادل هر دانش‌آموز:</span> {formatCentsToToman(detailPayment.per_student_amount_cents ?? 0)} تومان</p>
+                </>
+              ) : (
+                <>
+                  <p><span className="text-muted-foreground">دانش‌آموز:</span> {detailPayment.student_name || "—"}</p>
+                  <p><span className="text-muted-foreground">مشاور:</span> {detailPayment.advisor_name || "—"}</p>
+                  <p><span className="text-muted-foreground">شناسه دانش‌آموز:</span> #{detailPayment.student_id ?? "—"}</p>
+                  <p><span className="text-muted-foreground">شماره تماس:</span> {detailPayment.student_phone || "—"}</p>
+                </>
+              )}
               <p><span className="text-muted-foreground">مبلغ:</span> {formatCentsToToman(detailPayment.amount_cents)} تومان</p>
               <p><span className="text-muted-foreground">وضعیت:</span> {statusLabels[detailPayment.status] ?? detailPayment.status}</p>
               <p><span className="text-muted-foreground">نوع:</span> {paymentTypeLabels[detailPayment.payment_type] ?? detailPayment.payment_type}</p>
@@ -990,72 +1083,105 @@ const Payments = () => {
             }}
           >
             <div className="grid gap-2">
-              <label className="text-sm font-medium">دانش‌آموز</label>
-              <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={studentComboOpen}
-                    className="w-full justify-between font-normal"
-                  >
-                    <span className={cn(!createStudentLabel && "text-muted-foreground")}>
-                      {createStudentLabel || "جستجو و انتخاب دانش‌آموز"}
-                    </span>
-                    <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                  <div className="flex items-center border-b px-2">
-                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <Input
-                      className="border-0 shadow-none focus-visible:ring-0"
-                      placeholder="نام، موبایل یا ایمیل..."
-                      value={studentSearchInput}
-                      onChange={(e) => setStudentSearchInput(e.target.value)}
-                    />
-                  </div>
-                  <div className="max-h-60 overflow-y-auto p-1">
-                    {pickStudents.length === 0 ? (
-                      <p className="px-2 py-3 text-center text-sm text-muted-foreground">
-                        دانش‌آموزی یافت نشد
-                      </p>
-                    ) : (
-                      pickStudents.map((s) => {
-                        const label =
-                          [s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                          `دانش‌آموز ${s.id}`;
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className={cn(
-                              "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-right text-sm hover:bg-muted",
-                              createStudentId === String(s.id) && "bg-muted"
-                            )}
-                            onClick={() => {
-                              setCreateStudentId(String(s.id));
-                              setCreateStudentLabel(
-                                s.phone ? `${label} — ${s.phone}` : label
-                              );
-                              setStudentComboOpen(false);
-                            }}
-                          >
-                            <span>{label}</span>
-                            {s.phone ? (
-                              <span className="text-xs text-muted-foreground" dir="ltr">
-                                {s.phone}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <label className="text-sm font-medium">نوع پرداخت‌کننده</label>
+              <Select
+                value={createPayerType}
+                onValueChange={(v) => setCreatePayerType(v as "STUDENT" | "SCHOOL")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="STUDENT">دانش‌آموز (فردی)</SelectItem>
+                  <SelectItem value="SCHOOL">مدرسه (قرارداد)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            {createPayerType === "STUDENT" ? (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">دانش‌آموز</label>
+                <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={studentComboOpen}
+                      className="w-full justify-between font-normal"
+                    >
+                      <span className={cn(!createStudentLabel && "text-muted-foreground")}>
+                        {createStudentLabel || "جستجو و انتخاب دانش‌آموز"}
+                      </span>
+                      <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <div className="flex items-center border-b px-2">
+                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <Input
+                        className="border-0 shadow-none focus-visible:ring-0"
+                        placeholder="نام، موبایل یا ایمیل..."
+                        value={studentSearchInput}
+                        onChange={(e) => setStudentSearchInput(e.target.value)}
+                      />
+                    </div>
+                    <div className="max-h-60 overflow-y-auto p-1">
+                      {pickStudents.length === 0 ? (
+                        <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                          دانش‌آموزی یافت نشد
+                        </p>
+                      ) : (
+                        pickStudents.map((s) => {
+                          const label =
+                            [s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                            `دانش‌آموز ${s.id}`;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              className={cn(
+                                "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-right text-sm hover:bg-muted",
+                                createStudentId === String(s.id) && "bg-muted"
+                              )}
+                              onClick={() => {
+                                setCreateStudentId(String(s.id));
+                                setCreateStudentLabel(
+                                  s.phone ? `${label} — ${s.phone}` : label
+                                );
+                                setStudentComboOpen(false);
+                              }}
+                            >
+                              <span>{label}</span>
+                              {s.phone ? (
+                                <span className="text-xs text-muted-foreground" dir="ltr">
+                                  {s.phone}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">قرارداد مدرسه</label>
+                <Select value={createSchoolContractId} onValueChange={setCreateSchoolContractId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="انتخاب قرارداد" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schoolContractsPick.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.school_name} — {c.student_count.toLocaleString("fa-IR")} نفر
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid gap-2">
               <label className="text-sm font-medium">مبلغ (تومان)</label>
               <Input
@@ -1068,6 +1194,14 @@ const Payments = () => {
               <p className="text-xs text-muted-foreground">
                 به حروف: {numberToPersianWords(parseTomansInput(createAmountTomans))} تومان
               </p>
+              {createPayerType === "SCHOOL" && createPerStudentPreview > 0 && (
+                <p className="text-xs text-primary">
+                  معادل هر دانش‌آموز: {createPerStudentPreview.toLocaleString("fa-IR")} تومان
+                  {selectedSchoolContract
+                    ? ` (${selectedSchoolContract.student_count.toLocaleString("fa-IR")} نفر)`
+                    : ""}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">روش پرداخت</label>
@@ -1145,7 +1279,7 @@ const Payments = () => {
               <Button
                 type="submit"
                 disabled={
-                  !createStudentId ||
+                  (createPayerType === "STUDENT" ? !createStudentId : !createSchoolContractId) ||
                   !createAmountTomans ||
                   !createMethod ||
                   createMutation.isPending

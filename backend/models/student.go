@@ -16,6 +16,14 @@ const (
 	StudentStatusDeleted  StudentStatus = "DELETED"
 )
 
+// DeliveryMode is how private advisory sessions are held.
+type DeliveryMode string
+
+const (
+	DeliveryModeOnline   DeliveryMode = "ONLINE"
+	DeliveryModeInPerson DeliveryMode = "IN_PERSON"
+)
+
 // EnrollmentBillingMode distinguishes monthly cash-basis vs annual school enrollment (paid in installments).
 type EnrollmentBillingMode string
 
@@ -278,6 +286,9 @@ type Student struct {
 
 	// Home address
 	HomeAddress string `gorm:"size:500"`
+
+	// DeliveryMode: ONLINE or IN_PERSON (private students). Empty for legacy rows.
+	DeliveryMode DeliveryMode `gorm:"type:varchar(32);index"`
 
 	// Financial balance (in smallest unit, e.g. rials)
 	BalanceCents int64 `gorm:"not null;default:0"`

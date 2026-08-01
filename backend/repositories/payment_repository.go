@@ -54,6 +54,7 @@ func (r *GormPaymentRepository) FindByID(ctx context.Context, id uint) (*models.
 	if err := r.db.WithContext(ctx).
 		Preload("Student").
 		Preload("Student.Advisor").
+		Preload("SchoolContract").
 		Preload("Enrollment").
 		Preload("Enrollment.Plan").
 		First(&p, id).Error; err != nil {
@@ -72,8 +73,12 @@ func (r *GormPaymentRepository) scopePaymentsQuery(ctx context.Context, scopeUse
 		return q
 	}
 	uid := *scopeUser
-	return q.Joins("INNER JOIN students ON students.id = payments.student_id").
-		Where(access.PaymentJoinStudentVisibleSQL(), uid, uid)
+	// Scoped users see their students' payments + all school-contract payments.
+	return q.Joins("LEFT JOIN students ON students.id = payments.student_id").
+		Where(
+			"(payments.school_contract_id IS NOT NULL) OR ("+access.PaymentJoinStudentVisibleSQL()+")",
+			uid, uid,
+		)
 }
 
 func (r *GormPaymentRepository) Summary(ctx context.Context, scopeUser *uint) (*PaymentSummary, error) {
@@ -138,25 +143,34 @@ func (r *GormPaymentRepository) List(
 
 	query := r.baseQuery(ctx)
 	studentsJoined := false
+	schoolsJoined := false
 
 	if scopeUser != nil {
 		uid := *scopeUser
 		query = query.
-			Joins("INNER JOIN students ON students.id = payments.student_id").
-			Where(access.PaymentJoinStudentVisibleSQL(), uid, uid)
+			Joins("LEFT JOIN students ON students.id = payments.student_id").
+			Where(
+				"(payments.school_contract_id IS NOT NULL) OR ("+access.PaymentJoinStudentVisibleSQL()+")",
+				uid, uid,
+			)
 		studentsJoined = true
 	}
 
-	// Search on student name, description, reference_code
+	// Search on student name, school name, description, reference_code
 	if search != "" {
 		like := "%" + search + "%"
 		if !studentsJoined {
 			query = query.Joins("LEFT JOIN students ON students.id = payments.student_id")
 			studentsJoined = true
 		}
+		if !schoolsJoined {
+			query = query.Joins("LEFT JOIN school_contracts ON school_contracts.id = payments.school_contract_id")
+			schoolsJoined = true
+		}
 		query = query.Where(
 			r.db.Where("students.first_name LIKE ?", like).
 				Or("students.last_name LIKE ?", like).
+				Or("school_contracts.school_name LIKE ?", like).
 				Or("payments.description LIKE ?", like).
 				Or("payments.reference_code LIKE ?", like),
 		)
@@ -203,6 +217,7 @@ func (r *GormPaymentRepository) List(
 	if err := query.
 		Preload("Student").
 		Preload("Student.Advisor").
+		Preload("SchoolContract").
 		Preload("Enrollment").
 		Preload("Enrollment.Plan").
 		Limit(limit).
@@ -235,6 +250,7 @@ func (r *GormPaymentRepository) ListRecent(ctx context.Context, limit int, scope
 	if err := q.
 		Preload("Student").
 		Preload("Student.Advisor").
+		Preload("SchoolContract").
 		Order("payments.created_at DESC").
 		Limit(limit).
 		Find(&payments).Error; err != nil {

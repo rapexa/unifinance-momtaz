@@ -154,7 +154,7 @@ export function EnrollmentRegistrationFields({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام</label>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع پرداخت</label>
           <Select
             value={billingMode}
             onValueChange={(v) => {
@@ -183,7 +183,7 @@ export function EnrollmentRegistrationFields({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام (پلن)</label>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">پلن</label>
           <Select value={planId || "none"} onValueChange={(v) => onPlanIdChange(v === "none" ? "" : v)}>
             <SelectTrigger>
               <SelectValue placeholder="انتخاب نوع ثبت‌نام" />

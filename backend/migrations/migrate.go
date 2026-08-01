@@ -18,6 +18,8 @@ func Run() {
 	log.Printf("migrations: running in %s environment", cfg.AppEnv)
 
 	db := database.MustGetDB()
+	// Roles + orphan role_id cleanup must run BEFORE AutoMigrate adds fk_roles_users.
+	prepareUserRoleForeignKey(db)
 	autoMigrate(db)
 	backfillRolePayrollMonths(db)
 	backfillPaymentPayrollShares(db)
@@ -25,6 +27,49 @@ func Run() {
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
 	seedOrganizationAndAdmin(db)
+}
+
+// prepareUserRoleForeignKey ensures the roles table/seed exist and every users.role_id
+// points at a real role, so AutoMigrate can add CONSTRAINT fk_roles_users without Error 1452.
+func prepareUserRoleForeignKey(db *gorm.DB) {
+	// Migrating Role (which has Users association) can try to add the FK before data is clean.
+	prevDisableFK := db.DisableForeignKeyConstraintWhenMigrating
+	db.DisableForeignKeyConstraintWhenMigrating = true
+	if err := db.AutoMigrate(&models.Role{}, &models.RolePermission{}); err != nil {
+		db.DisableForeignKeyConstraintWhenMigrating = prevDisableFK
+		log.Fatalf("migrations: prepare roles tables failed: %v", err)
+	}
+	db.DisableForeignKeyConstraintWhenMigrating = prevDisableFK
+
+	seedRolesAndPermissions(db)
+
+	if !db.Migrator().HasTable(&models.User{}) {
+		return
+	}
+	if !db.Migrator().HasColumn(&models.User{}, "role_id") {
+		return
+	}
+
+	var gm models.Role
+	if err := db.Where("code = ?", models.RoleCodeGeneralManager).First(&gm).Error; err != nil {
+		log.Fatalf("migrations: general_manager role missing before FK fix: %v", err)
+	}
+
+	// Drop a half-created FK if a previous migrate failed mid-way (MySQL name used by GORM).
+	_ = db.Exec("ALTER TABLE `users` DROP FOREIGN KEY `fk_roles_users`").Error
+
+	res := db.Exec(`
+		UPDATE users u
+		LEFT JOIN roles r ON r.id = u.role_id
+		SET u.role_id = ?
+		WHERE u.role_id = 0 OR u.role_id IS NULL OR r.id IS NULL
+	`, gm.ID)
+	if res.Error != nil {
+		log.Fatalf("migrations: fix orphaned users.role_id failed: %v", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("migrations: repaired %d user(s) with missing/invalid role_id → general_manager", res.RowsAffected)
+	}
 }
 
 func autoMigrate(db *gorm.DB) {
@@ -41,6 +86,7 @@ func autoMigrate(db *gorm.DB) {
 		&models.Student{},
 		&models.StudentRolePayout{},
 		&models.Enrollment{},
+		&models.SchoolContract{},
 		&models.Payment{},
 		&models.PaymentPayrollShare{},
 		&models.PayrollEntry{},
@@ -51,6 +97,17 @@ func autoMigrate(db *gorm.DB) {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}
 	log.Println("migrations: AutoMigrate finished successfully")
+	relaxPaymentStudentIDNotNull(db)
+}
+
+// relaxPaymentStudentIDNotNull allows school-contract payments without a student_id.
+// GORM AutoMigrate often keeps an existing NOT NULL constraint; drop it explicitly on MySQL.
+func relaxPaymentStudentIDNotNull(db *gorm.DB) {
+	if err := db.Exec("ALTER TABLE payments MODIFY COLUMN student_id BIGINT UNSIGNED NULL").Error; err != nil {
+		log.Printf("migrations: relax payments.student_id nullability: %v", err)
+		return
+	}
+	log.Println("migrations: payments.student_id is nullable")
 }
 
 // backfillPaymentPayrollShares rebuilds payment split rows for all PAID payments.

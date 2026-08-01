@@ -472,8 +472,10 @@ func (s *FiscalYearService) writePaymentsSection(ctx context.Context, w *csv.Wri
 	}
 	for _, p := range payments {
 		studentName := ""
-		if p.Student.ID != 0 {
+		if p.Student != nil && p.Student.ID != 0 {
 			studentName = p.Student.FirstName + " " + p.Student.LastName
+		} else if p.SchoolContract != nil {
+			studentName = p.SchoolContract.SchoolName
 		}
 		dueDate := ""
 		if p.DueDate != nil {

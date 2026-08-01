@@ -1,0 +1,44 @@
+# Production / shared example configuration.
+# Copy to config.yaml for your environment and adjust secrets.
+# config.yaml is gitignored — never commit real passwords or JWT secrets.
+
+app_env: production
+
+server:
+  addr: ":8081"
+
+db:
+  host: "127.0.0.1"
+  port: "3306"
+  user: "unifinance"
+  pass: "CHANGE_ME"
+  name: "momtaz"
+  charset: "utf8mb4"
+  timezone: "Local"
+
+jwt:
+  secret: "CHANGE_ME_IN_PROD"
+  issuer: "unifinance-api"
+  expiry_hours: 24
+  refresh_expiry_hours: 168
+
+# Browser origins allowed to call the API (CORS).
+cors:
+  allow_origins:
+    - "https://mali-momtazisho.ir"
+    - "https://api.mali-momtazisho.ir"
+    - "https://checkout.momtaz-team.ir"
+    - "http://130.185.75.183:8080"
+    - "http://130.185.75.183"
+    - "http://130.185.75.183:8081"
+
+zarinpal:
+  merchant_id: "c099634b-fbfa-4485-852a-5e88916d901c"
+  sandbox: false
+  callback_url: "https://checkout.momtaz-team.ir/payment/callback"
+
+frontend_url: "https://mali-momtazisho.ir"
+
+melipayamak:
+  username: ""
+  api_key: "2f8d3c35-160b-4d3c-9d29-b0a1b4d53b2a"

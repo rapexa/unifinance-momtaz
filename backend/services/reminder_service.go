@@ -126,6 +126,10 @@ func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
 	sent := 0
 	for i := range payments {
 		p := &payments[i]
+		// School-contract payments have no SMS student contacts.
+		if p.StudentID == nil || p.Student == nil {
+			continue
+		}
 		if p.DueDate == nil {
 			continue
 		}
@@ -158,11 +162,11 @@ func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
 
 			// Send SMS.
 			if s.sms != nil {
-				s.sms.SendPatternToAll(&p.Student, r.BodyID, nil)
+				s.sms.SendPatternToAll(p.Student, r.BodyID, nil)
 			}
 
 			pr := models.PaymentReminder{
-				StudentID:   p.StudentID,
+				StudentID:   *p.StudentID,
 				PaymentID:   &p.ID,
 				AmountCents: p.AmountCents,
 				Status:      models.ReminderStatusSent,
