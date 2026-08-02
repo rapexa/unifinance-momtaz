@@ -220,8 +220,8 @@ function registrationChannelLabel(channel?: string): string {
   return channel;
 }
 
-function contractTypeLabel(billingMode?: string, channel?: string): string {
-  if (channel === "SCHOOL") return "قرارداد مدرسه";
+function contractTypeLabel(billingMode?: string, _channel?: string): string {
+  // School-channel students use the same billing modes / payroll path as private.
   return billingModeLabel(parseBillingMode(billingMode));
 }
 

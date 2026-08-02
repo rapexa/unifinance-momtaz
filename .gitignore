@@ -73,6 +73,9 @@ web_modules/
 # Backend local secrets (copy from backend/config.example.yaml)
 backend/config.yaml
 
+# Local product/planning docs (not for remote)
+backend/docs/school-per-student-billing-phases.md
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

@@ -680,8 +680,8 @@ type AdvisorOpsRow struct {
 	RoleCode             string
 	RoleName             string
 	StudentsTotal        int
-	StudentsSchool       int // enrollment_billing_mode = SCHOOL_ENROLLMENT
-	StudentsPrivate      int // MONTHLY / SINGLE_SESSION / empty
+	StudentsSchool       int // registration_channel=SCHOOL or enrollment_billing_mode=SCHOOL_ENROLLMENT
+	StudentsPrivate      int // PRIVATE channel with MONTHLY / SINGLE_SESSION / empty
 	StudentsOnline       int // delivery_mode = ONLINE
 	StudentsInPerson     int // delivery_mode = IN_PERSON
 	PaidCountThisMonth   int // students with ≥1 PAID payment in period

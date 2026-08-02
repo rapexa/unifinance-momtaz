@@ -84,8 +84,9 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, db *go
 			Where("id = ?", paymentID).
 			Update("advisor_share_cents", 0).Error
 	}
-	// School-contract payments: money collection only — no payroll shares.
-	if p.IsSchoolContractPayment() || p.StudentID == nil {
+	// Legacy school_contract_id-only payments: cash collection only — no payroll.
+	// School-channel students billed via student_id get shares like private.
+	if p.IsLegacySchoolContractPayment() || p.StudentID == nil {
 		return db.WithContext(ctx).Model(&models.Payment{}).
 			Where("id = ?", paymentID).
 			Update("advisor_share_cents", 0).Error
@@ -283,14 +284,13 @@ func (s *PaymentService) IsPaymentVisibleToUser(ctx context.Context, studentID u
 	return n > 0, nil
 }
 
-// IsPaymentRecordVisibleToUser checks visibility for student or school-contract payments.
-// School-contract payments are visible to all authenticated users with payments permission
-// (no advisor scope) — money collection only.
+// IsPaymentRecordVisibleToUser checks visibility for student or legacy school-contract payments.
+// Legacy contract-only payments are visible to all users with payments permission (no advisor scope).
 func (s *PaymentService) IsPaymentRecordVisibleToUser(ctx context.Context, p *models.Payment, userID uint) (bool, error) {
 	if p == nil {
 		return false, nil
 	}
-	if p.IsSchoolContractPayment() {
+	if p.IsLegacySchoolContractPayment() {
 		return true, nil
 	}
 	if p.StudentID == nil {
@@ -339,9 +339,11 @@ type UpdatePaymentParams struct {
 
 func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*models.Payment, error) {
 	hasStudent := p.StudentID != nil && *p.StudentID > 0
-	hasSchool := p.SchoolContractID != nil && *p.SchoolContractID > 0
-	if hasStudent == hasSchool {
-		return nil, errors.New("either student_id or school_contract_id is required")
+	if !hasStudent {
+		if p.SchoolContractID != nil && *p.SchoolContractID > 0 {
+			return nil, errors.New("creating school_contract_id-only payments is deprecated; use student_id for school-channel students")
+		}
+		return nil, errors.New("student_id is required")
 	}
 	if p.AmountCents <= 0 {
 		return nil, errors.New("amount must be greater than zero")
@@ -370,30 +372,16 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		DueDate:       p.DueDate,
 		ReferenceCode: p.ReferenceCode,
 	}
-	if hasStudent {
-		var st models.Student
-		if err := s.db.WithContext(ctx).Select("id", "registration_channel").First(&st, *p.StudentID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, errors.New("student not found")
-			}
-			return nil, err
+	var st models.Student
+	if err := s.db.WithContext(ctx).Select("id", "registration_channel", "school_contract_id").First(&st, *p.StudentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("student not found")
 		}
-		if st.IsSchoolChannel() {
-			return nil, errors.New("school-channel students are billed via school contract payments, not student payments")
-		}
-		payment.StudentID = p.StudentID
+		return nil, err
 	}
-	if hasSchool {
-		var contract models.SchoolContract
-		if err := s.db.WithContext(ctx).First(&contract, *p.SchoolContractID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, ErrSchoolContractNotFound
-			}
-			return nil, err
-		}
-		payment.SchoolContractID = p.SchoolContractID
-		payment.ContractStudentCount = contract.StudentCount
-	}
+	// Private and school-channel students both pay via student_id.
+	// school_contract_id on create is ignored (legacy create path deprecated).
+	payment.StudentID = p.StudentID
 
 	if status == models.PaymentStatusPaid {
 		if p.PaidAt != nil {

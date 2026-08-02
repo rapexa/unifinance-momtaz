@@ -44,6 +44,8 @@ export interface StudentApi {
   /** YYYY-MM-DD — تاریخ شروع مشاوره */
   advisory_start_date?: string;
   role_payouts?: StudentRolePayoutApi[];
+  /** هشدارهای نرم محصول (مثلاً عدم تطابق جمع ثبت‌نامی با قرارداد مدرسه) */
+  warnings?: string[];
 }
 
 export type AdvisorCommissionKind =

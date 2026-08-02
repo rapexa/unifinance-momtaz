@@ -73,9 +73,19 @@ type Payment struct {
 	ZarinpalAuthority string `gorm:"size:100;index"`
 }
 
-// IsSchoolContractPayment reports whether this payment belongs to a school contract.
+// IsLegacySchoolContractPayment reports a historical contract-only payment
+// (school_contract_id set, no student_id). These are cash-collection-only and
+// excluded from the new per-student school paid_total.
+func (p *Payment) IsLegacySchoolContractPayment() bool {
+	if p == nil || p.SchoolContractID == nil || *p.SchoolContractID == 0 {
+		return false
+	}
+	return p.StudentID == nil || *p.StudentID == 0
+}
+
+// IsSchoolContractPayment is kept as an alias for legacy contract-only payments.
 func (p *Payment) IsSchoolContractPayment() bool {
-	return p != nil && p.SchoolContractID != nil && *p.SchoolContractID > 0
+	return p.IsLegacySchoolContractPayment()
 }
 
 // PerStudentAmountCents returns amount / snapshot student count (0 if not applicable).

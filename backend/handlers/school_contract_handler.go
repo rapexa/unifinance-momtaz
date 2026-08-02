@@ -22,44 +22,89 @@ func NewSchoolContractHandler(service *services.SchoolContractService, students 
 }
 
 type SchoolContractDTO struct {
-	ID                      uint       `json:"id"`
-	SchoolName              string     `json:"school_name"`
-	StudentCount            int        `json:"student_count"`
-	RegisteredStudentCount  int64      `json:"registered_student_count"`
-	UnitPriceCents          int64      `json:"unit_price_cents"`
-	TotalAmountCents        int64      `json:"total_amount_cents"`
-	PaidTotalCents          int64      `json:"paid_total_cents"`
-	RemainingBalanceCents   int64      `json:"remaining_balance_cents"`
-	Status                  string     `json:"status"`
-	Notes                   string     `json:"notes,omitempty"`
-	StartDate               *time.Time `json:"start_date,omitempty"`
-	CreatedAt               time.Time  `json:"created_at"`
+	ID                     uint       `json:"id"`
+	SchoolName             string     `json:"school_name"`
+	StudentCount           int        `json:"student_count"`
+	RegisteredStudentCount int64      `json:"registered_student_count"`
+	// UnitPriceCents is deprecated; kept for older clients/rows. Prefer total_amount_cents.
+	UnitPriceCents             int64      `json:"unit_price_cents,omitempty"`
+	TotalAmountCents           int64      `json:"total_amount_cents"`
+	PaidTotalCents             int64      `json:"paid_total_cents"`
+	RemainingBalanceCents      int64      `json:"remaining_balance_cents"`
+	// LegacyPaidTotalCents is historical school_contract_id-only PAID (excluded from paid_total).
+	LegacyPaidTotalCents       int64      `json:"legacy_paid_total_cents,omitempty"`
+	StudentsEnrollmentSumCents int64      `json:"students_enrollment_sum_cents"`
+	StudentsSettledCount       int64      `json:"students_settled_count"`
+	StudentsDebtCount          int64      `json:"students_debt_count"`
+	EnrollmentMismatch         bool       `json:"enrollment_mismatch"`
+	Status                     string     `json:"status"`
+	Notes                      string     `json:"notes,omitempty"`
+	StartDate                  *time.Time `json:"start_date,omitempty"`
+	CreatedAt                  time.Time  `json:"created_at"`
 }
 
-func toSchoolContractDTO(c *models.SchoolContract, paid int64, registered int64) SchoolContractDTO {
+func toSchoolContractDTO(
+	c *models.SchoolContract,
+	paid int64,
+	legacyPaid int64,
+	registered int64,
+	stats repositories.SchoolContractStudentStats,
+) SchoolContractDTO {
 	return SchoolContractDTO{
-		ID:                     c.ID,
-		SchoolName:             c.SchoolName,
-		StudentCount:           c.StudentCount,
-		RegisteredStudentCount: registered,
-		UnitPriceCents:         c.UnitPriceCents,
-		TotalAmountCents:       c.TotalAmountCents,
-		PaidTotalCents:         paid,
-		RemainingBalanceCents:  c.RemainingBalanceCents(paid),
-		Status:                 string(c.Status),
-		Notes:                  c.Notes,
-		StartDate:              c.StartDate,
-		CreatedAt:              c.CreatedAt,
+		ID:                         c.ID,
+		SchoolName:                 c.SchoolName,
+		StudentCount:               c.StudentCount,
+		RegisteredStudentCount:     registered,
+		UnitPriceCents:             c.UnitPriceCents,
+		TotalAmountCents:           c.TotalAmountCents,
+		PaidTotalCents:             paid,
+		RemainingBalanceCents:      c.RemainingBalanceCents(paid),
+		LegacyPaidTotalCents:       legacyPaid,
+		StudentsEnrollmentSumCents: stats.EnrollmentSumCents,
+		StudentsSettledCount:       stats.SettledCount,
+		StudentsDebtCount:          stats.DebtCount,
+		EnrollmentMismatch:         stats.EnrollmentSumCents > 0 && stats.EnrollmentSumCents != c.TotalAmountCents,
+		Status:                     string(c.Status),
+		Notes:                      c.Notes,
+		StartDate:                  c.StartDate,
+		CreatedAt:                  c.CreatedAt,
 	}
 }
 
+// schoolContractBody accepts total_amount_cents (preferred) or legacy unit_price_cents.
 type schoolContractBody struct {
-	SchoolName     string `json:"school_name" binding:"required,min=1,max=200"`
-	StudentCount   int    `json:"student_count" binding:"required,gt=0"`
-	UnitPriceCents int64  `json:"unit_price_cents" binding:"required,gt=0"`
-	Notes          string `json:"notes" binding:"omitempty,max=1000"`
-	StartDateStr   string `json:"start_date" binding:"omitempty"`
-	Status         string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE SETTLED"`
+	SchoolName       string `json:"school_name" binding:"required,min=1,max=200"`
+	StudentCount     int    `json:"student_count" binding:"required,gt=0"`
+	TotalAmountCents int64  `json:"total_amount_cents" binding:"omitempty,gt=0"`
+	UnitPriceCents   int64  `json:"unit_price_cents" binding:"omitempty,gte=0"`
+	Notes            string `json:"notes" binding:"omitempty,max=1000"`
+	StartDateStr     string `json:"start_date" binding:"omitempty"`
+	Status           string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE SETTLED"`
+}
+
+func (h *SchoolContractHandler) financeForIDs(c *gin.Context, ids []uint) (
+	regMap map[uint]int64,
+	legacyMap map[uint]int64,
+	statsMap map[uint]repositories.SchoolContractStudentStats,
+) {
+	regMap = map[uint]int64{}
+	legacyMap = map[uint]int64{}
+	statsMap = map[uint]repositories.SchoolContractStudentStats{}
+	if len(ids) == 0 {
+		return regMap, legacyMap, statsMap
+	}
+	if h.students != nil {
+		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), ids); err == nil {
+			regMap = m
+		}
+	}
+	if m, err := h.service.LegacyPaidCentsByIDs(c.Request.Context(), ids); err == nil {
+		legacyMap = m
+	}
+	if m, err := h.service.StudentStatsByIDs(c.Request.Context(), ids); err == nil {
+		statsMap = m
+	}
+	return regMap, legacyMap, statsMap
 }
 
 func (h *SchoolContractHandler) List(c *gin.Context) {
@@ -89,15 +134,11 @@ func (h *SchoolContractHandler) List(c *gin.Context) {
 	for i := range rows {
 		ids[i] = rows[i].ID
 	}
-	regMap := map[uint]int64{}
-	if h.students != nil && len(ids) > 0 {
-		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), ids); err == nil {
-			regMap = m
-		}
-	}
+	regMap, legacyMap, statsMap := h.financeForIDs(c, ids)
 	out := make([]SchoolContractDTO, len(rows))
 	for i := range rows {
-		out[i] = toSchoolContractDTO(&rows[i], paidMap[rows[i].ID], regMap[rows[i].ID])
+		id := rows[i].ID
+		out[i] = toSchoolContractDTO(&rows[i], paidMap[id], legacyMap[id], regMap[id], statsMap[id])
 	}
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize != 0 {
@@ -129,13 +170,8 @@ func (h *SchoolContractHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get school contract"})
 		return
 	}
-	var registered int64
-	if h.students != nil {
-		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), []uint{contract.ID}); err == nil {
-			registered = m[contract.ID]
-		}
-	}
-	c.JSON(http.StatusOK, toSchoolContractDTO(contract, paid, registered))
+	regMap, legacyMap, statsMap := h.financeForIDs(c, []uint{contract.ID})
+	c.JSON(http.StatusOK, toSchoolContractDTO(contract, paid, legacyMap[contract.ID], regMap[contract.ID], statsMap[contract.ID]))
 }
 
 func (h *SchoolContractHandler) Create(c *gin.Context) {
@@ -150,18 +186,19 @@ func (h *SchoolContractHandler) Create(c *gin.Context) {
 		return
 	}
 	created, err := h.service.Create(c.Request.Context(), services.CreateSchoolContractParams{
-		SchoolName:     body.SchoolName,
-		StudentCount:   body.StudentCount,
-		UnitPriceCents: body.UnitPriceCents,
-		Notes:          body.Notes,
-		StartDate:      start,
-		Status:         body.Status,
+		SchoolName:       body.SchoolName,
+		StudentCount:     body.StudentCount,
+		TotalAmountCents: body.TotalAmountCents,
+		UnitPriceCents:   body.UnitPriceCents,
+		Notes:            body.Notes,
+		StartDate:        start,
+		Status:           body.Status,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, toSchoolContractDTO(created, 0, 0))
+	c.JSON(http.StatusCreated, toSchoolContractDTO(created, 0, 0, 0, repositories.SchoolContractStudentStats{}))
 }
 
 func (h *SchoolContractHandler) Update(c *gin.Context) {
@@ -181,12 +218,13 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 		return
 	}
 	updated, err := h.service.Update(c.Request.Context(), uint(id), services.UpdateSchoolContractParams{
-		SchoolName:     body.SchoolName,
-		StudentCount:   body.StudentCount,
-		UnitPriceCents: body.UnitPriceCents,
-		Notes:          body.Notes,
-		StartDate:      start,
-		Status:         body.Status,
+		SchoolName:       body.SchoolName,
+		StudentCount:     body.StudentCount,
+		TotalAmountCents: body.TotalAmountCents,
+		UnitPriceCents:   body.UnitPriceCents,
+		Notes:            body.Notes,
+		StartDate:        start,
+		Status:           body.Status,
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrSchoolContractNotFound) {
@@ -197,13 +235,8 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 		return
 	}
 	_, paid, _ := h.service.GetByID(c.Request.Context(), updated.ID)
-	var registered int64
-	if h.students != nil {
-		if m, err := h.students.CountBySchoolContractIDs(c.Request.Context(), []uint{updated.ID}); err == nil {
-			registered = m[updated.ID]
-		}
-	}
-	c.JSON(http.StatusOK, toSchoolContractDTO(updated, paid, registered))
+	regMap, legacyMap, statsMap := h.financeForIDs(c, []uint{updated.ID})
+	c.JSON(http.StatusOK, toSchoolContractDTO(updated, paid, legacyMap[updated.ID], regMap[updated.ID], statsMap[updated.ID]))
 }
 
 func (h *SchoolContractHandler) Delete(c *gin.Context) {

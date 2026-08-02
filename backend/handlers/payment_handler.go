@@ -49,7 +49,8 @@ type PaymentDTO struct {
 	SchoolName           string     `json:"school_name,omitempty"`
 	ContractStudentCount int        `json:"contract_student_count,omitempty"`
 	PerStudentAmountCents int64     `json:"per_student_amount_cents,omitempty"`
-	PayerType            string     `json:"payer_type"` // STUDENT | SCHOOL
+	PayerType            string     `json:"payer_type"` // STUDENT | LEGACY_SCHOOL
+	IsLegacySchoolContract bool     `json:"is_legacy_school_contract,omitempty"`
 	EnrollmentID         *uint      `json:"enrollment_id,omitempty"`
 	PlanName             *string    `json:"plan_name,omitempty"`
 	AmountCents          int64      `json:"amount_cents"`
@@ -84,8 +85,9 @@ func toPaymentDTO(p *models.Payment) PaymentDTO {
 		PayerType:         "STUDENT",
 	}
 
-	if p.IsSchoolContractPayment() {
-		dto.PayerType = "SCHOOL"
+	if p.IsLegacySchoolContractPayment() {
+		dto.PayerType = "LEGACY_SCHOOL"
+		dto.IsLegacySchoolContract = true
 		dto.ContractStudentCount = p.ContractStudentCount
 		dto.PerStudentAmountCents = p.PerStudentAmountCents()
 		if p.SchoolContract != nil {
@@ -366,20 +368,24 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 	}
 
 	hasStudent := req.StudentID != nil && *req.StudentID > 0
-	hasSchool := req.SchoolContractID != nil && *req.SchoolContractID > 0
-	if hasStudent == hasSchool {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "یکی از student_id یا school_contract_id الزامی است"})
+	if !hasStudent {
+		if req.SchoolContractID != nil && *req.SchoolContractID > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "ثبت پرداخت فقط با school_contract_id منسوخ شده است؛ دانش‌آموز مدرسه را انتخاب کنید",
+			})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "student_id الزامی است"})
 		return
 	}
-	if hasStudent && !h.requireStudentPaymentAccess(c, *req.StudentID) {
+	if !h.requireStudentPaymentAccess(c, *req.StudentID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
 		return
 	}
 
 	params := services.CreatePaymentParams{
-		StudentID:        req.StudentID,
-		SchoolContractID: req.SchoolContractID,
-		AmountCents:      req.AmountCents,
+		StudentID:   req.StudentID,
+		AmountCents: req.AmountCents,
 		PaidAt:           paidAt,
 		Method:           req.Method,
 		Description:      req.Description,
@@ -644,8 +650,8 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		dto := toPaymentDTO(&p)
 		payerLabel := "فردی"
 		refID := ""
-		if dto.PayerType == "SCHOOL" {
-			payerLabel = "مدرسه‌ای"
+		if dto.PayerType == "LEGACY_SCHOOL" || dto.IsLegacySchoolContract {
+			payerLabel = "قرارداد قدیمی"
 			if dto.SchoolContractID != nil {
 				refID = strconv.FormatUint(uint64(*dto.SchoolContractID), 10)
 			}
@@ -658,7 +664,7 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		}
 		countStr := ""
 		perStudentStr := ""
-		if dto.PayerType == "SCHOOL" && dto.ContractStudentCount > 0 {
+		if (dto.PayerType == "LEGACY_SCHOOL" || dto.IsLegacySchoolContract) && dto.ContractStudentCount > 0 {
 			countStr = strconv.Itoa(dto.ContractStudentCount)
 			perStudentStr = strconv.FormatInt(dto.PerStudentAmountCents/10, 10)
 		}
@@ -756,8 +762,8 @@ func (h *PaymentHandler) GenerateLink(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
 		return
 	}
-	if p.IsSchoolContractPayment() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "لینک پرداخت برای قرارداد مدرسه پشتیبانی نمی‌شود"})
+	if p.IsLegacySchoolContractPayment() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "لینک پرداخت برای پرداخت قرارداد قدیمی پشتیبانی نمی‌شود"})
 		return
 	}
 

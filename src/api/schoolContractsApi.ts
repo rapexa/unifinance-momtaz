@@ -6,10 +6,22 @@ export interface SchoolContractApi {
   student_count: number;
   /** تعداد دانش‌آموزان ثبت‌شده زیر این قرارداد */
   registered_student_count?: number;
-  unit_price_cents: number;
+  /** @deprecated دیگر منبع حقیقت نیست؛ ترجیح با total_amount_cents */
+  unit_price_cents?: number;
   total_amount_cents: number;
+  /** جمع پرداخت‌های PAID دانش‌آموزان همین مدرسه */
   paid_total_cents: number;
   remaining_balance_cents: number;
+  /** پرداخت‌های تاریخی فقط‌قراردادی (در paid_total شمرده نمی‌شود) */
+  legacy_paid_total_cents?: number;
+  /** جمع مبالغ ثبت‌نامی دانش‌آموزان ثبت‌شده */
+  students_enrollment_sum_cents?: number;
+  /** تعداد دانش‌آموزانی که مانده‌شان صفر/بستانکار است */
+  students_settled_count?: number;
+  /** تعداد دانش‌آموزان با مانده بدهکار */
+  students_debt_count?: number;
+  /** جمع ثبت‌نامی‌ها با مبلغ قرارداد برابر نیست (هشدار نرم) */
+  enrollment_mismatch?: boolean;
   status: string;
   notes?: string;
   start_date?: string | null;
@@ -37,7 +49,8 @@ export interface ListSchoolContractsParams {
 export interface CreateSchoolContractPayload {
   school_name: string;
   student_count: number;
-  unit_price_cents: number;
+  /** مبلغ کل قرارداد (واحد داخلی API؛ تومان × ۱۰) */
+  total_amount_cents: number;
   notes?: string;
   start_date?: string;
   status?: string;

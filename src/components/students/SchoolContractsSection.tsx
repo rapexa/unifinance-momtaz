@@ -27,10 +27,6 @@ import {
 } from "@/api/schoolContractsApi";
 import { listStudents, type StudentApi } from "@/api/studentsApi";
 
-function formatTomansFromCents(cents: number): string {
-  return Math.round(cents / 10).toLocaleString("fa-IR");
-}
-
 function EditSchoolContractForm({
   contract,
   onClose,
@@ -41,16 +37,15 @@ function EditSchoolContractForm({
   const queryClient = useQueryClient();
   const [schoolName, setSchoolName] = useState(contract.school_name);
   const [studentCount, setStudentCount] = useState(String(contract.student_count));
-  const [unitPrice, setUnitPrice] = useState(
-    formatGroupedFaIntInput(String(Math.round(contract.unit_price_cents / 10))),
+  const [totalAmount, setTotalAmount] = useState(
+    formatGroupedFaIntInput(String(Math.round((contract.total_amount_cents || 0) / 10))),
   );
   const [notes, setNotes] = useState(contract.notes || "");
   const [status, setStatus] = useState(contract.status || "ACTIVE");
   const [error, setError] = useState("");
 
   const count = parseLocalizedInt(studentCount);
-  const unitTomans = parseLocalizedInt(unitPrice);
-  const totalPreview = count > 0 && unitTomans > 0 ? count * unitTomans : 0;
+  const totalTomans = parseLocalizedInt(totalAmount);
 
   const mutation = useMutation({
     mutationFn: (payload: UpdateSchoolContractPayload) =>
@@ -81,19 +76,16 @@ function EditSchoolContractForm({
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            مبلغ هر دانش‌آموز (تومان)
+            مبلغ کل قرارداد (تومان)
           </label>
           <Input
             inputMode="numeric"
             dir="ltr"
-            value={unitPrice}
-            onChange={(e) => setUnitPrice(formatGroupedFaIntInput(e.target.value))}
+            value={totalAmount}
+            onChange={(e) => setTotalAmount(formatGroupedFaIntInput(e.target.value))}
           />
         </div>
       </div>
-      <p className="text-sm text-primary">
-        مبلغ کل قرارداد: {totalPreview > 0 ? totalPreview.toLocaleString("fa-IR") : "—"} تومان
-      </p>
       <div>
         <label className="mb-1 block text-xs font-medium text-muted-foreground">وضعیت</label>
         <Select value={status} onValueChange={setStatus}>
@@ -117,12 +109,12 @@ function EditSchoolContractForm({
           انصراف
         </Button>
         <Button
-          disabled={mutation.isPending || !schoolName.trim() || count <= 0 || unitTomans <= 0}
+          disabled={mutation.isPending || !schoolName.trim() || count <= 0 || totalTomans <= 0}
           onClick={() =>
             mutation.mutate({
               school_name: schoolName.trim(),
               student_count: count,
-              unit_price_cents: unitTomans * 10,
+              total_amount_cents: totalTomans * 10,
               notes: notes.trim() || undefined,
               status,
             })
@@ -175,7 +167,7 @@ function SchoolStudentsPanel({
               ثبت‌شده {registered.toLocaleString("fa-IR")} از{" "}
               {contract.student_count.toLocaleString("fa-IR")} نفر
               <span className="mx-1">·</span>
-              اطلاعات پرداخت در منوی «پرداخت‌ها ← مدارس»
+              پرداخت و مانده در منوی «پرداخت‌ها ← مدارس»
             </p>
           </div>
         </div>

@@ -51,6 +51,7 @@ coverage.out
 
 task.txt
 
-
+# Local product/planning docs (not for remote)
+docs/school-per-student-billing-phases.md
 
 Uploads

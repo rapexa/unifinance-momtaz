@@ -10,8 +10,9 @@ export interface PaymentApi {
   school_name?: string;
   contract_student_count?: number;
   per_student_amount_cents?: number;
-  /** STUDENT | SCHOOL */
+  /** STUDENT | LEGACY_SCHOOL (historical contract-only) */
   payer_type?: string;
+  is_legacy_school_contract?: boolean;
   enrollment_id?: number;
   plan_name?: string;
   amount_cents: number;
@@ -96,7 +97,8 @@ export async function getPaymentsSummary(): Promise<PaymentsSummary> {
 }
 
 export interface CreatePaymentPayload {
-  student_id?: number;
+  student_id: number;
+  /** @deprecated create with school_contract_id only is rejected by API */
   school_contract_id?: number;
   amount_cents: number;
   method: string;

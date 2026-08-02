@@ -55,7 +55,7 @@ import {
   type UpdatePaymentPayload,
 } from "@/api/paymentsApi";
 import { listStudents } from "@/api/studentsApi";
-import { listAllSchoolContracts, type SchoolContractApi } from "@/api/schoolContractsApi";
+import { listAllSchoolContracts } from "@/api/schoolContractsApi";
 import { SchoolContractsPaymentsPanel } from "@/components/payments/SchoolContractsPaymentsPanel";
 
 const statusLabels: Record<string, string> = {
@@ -87,6 +87,18 @@ const paymentTypeLabels: Record<string, string> = {
 function formatCentsToToman(cents: number): string {
   const tomans = Math.floor(cents / 10);
   return tomans.toLocaleString("fa-IR");
+}
+
+/** Historical school_contract_id-only payment (excluded from new school paid_total). */
+function isLegacySchoolPayment(p: {
+  payer_type?: string;
+  is_legacy_school_contract?: boolean;
+}): boolean {
+  return (
+    p.is_legacy_school_contract === true ||
+    p.payer_type === "LEGACY_SCHOOL" ||
+    p.payer_type === "SCHOOL"
+  );
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -317,18 +329,23 @@ const Payments = () => {
     return () => clearTimeout(t);
   }, [studentSearchInput]);
 
-  useEffect(() => {
-    if (isCreateOpen) {
-      setStudentSearchInput("");
-      setDebouncedStudentSearch("");
-      setStudentComboOpen(false);
-      setCreateStudentId("");
-      setCreateStudentLabel("");
-      setCreateSchoolContractId("");
-      setCreatePayerType("STUDENT");
-      setCreateError("");
-    }
-  }, [isCreateOpen]);
+  const resetCreatePaymentForm = useCallback((payerType: "STUDENT" | "SCHOOL" = "STUDENT") => {
+    setStudentSearchInput("");
+    setDebouncedStudentSearch("");
+    setStudentComboOpen(false);
+    setCreateStudentId("");
+    setCreateStudentLabel("");
+    setCreateSchoolContractId("");
+    setCreatePayerType(payerType);
+    setCreateAmountTomans("");
+    setCreateMethod("");
+    setCreateStatus("PENDING");
+    setCreatePaymentType("MONTHLY");
+    setCreateDescription("");
+    setCreateDueDate("");
+    setCreatePaidAt(todayJalaliString());
+    setCreateError("");
+  }, []);
 
   const statusParam =
     activeTab === "all" || activeTab === "schools" ? undefined : activeTab.toUpperCase();
@@ -368,15 +385,22 @@ const Payments = () => {
   });
 
   const { data: studentsPickData } = useQuery({
-    queryKey: ["students", "payment-picker", debouncedStudentSearch],
+    queryKey: ["students", "payment-picker", createPayerType, createSchoolContractId, debouncedStudentSearch],
     queryFn: () =>
       listStudents({
         search: debouncedStudentSearch.trim() || undefined,
-        registration_channel: "PRIVATE",
+        registration_channel: createPayerType === "SCHOOL" ? "SCHOOL" : "PRIVATE",
+        school_contract_id:
+          createPayerType === "SCHOOL" && createSchoolContractId
+            ? Number(createSchoolContractId)
+            : undefined,
         page: 1,
         page_size: 50,
       }),
-    enabled: isCreateOpen && createPayerType === "STUDENT",
+    enabled:
+      isCreateOpen &&
+      (createPayerType === "STUDENT" ||
+        (createPayerType === "SCHOOL" && !!createSchoolContractId)),
   });
 
   const { data: schoolContractsPick = [] } = useQuery({
@@ -384,18 +408,6 @@ const Payments = () => {
     queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
     enabled: isCreateOpen && createPayerType === "SCHOOL",
   });
-
-  const selectedSchoolContract: SchoolContractApi | undefined = schoolContractsPick.find(
-    (c) => String(c.id) === createSchoolContractId,
-  );
-  const createAmountTomansNum = parseTomansInput(createAmountTomans);
-  const createPerStudentPreview =
-    createPayerType === "SCHOOL" &&
-    selectedSchoolContract &&
-    selectedSchoolContract.student_count > 0 &&
-    createAmountTomansNum > 0
-      ? Math.floor(createAmountTomansNum / selectedSchoolContract.student_count)
-      : 0;
 
   const createMutation = useMutation({
     mutationFn: (payload: CreatePaymentPayload) => createPayment(payload),
@@ -407,16 +419,7 @@ const Payments = () => {
       queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateOpen(false);
-      setCreateStudentId("");
-      setCreateSchoolContractId("");
-      setCreateAmountTomans("");
-      setCreateMethod("");
-      setCreateStatus("PENDING");
-      setCreatePaymentType("MONTHLY");
-      setCreateDescription("");
-      setCreateDueDate("");
-      setCreateStudentLabel("");
-      setCreateError("");
+      resetCreatePaymentForm("STUDENT");
     },
     onError: (e: Error) => setCreateError(e.message),
   });
@@ -512,18 +515,18 @@ const Payments = () => {
       setCreateError("مبلغ، روش پرداخت و وضعیت الزامی هستند");
       return;
     }
-    if (createPayerType === "STUDENT") {
-      const studentId = parseInt(createStudentId, 10);
-      if (!studentId) {
-        setCreateError("دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند");
-        return;
-      }
-    } else {
-      const contractId = parseInt(createSchoolContractId, 10);
-      if (!contractId) {
-        setCreateError("قرارداد مدرسه، مبلغ، روش پرداخت و وضعیت الزامی هستند");
-        return;
-      }
+    const studentId = parseInt(createStudentId, 10);
+    if (!studentId) {
+      setCreateError(
+        createPayerType === "SCHOOL"
+          ? "مدرسه، دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند"
+          : "دانش‌آموز، مبلغ، روش پرداخت و وضعیت الزامی هستند",
+      );
+      return;
+    }
+    if (createPayerType === "SCHOOL" && !createSchoolContractId) {
+      setCreateError("مدرسه و دانش‌آموز الزامی هستند");
+      return;
     }
 
     const dueDateTrimmed = createDueDate.trim();
@@ -556,11 +559,7 @@ const Payments = () => {
       due_date: dueDateGregorian,
       paid_at: paidAtGregorian,
     };
-    if (createPayerType === "SCHOOL") {
-      payload.school_contract_id = parseInt(createSchoolContractId, 10);
-    } else {
-      payload.student_id = parseInt(createStudentId, 10);
-    }
+    payload.student_id = studentId;
     createMutation.mutate(payload);
   }, [
     createPayerType,
@@ -695,7 +694,14 @@ const Payments = () => {
             <Download className="ml-2 h-4 w-4" />
             خروجی
           </Button>
-          <Button size="sm" onClick={() => setIsCreateOpen(true)} className="flex-1 sm:flex-none">
+          <Button
+            size="sm"
+            onClick={() => {
+              resetCreatePaymentForm("STUDENT");
+              setIsCreateOpen(true);
+            }}
+            className="flex-1 sm:flex-none"
+          >
             <Plus className="ml-2 h-4 w-4" />
             ثبت پرداخت
           </Button>
@@ -728,7 +734,7 @@ const Payments = () => {
           <SchoolContractsPaymentsPanel
             search={searchQuery}
             onRegisterPayment={(c) => {
-              setCreatePayerType("SCHOOL");
+              resetCreatePaymentForm("SCHOOL");
               setCreateSchoolContractId(String(c.id));
               setIsCreateOpen(true);
             }}
@@ -741,23 +747,20 @@ const Payments = () => {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="font-medium text-foreground">
-                    {payment.payer_type === "SCHOOL"
+                    {isLegacySchoolPayment(payment)
                       ? payment.school_name || payment.student_name || "مدرسه"
                       : payment.student_name || "—"}{" "}
                     <span className="text-xs text-muted-foreground">
-                      {payment.payer_type === "SCHOOL"
+                      {isLegacySchoolPayment(payment)
                         ? `قرارداد #${payment.school_contract_id ?? "—"}`
                         : `#${payment.student_id ?? "—"}`}
                     </span>
                   </p>
-                  {payment.payer_type === "SCHOOL" ? (
-                    <p className="text-xs text-muted-foreground">
-                      مدرسه‌ای
+                  {isLegacySchoolPayment(payment) ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      پرداخت قرارداد قدیمی (تاریخی)
                       {payment.contract_student_count
                         ? ` · ${payment.contract_student_count.toLocaleString("fa-IR")} نفر`
-                        : ""}
-                      {payment.per_student_amount_cents
-                        ? ` · سرانه ${formatCentsToToman(payment.per_student_amount_cents)} تومان`
                         : ""}
                     </p>
                   ) : payment.advisor_name ? (
@@ -863,18 +866,18 @@ const Payments = () => {
                             </div>
                             <div>
                               <span className="font-medium text-foreground">
-                                {payment.payer_type === "SCHOOL"
+                                {isLegacySchoolPayment(payment)
                                   ? payment.school_name || payment.student_name || "مدرسه"
                                   : payment.student_name || "—"}{" "}
                                 <span className="text-xs text-muted-foreground">
-                                  {payment.payer_type === "SCHOOL"
+                                  {isLegacySchoolPayment(payment)
                                     ? `قرارداد #${payment.school_contract_id ?? "—"}`
                                     : `#${payment.student_id ?? "—"}`}
                                 </span>
                               </span>
-                              {payment.payer_type === "SCHOOL" ? (
-                                <p className="text-xs text-muted-foreground">
-                                  مدرسه‌ای
+                              {isLegacySchoolPayment(payment) ? (
+                                <p className="text-xs text-amber-700 dark:text-amber-400">
+                                  پرداخت قرارداد قدیمی
                                   {payment.contract_student_count
                                     ? ` · ${payment.contract_student_count.toLocaleString("fa-IR")} نفر`
                                     : ""}
@@ -892,7 +895,7 @@ const Payments = () => {
                           {formatCentsToToman(payment.amount_cents)}
                         </td>
                         <td className="p-4 number-display text-muted-foreground">
-                          {payment.payer_type === "SCHOOL" && payment.per_student_amount_cents
+                          {isLegacySchoolPayment(payment) && payment.per_student_amount_cents
                             ? formatCentsToToman(payment.per_student_amount_cents)
                             : "—"}
                         </td>
@@ -950,16 +953,18 @@ const Payments = () => {
                               <Pencil className="h-4 w-4" />
                               ویرایش
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-1"
-                              onClick={() => handleOpenLink(payment.id)}
-                              title="لینک پرداخت"
-                            >
-                              <Link2 className="h-4 w-4" />
-                              لینک
-                            </Button>
+                            {!isLegacySchoolPayment(payment) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1"
+                                onClick={() => handleOpenLink(payment.id)}
+                                title="لینک پرداخت"
+                              >
+                                <Link2 className="h-4 w-4" />
+                                لینک
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1037,8 +1042,9 @@ const Payments = () => {
           {isDetailLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
           {detailPayment && (
             <div className="space-y-3 text-sm">
-              {detailPayment.payer_type === "SCHOOL" ? (
+              {isLegacySchoolPayment(detailPayment) ? (
                 <>
+                  <p className="text-amber-700 dark:text-amber-400 text-xs">پرداخت قرارداد قدیمی (تاریخی — در مانده جدید مدرسه شمرده نمی‌شود)</p>
                   <p><span className="text-muted-foreground">مدرسه:</span> {detailPayment.school_name || detailPayment.student_name || "—"}</p>
                   <p><span className="text-muted-foreground">شناسه قرارداد:</span> #{detailPayment.school_contract_id ?? "—"}</p>
                   <p><span className="text-muted-foreground">تعداد دانش‌آموز:</span> {(detailPayment.contract_student_count ?? 0).toLocaleString("fa-IR")}</p>
@@ -1105,91 +1111,38 @@ const Payments = () => {
               <label className="text-sm font-medium">نوع پرداخت‌کننده</label>
               <Select
                 value={createPayerType}
-                onValueChange={(v) => setCreatePayerType(v as "STUDENT" | "SCHOOL")}
+                onValueChange={(v) => {
+                  const next = v as "STUDENT" | "SCHOOL";
+                  setCreatePayerType(next);
+                  setCreateStudentId("");
+                  setCreateStudentLabel("");
+                  setStudentSearchInput("");
+                  if (next === "STUDENT") setCreateSchoolContractId("");
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="STUDENT">دانش‌آموز (فردی)</SelectItem>
-                  <SelectItem value="SCHOOL">مدرسه (قرارداد)</SelectItem>
+                  <SelectItem value="STUDENT">دانش‌آموز خصوصی</SelectItem>
+                  <SelectItem value="SCHOOL">مدرسه‌ای (دانش‌آموز مدرسه)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {createPayerType === "STUDENT" ? (
+            {createPayerType === "SCHOOL" && (
               <div className="grid gap-2">
-                <label className="text-sm font-medium">دانش‌آموز</label>
-                <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={studentComboOpen}
-                      className="w-full justify-between font-normal"
-                    >
-                      <span className={cn(!createStudentLabel && "text-muted-foreground")}>
-                        {createStudentLabel || "جستجو و انتخاب دانش‌آموز"}
-                      </span>
-                      <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                    <div className="flex items-center border-b px-2">
-                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <Input
-                        className="border-0 shadow-none focus-visible:ring-0"
-                        placeholder="نام، موبایل یا ایمیل..."
-                        value={studentSearchInput}
-                        onChange={(e) => setStudentSearchInput(e.target.value)}
-                      />
-                    </div>
-                    <div className="max-h-60 overflow-y-auto p-1">
-                      {pickStudents.length === 0 ? (
-                        <p className="px-2 py-3 text-center text-sm text-muted-foreground">
-                          دانش‌آموزی یافت نشد
-                        </p>
-                      ) : (
-                        pickStudents.map((s) => {
-                          const label =
-                            [s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                            `دانش‌آموز ${s.id}`;
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              className={cn(
-                                "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-right text-sm hover:bg-muted",
-                                createStudentId === String(s.id) && "bg-muted"
-                              )}
-                              onClick={() => {
-                                setCreateStudentId(String(s.id));
-                                setCreateStudentLabel(
-                                  s.phone ? `${label} — ${s.phone}` : label
-                                );
-                                setStudentComboOpen(false);
-                              }}
-                            >
-                              <span>{label}</span>
-                              {s.phone ? (
-                                <span className="text-xs text-muted-foreground" dir="ltr">
-                                  {s.phone}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                <label className="text-sm font-medium">قرارداد مدرسه</label>
-                <Select value={createSchoolContractId} onValueChange={setCreateSchoolContractId}>
+                <label className="text-sm font-medium">مدرسه</label>
+                <Select
+                  value={createSchoolContractId}
+                  onValueChange={(id) => {
+                    setCreateSchoolContractId(id);
+                    setCreateStudentId("");
+                    setCreateStudentLabel("");
+                    setStudentSearchInput("");
+                  }}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="انتخاب قرارداد" />
+                    <SelectValue placeholder="انتخاب مدرسه" />
                   </SelectTrigger>
                   <SelectContent>
                     {schoolContractsPick.map((c) => (
@@ -1199,8 +1152,98 @@ const Payments = () => {
                     ))}
                   </SelectContent>
                 </Select>
+                {schoolContractsPick.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    هنوز مدرسه‌ای ثبت نشده. از منوی دانش‌آموزان ← مدارس، مدرسه اضافه کنید.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    پرداخت فقط برای دانش‌آموز همان مدرسه ثبت می‌شود (نه روی خود قرارداد).
+                  </p>
+                )}
               </div>
             )}
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">دانش‌آموز</label>
+              <Popover open={studentComboOpen} onOpenChange={setStudentComboOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={studentComboOpen}
+                    className="w-full justify-between font-normal"
+                    disabled={createPayerType === "SCHOOL" && !createSchoolContractId}
+                  >
+                    <span className={cn(!createStudentLabel && "text-muted-foreground")}>
+                      {createStudentLabel ||
+                        (createPayerType === "SCHOOL" && !createSchoolContractId
+                          ? "ابتدا مدرسه را انتخاب کنید"
+                          : "جستجو و انتخاب دانش‌آموز")}
+                    </span>
+                    <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <div className="flex items-center border-b px-2">
+                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Input
+                      className="border-0 shadow-none focus-visible:ring-0"
+                      placeholder={
+                        createPayerType === "SCHOOL"
+                          ? "جستجو در دانش‌آموزان این مدرسه..."
+                          : "نام، موبایل یا ایمیل..."
+                      }
+                      value={studentSearchInput}
+                      onChange={(e) => setStudentSearchInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto p-1">
+                    {pickStudents.length === 0 ? (
+                      <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                        {createPayerType === "SCHOOL"
+                          ? createSchoolContractId
+                            ? debouncedStudentSearch.trim()
+                              ? "در این مدرسه دانش‌آموزی با این جستجو نیست."
+                              : "برای این مدرسه دانش‌آموزی ثبت نشده. ابتدا از دانش‌آموزان، دانش‌آموز مدرسه‌ای اضافه کنید."
+                            : "ابتدا مدرسه را انتخاب کنید."
+                          : "دانش‌آموزی یافت نشد"}
+                      </p>
+                    ) : (
+                      pickStudents.map((s) => {
+                        const label =
+                          [s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                          `دانش‌آموز ${s.id}`;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={cn(
+                              "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-right text-sm hover:bg-muted",
+                              createStudentId === String(s.id) && "bg-muted"
+                            )}
+                            onClick={() => {
+                              setCreateStudentId(String(s.id));
+                              setCreateStudentLabel(
+                                s.phone ? `${label} — ${s.phone}` : label
+                              );
+                              setStudentComboOpen(false);
+                            }}
+                          >
+                            <span>{label}</span>
+                            {s.phone ? (
+                              <span className="text-xs text-muted-foreground" dir="ltr">
+                                {s.phone}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">مبلغ (تومان)</label>
               <Input
@@ -1213,14 +1256,6 @@ const Payments = () => {
               <p className="text-xs text-muted-foreground">
                 به حروف: {numberToPersianWords(parseTomansInput(createAmountTomans))} تومان
               </p>
-              {createPayerType === "SCHOOL" && createPerStudentPreview > 0 && (
-                <p className="text-xs text-primary">
-                  معادل هر دانش‌آموز: {createPerStudentPreview.toLocaleString("fa-IR")} تومان
-                  {selectedSchoolContract
-                    ? ` (${selectedSchoolContract.student_count.toLocaleString("fa-IR")} نفر)`
-                    : ""}
-                </p>
-              )}
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">روش پرداخت</label>
@@ -1298,7 +1333,8 @@ const Payments = () => {
               <Button
                 type="submit"
                 disabled={
-                  (createPayerType === "STUDENT" ? !createStudentId : !createSchoolContractId) ||
+                  !createStudentId ||
+                  (createPayerType === "SCHOOL" && !createSchoolContractId) ||
                   !createAmountTomans ||
                   !createMethod ||
                   createMutation.isPending

@@ -32,6 +32,11 @@ func (s *StudentService) CountBySchoolContractIDs(ctx context.Context, ids []uin
 	return s.repo.CountBySchoolContractIDs(ctx, ids)
 }
 
+// SumEnrollmentCentsBySchoolContractID sums enrollment amounts for non-deleted students on a contract.
+func (s *StudentService) SumEnrollmentCentsBySchoolContractID(ctx context.Context, contractID uint) (int64, error) {
+	return s.repo.SumEnrollmentAmountCentsBySchoolContractID(ctx, contractID)
+}
+
 // SchoolNames lists distinct school names for the students the user may see.
 func (s *StudentService) SchoolNames(ctx context.Context, scopeUser *uint) ([]string, error) {
 	return s.repo.DistinctSchoolNames(ctx, scopeUser)

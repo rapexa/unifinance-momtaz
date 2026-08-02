@@ -76,6 +76,8 @@ type StudentDoc struct {
 	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
 	AdvisoryStartDate string                 `json:"advisory_start_date,omitempty"`
 	RolePayouts       []StudentRolePayoutDoc `json:"role_payouts,omitempty"`
+	// Soft product warnings (e.g. school enrollment sum ≠ contract total). Never blocks save.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type StudentRolePayoutDoc struct {
@@ -185,15 +187,75 @@ func computeRemainingBalanceCents(s *models.Student, paidSum, openSum int64) int
 func (h *StudentHandler) studentDocWithRemaining(ctx context.Context, s *models.Student) StudentDoc {
 	doc := toStudentDoc(s)
 	if h.payments == nil {
-		return doc
+		return h.withSchoolEnrollmentWarnings(ctx, doc)
 	}
 	paid, open, err := h.payments.PaymentTotalsByStudentIDs(ctx, []uint{s.ID})
 	if err != nil {
-		return doc
+		return h.withSchoolEnrollmentWarnings(ctx, doc)
 	}
 	doc.PaidTotalCents = paid[s.ID]
 	doc.RemainingBalanceCents = computeRemainingBalanceCents(s, paid[s.ID], open[s.ID])
+	return h.withSchoolEnrollmentWarnings(ctx, doc)
+}
+
+// withSchoolEnrollmentWarnings soft-warns when Σ enrollment of school students ≠ contract total.
+func (h *StudentHandler) withSchoolEnrollmentWarnings(ctx context.Context, doc StudentDoc) StudentDoc {
+	if doc.SchoolContractID == nil || *doc.SchoolContractID == 0 || h.schoolContracts == nil {
+		return doc
+	}
+	if strings.ToUpper(strings.TrimSpace(doc.RegistrationChannel)) != string(models.RegistrationChannelSchool) {
+		return doc
+	}
+	contract, _, err := h.schoolContracts.GetByID(ctx, *doc.SchoolContractID)
+	if err != nil || contract == nil {
+		return doc
+	}
+	sum, err := h.service.SumEnrollmentCentsBySchoolContractID(ctx, *doc.SchoolContractID)
+	if err != nil {
+		return doc
+	}
+	if sum == contract.TotalAmountCents {
+		return doc
+	}
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"جمع مبالغ ثبت‌نامی دانش‌آموزان این مدرسه (%s تومان) با مبلغ قرارداد (%s تومان) برابر نیست.",
+		formatCentsAsTomansFa(sum),
+		formatCentsAsTomansFa(contract.TotalAmountCents),
+	))
 	return doc
+}
+
+func formatCentsAsTomansFa(cents int64) string {
+	tomans := cents / 10
+	if tomans < 0 {
+		tomans = -tomans
+	}
+	s := strconv.FormatInt(tomans, 10)
+	n := len(s)
+	if n <= 3 {
+		if cents < 0 {
+			return "-" + s
+		}
+		return s
+	}
+	var b strings.Builder
+	if cents < 0 {
+		b.WriteByte('-')
+	}
+	rem := n % 3
+	if rem > 0 {
+		b.WriteString(s[:rem])
+		if n > rem {
+			b.WriteByte(',')
+		}
+	}
+	for i := rem; i < n; i += 3 {
+		b.WriteString(s[i : i+3])
+		if i+3 < n {
+			b.WriteByte(',')
+		}
+	}
+	return b.String()
 }
 
 func (h *StudentHandler) applyRemainingToStudentDocs(ctx context.Context, docs []StudentDoc, students []models.Student) {
@@ -583,16 +645,21 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		}
 		student.SchoolContractID = payload.SchoolContractID
 		student.SchoolName = contract.SchoolName
+		student.SchoolAddress = ""
 		student.DeliveryMode = ""
-		student.EnrollmentAmountCents = 0
-		student.CurrentPlanID = nil
-		student.EnrollmentBillingMode = models.EnrollmentBillingMonthly
-		student.AdvisorCommissionKind = models.StudentAdvisorCommNone
-		student.AdvisorCommissionPercent = nil
-		student.AdvisorCommissionFixedCents = nil
-		student.AdvisorAccrualMonths = nil
-		student.AdvisorAccrualMonthMask = nil
-		payload.RolePayouts = nil
+		if payload.CurrentPlanID != nil {
+			student.CurrentPlanID = payload.CurrentPlanID
+		}
+		if payload.BalanceCents != nil {
+			student.BalanceCents = *payload.BalanceCents
+		}
+		student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+		applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, true)
+		applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, true)
+		if err := normalizeStudentAdvisorCommission(student); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	} else {
 		if payload.DeliveryMode == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
@@ -630,15 +697,12 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	}
 
 	enrollCents := payload.EnrollmentAmountCents
-	if channel == models.RegistrationChannelSchool {
-		enrollCents = 0
-	}
 	if err := h.service.SyncEnrollmentForStudent(c.Request.Context(), student.ID, enrollCents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync enrollment for plan"})
 		return
 	}
 
-	if h.payments != nil && channel != models.RegistrationChannelSchool {
+	if h.payments != nil {
 		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), student.ID)
 	}
 
@@ -782,17 +846,25 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		}
 		student.SchoolContractID = cid
 		student.SchoolName = contract.SchoolName
+		student.SchoolAddress = ""
 		student.DeliveryMode = ""
-		student.EnrollmentAmountCents = 0
-		student.CurrentPlanID = nil
-		student.EnrollmentBillingMode = models.EnrollmentBillingMonthly
-		student.AdvisorCommissionKind = models.StudentAdvisorCommNone
-		student.AdvisorCommissionPercent = nil
-		student.AdvisorCommissionFixedCents = nil
-		student.AdvisorAccrualMonths = nil
-		student.AdvisorAccrualMonthMask = nil
-		payload.RolePayouts = nil
-		enrollCents = 0
+		if payload.CurrentPlanID != nil {
+			student.CurrentPlanID = payload.CurrentPlanID
+		} else {
+			student.CurrentPlanID = nil
+		}
+		if payload.BalanceCents != nil {
+			student.BalanceCents = *payload.BalanceCents
+		}
+		student.EnrollmentAmountCents = payload.EnrollmentAmountCents
+		if payload.EnrollmentBillingMode != "" || payload.AdvisorAccrualMonths != nil || payload.AdvisorAccrualMonthMask != nil {
+			applyEnrollmentBillingPayload(student, payload.EnrollmentBillingMode, payload.AdvisorAccrualMonths, payload.AdvisorAccrualMonthMask, false)
+		}
+		applyAdvisorCommissionPayload(student, payload.AdvisorCommissionKind, payload.AdvisorCommissionPercent, payload.AdvisorCommissionFixedCents, false)
+		if err := normalizeStudentAdvisorCommission(student); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	} else {
 		student.SchoolContractID = nil
 		student.SchoolName = payload.SchoolName
@@ -840,7 +912,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if h.payments != nil && channel != models.RegistrationChannelSchool {
+	if h.payments != nil {
 		_ = h.payments.RecalculatePaidSharesForStudent(c.Request.Context(), uint(id))
 	}
 

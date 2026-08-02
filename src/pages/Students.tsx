@@ -95,6 +95,7 @@ import {
   monthsFromMask,
 } from "@/components/students/enrollmentBillingUtils";
 import { JALALI_MONTH_NAMES } from "@/lib/jalaliDate";
+import { useToast } from "@/hooks/use-toast";
 
 interface StudentRow {
   id: number;
@@ -389,6 +390,7 @@ function EditStudentForm({
   onSuccess: () => void;
   mutation: ReturnType<typeof useMutation<StudentApi, Error, { id: number; payload: UpdateStudentPayload }>>;
 }) {
+  const { toast } = useToast();
   const [firstName, setFirstName] = useState(student.first_name || "");
   const [lastName, setLastName] = useState(student.last_name || "");
   const [email, setEmail] = useState(student.email || "");
@@ -414,6 +416,17 @@ function EditStudentForm({
     queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
     enabled: isSchoolChannel,
   });
+  const { data: editSchoolPeers } = useQuery({
+    queryKey: ["students", "school-enroll-sum-edit", schoolContractId, student.id],
+    queryFn: () =>
+      listStudents({
+        school_contract_id: Number(schoolContractId),
+        registration_channel: "SCHOOL",
+        page: 1,
+        page_size: 200,
+      }),
+    enabled: isSchoolChannel && !!schoolContractId && Number(schoolContractId) > 0,
+  });
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE" | "DELETED">(
     student.status === "DELETED" ? "DELETED" : student.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"
   );
@@ -424,6 +437,16 @@ function EditStudentForm({
       ? formatGroupedFaIntInput(String(Math.round(student.enrollment_amount_cents / 10)))
       : ""
   );
+  const selectedEditSchoolContract = editSchoolContracts.find((c) => String(c.id) === schoolContractId);
+  const editPeersEnrollmentSumCents = (editSchoolPeers?.data ?? [])
+    .filter((st) => st.id !== student.id)
+    .reduce((sum, st) => sum + (st.enrollment_amount_cents ?? 0), 0);
+  const editSchoolEnrollmentMismatch =
+    isSchoolChannel &&
+    !!selectedEditSchoolContract &&
+    selectedEditSchoolContract.total_amount_cents > 0 &&
+    editPeersEnrollmentSumCents + parseLocalizedInt(enrollmentAmount) * 10 !==
+      selectedEditSchoolContract.total_amount_cents;
   const [billingMode, setBillingMode] = useState<EnrollmentBillingMode>(
     parseBillingMode(student.enrollment_billing_mode)
   );
@@ -556,7 +579,7 @@ function EditStudentForm({
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              اطلاعات پرداخت این دانش‌آموز روی قرارداد مدرسه ثبت می‌شود.
+              مبلغ ثبت‌نام و پرداخت این دانش‌آموز به‌صورت فردی ثبت می‌شود؛ خلاصه مالی مدرسه در «پرداخت‌ها ← مدارس».
             </p>
           </div>
         ) : (
@@ -589,28 +612,8 @@ function EditStudentForm({
             </Select>
           </div>
         )}
-        {isSchoolChannel && (
-          <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">کاربر سازمانی</label>
-            <Select value={advisorId} onValueChange={setAdvisorId}>
-              <SelectTrigger>
-                <SelectValue placeholder="انتخاب کاربر" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                <SelectItem value="none">بدون انتساب</SelectItem>
-                {users.map((u) => (
-                  <SelectItem key={u.id} value={String(u.id)}>
-                    {u.first_name} {u.last_name}
-                    {u.role_name ? ` — ${u.role_name}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </div>
 
-      {!isSchoolChannel && (
       <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
         <Separator className="mb-3" />
@@ -624,6 +627,19 @@ function EditStudentForm({
             <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
               برای این دانش‌آموز پرداخت ثبت‌شده وجود دارد، اما مبلغ ثبت‌نامی خالی است. لطفاً مبلغ ثبت‌نامی را وارد
               کنید تا مانده حساب درست محاسبه شود.
+            </AlertDescription>
+          </Alert>
+        )}
+        {editSchoolEnrollmentMismatch && (
+          <Alert
+            className="mb-3 border-amber-500/40 bg-amber-50/90 text-amber-950 dark:border-amber-600/40 dark:bg-amber-950/25 dark:text-amber-50"
+            dir="rtl"
+          >
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <AlertTitle className="text-sm">عدم تطابق با مبلغ قرارداد</AlertTitle>
+            <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
+              جمع مبالغ ثبت‌نامی دانش‌آموزان این مدرسه با مبلغ کل قرارداد برابر نیست. ذخیره بلاک نمی‌شود؛ فقط هشدار
+              است. خلاصه مالی در «پرداخت‌ها ← مدارس».
             </AlertDescription>
           </Alert>
         )}
@@ -652,7 +668,6 @@ function EditStudentForm({
           onCommFixedChange={setCommFixed}
         />
       </div>
-      )}
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">وضعیت</span>
@@ -698,32 +713,45 @@ function EditStudentForm({
               payload.school_name = schoolName.trim() || undefined;
               payload.school_address = schoolAddress.trim() || undefined;
               payload.delivery_mode = deliveryMode;
-              payload.current_plan_id = planId === "none" ? null : Number(planId);
-              payload.enrollment_amount_cents = enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0;
-              appendAdvisorCommissionFields(payload, {
-                advisorSelected,
-                billingMode,
-                kind: advisorCommKind,
-                commPercent,
-                commFixed,
-                accrualMonthMask,
-              });
-              payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
             }
+            payload.current_plan_id = planId === "none" ? null : Number(planId);
+            payload.enrollment_amount_cents = enrollAmountTomans > 0 ? enrollAmountTomans * 10 : 0;
+            appendAdvisorCommissionFields(payload, {
+              advisorSelected,
+              billingMode,
+              kind: advisorCommKind,
+              commPercent,
+              commFixed,
+              accrualMonthMask,
+            });
+            payload.role_payouts = buildRolePayoutPayload(rolePayoutRows);
             if (advTrim && advGregorian) {
               payload.advisory_start_date = advGregorian;
             } else if (student.advisory_start_date) {
               payload.advisory_start_date = "";
             }
-            mutation.mutate({ id: student.id, payload }, { onSuccess });
+            mutation.mutate(
+              { id: student.id, payload },
+              {
+                onSuccess: (updated) => {
+                  if (updated.warnings?.length) {
+                    toast({
+                      title: "ذخیره شد — هشدار مالی مدرسه",
+                      description: updated.warnings.join(" "),
+                    });
+                  }
+                  onSuccess();
+                },
+              },
+            );
           }}
           disabled={
             mutation.isPending ||
             !firstName.trim() ||
             !lastName.trim() ||
-            (isSchoolChannel
-              ? !schoolContractId
-              : commissionInvalid || rolePayoutInvalid)
+            commissionInvalid ||
+            rolePayoutInvalid ||
+            (isSchoolChannel && !schoolContractId)
           }
         >
           {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
@@ -749,6 +777,7 @@ function downloadCsvBlob(filename: string, rows: string[][]): void {
 }
 
 const Students = () => {
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   // مقدار جستجو با تأخیر، تا هر حرف یک درخواست به سرور نفرستد
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -798,7 +827,7 @@ const Students = () => {
   const [createSchoolContractId, setCreateSchoolContractId] = useState("");
   const [contractSchoolName, setContractSchoolName] = useState("");
   const [contractStudentCount, setContractStudentCount] = useState("");
-  const [contractUnitPrice, setContractUnitPrice] = useState("");
+  const [contractTotalAmount, setContractTotalAmount] = useState("");
   const [contractNotes, setContractNotes] = useState("");
   const [createError, setCreateError] = useState("");
   const [createSchoolError, setCreateSchoolError] = useState("");
@@ -823,22 +852,51 @@ const Students = () => {
     if (isCreateSchoolOpen) {
       setContractSchoolName("");
       setContractStudentCount("");
-      setContractUnitPrice("");
+      setContractTotalAmount("");
       setContractNotes("");
       setCreateSchoolError("");
     }
   }, [isCreateSchoolOpen]);
 
   const contractCountNum = parseLocalizedInt(contractStudentCount);
-  const contractUnitTomans = parseLocalizedInt(contractUnitPrice);
-  const contractTotalPreview =
-    contractCountNum > 0 && contractUnitTomans > 0 ? contractCountNum * contractUnitTomans : 0;
+  const contractTotalTomans = parseLocalizedInt(contractTotalAmount);
 
   const { data: activeSchoolContracts = [] } = useQuery({
     queryKey: ["school-contracts", "all-active"],
     queryFn: () => listAllSchoolContracts({ status: "ACTIVE" }),
     enabled: isCreateOpen && registrationChannel === "SCHOOL",
   });
+
+  const { data: schoolPeersForWarning } = useQuery({
+    queryKey: ["students", "school-enroll-sum", createSchoolContractId],
+    queryFn: () =>
+      listStudents({
+        school_contract_id: Number(createSchoolContractId),
+        registration_channel: "SCHOOL",
+        page: 1,
+        page_size: 200,
+      }),
+    enabled:
+      isCreateOpen &&
+      registrationChannel === "SCHOOL" &&
+      !!createSchoolContractId &&
+      Number(createSchoolContractId) > 0,
+  });
+
+  const selectedCreateSchoolContract = activeSchoolContracts.find(
+    (c) => String(c.id) === createSchoolContractId,
+  );
+  const schoolPeersEnrollmentSumCents = (schoolPeersForWarning?.data ?? []).reduce(
+    (sum, st) => sum + (st.enrollment_amount_cents ?? 0),
+    0,
+  );
+  const createEnrollmentCentsPreview = parseLocalizedInt(enrollmentAmount) * 10;
+  const schoolEnrollmentMismatch =
+    registrationChannel === "SCHOOL" &&
+    !!selectedCreateSchoolContract &&
+    selectedCreateSchoolContract.total_amount_cents > 0 &&
+    schoolPeersEnrollmentSumCents + createEnrollmentCentsPreview !==
+      selectedCreateSchoolContract.total_amount_cents;
 
   const createSchoolMutation = useMutation({
     mutationFn: createSchoolContract,
@@ -849,7 +907,7 @@ const Students = () => {
       setListTab("schools");
       setContractSchoolName("");
       setContractStudentCount("");
-      setContractUnitPrice("");
+      setContractTotalAmount("");
       setContractNotes("");
       setCreateSchoolError("");
     },
@@ -1077,6 +1135,12 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      if (created.warnings?.length) {
+        toast({
+          title: "ثبت شد — هشدار مالی مدرسه",
+          description: created.warnings.join(" "),
+        });
+      }
       setIsCreateOpen(false);
       setCreateSchoolContractId("");
       if (created.registration_channel === "SCHOOL") {
@@ -1691,7 +1755,6 @@ const Students = () => {
                   : "—"}
               </p>
               {detailsStudentData.registration_channel !== "SCHOOL" && (
-                <>
               <p>
                 <span className="text-muted-foreground">نحوه برگزاری:</span>{" "}
                 {detailsStudentData.delivery_mode === "ONLINE"
@@ -1700,19 +1763,17 @@ const Students = () => {
                     ? "حضوری"
                     : "—"}
               </p>
+              )}
               <p>
                 <span className="text-muted-foreground">نوع پرداخت:</span>{" "}
                 {billingModeLabel(parseBillingMode(detailsStudentData.enrollment_billing_mode))}
               </p>
-                </>
-              )}
               {detailsStudentData.registration_channel === "SCHOOL" && (
                 <p className="text-xs text-muted-foreground">
-                  پرداخت این دانش‌آموز از طریق قرارداد مدرسه انجام می‌شود.
+                  خلاصه مالی مدرسه در «پرداخت‌ها ← مدارس»؛ تراکنش‌ها روی همین دانش‌آموز ثبت می‌شوند.
                 </p>
               )}
-              {detailsStudentData.registration_channel !== "SCHOOL" &&
-                detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" && (
+              {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT" && (
                 <p>
                   <span className="text-muted-foreground">ماه‌های حقوق:</span>{" "}
                   {(() => {
@@ -1729,7 +1790,7 @@ const Students = () => {
                 </p>
               )}
               <p><span className="text-muted-foreground">مشاور:</span> {detailsStudentData.advisor_name || "—"}</p>
-              {detailsStudentData.registration_channel !== "SCHOOL" && detailsStudentData.advisor_id != null && (
+              {detailsStudentData.advisor_id != null && (
                 <p>
                   <span className="text-muted-foreground">
                     {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT"
@@ -2040,7 +2101,7 @@ const Students = () => {
                     </p>
                   )}
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    اطلاعات پرداخت روی قرارداد مدرسه است و اینجا ثبت نمی‌شود.
+                    مبلغ ثبت‌نام را پایین وارد کنید؛ پرداخت‌ها برای همین دانش‌آموز ثبت می‌شود.
                   </p>
                 </div>
               ) : (
@@ -2075,58 +2136,49 @@ const Students = () => {
                   </Select>
                 </div>
               )}
-
-              {registrationChannel === "SCHOOL" && (
-                <div className="mt-3">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">کاربر سازمانی</label>
-                  <Select value={advisorId || "none"} onValueChange={(v) => setAdvisorId(v === "none" ? "" : v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="انتخاب کاربر" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <SelectItem value="none">بدون انتساب</SelectItem>
-                      {users.map((u) => (
-                        <SelectItem key={u.id} value={String(u.id)}>
-                          {u.first_name} {u.last_name}
-                          {u.role_name ? ` — ${u.role_name}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
 
-            {registrationChannel === "PRIVATE" && (
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
-                <Separator className="mb-3" />
-                <EnrollmentRegistrationFields
-                  billingMode={billingMode}
-                  onBillingModeChange={setBillingMode}
-                  planId={planId}
-                  onPlanIdChange={setPlanId}
-                  plans={plans || []}
-                  enrollmentAmount={enrollmentAmount}
-                  onEnrollmentAmountChange={setEnrollmentAmount}
-                  accrualMonthMask={accrualMonthMask}
-                  onAccrualMonthMaskChange={setAccrualMonthMask}
-                  rolePayoutRows={rolePayoutRows}
-                  onRolePayoutRowsChange={setRolePayoutRows}
-                  roles={roles}
-                  users={users}
-                  advisorId={advisorId}
-                  onAdvisorIdChange={setAdvisorId}
-                  advisorOptions={users}
-                  advisorCommKind={advisorCommKind}
-                  onAdvisorCommKindChange={setAdvisorCommKind}
-                  commPercent={commPercent}
-                  onCommPercentChange={setCommPercent}
-                  commFixed={commFixed}
-                  onCommFixedChange={setCommFixed}
-                />
-              </div>
-            )}
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات ثبت‌نام</h3>
+              <Separator className="mb-3" />
+              {schoolEnrollmentMismatch && (
+                <Alert
+                  className="mb-3 border-amber-500/40 bg-amber-50/90 text-amber-950 dark:border-amber-600/40 dark:bg-amber-950/25 dark:text-amber-50"
+                  dir="rtl"
+                >
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertTitle className="text-sm">عدم تطابق با مبلغ قرارداد</AlertTitle>
+                  <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
+                    جمع مبالغ ثبت‌نامی دانش‌آموزان این مدرسه با مبلغ کل قرارداد برابر نیست. می‌توانید ذخیره کنید؛
+                    فقط یک هشدار است.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <EnrollmentRegistrationFields
+                billingMode={billingMode}
+                onBillingModeChange={setBillingMode}
+                planId={planId}
+                onPlanIdChange={setPlanId}
+                plans={plans || []}
+                enrollmentAmount={enrollmentAmount}
+                onEnrollmentAmountChange={setEnrollmentAmount}
+                accrualMonthMask={accrualMonthMask}
+                onAccrualMonthMaskChange={setAccrualMonthMask}
+                rolePayoutRows={rolePayoutRows}
+                onRolePayoutRowsChange={setRolePayoutRows}
+                roles={roles}
+                users={users}
+                advisorId={advisorId}
+                onAdvisorIdChange={setAdvisorId}
+                advisorOptions={users}
+                advisorCommKind={advisorCommKind}
+                onAdvisorCommKindChange={setAdvisorCommKind}
+                commPercent={commPercent}
+                onCommPercentChange={setCommPercent}
+                commFixed={commFixed}
+                onCommFixedChange={setCommFixed}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -2139,6 +2191,20 @@ const Students = () => {
             <Button
               onClick={() => {
                 setCreateError("");
+                const createRolePayoutInvalid = rolePayoutRows.some((r) =>
+                  !r.roleId ||
+                  !r.userId ||
+                  (r.amountKind === "PERCENT" &&
+                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                );
+                if (createCommissionInvalid || createRolePayoutInvalid) return;
+                if (registrationChannel === "SCHOOL" && !createSchoolContractId) {
+                  setCreateError("مدرسه را انتخاب کنید");
+                  return;
+                }
+                const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
                 const base: CreateStudentPayload = {
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
@@ -2157,32 +2223,17 @@ const Students = () => {
                     return g || undefined;
                   })(),
                   advisor_id: advisorId ? Number(advisorId) : undefined,
+                  role_payouts: buildRolePayoutPayload(rolePayoutRows),
+                  current_plan_id: planId ? Number(planId) : undefined,
+                  enrollment_amount_cents: enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined,
                 };
                 if (registrationChannel === "SCHOOL") {
-                  if (!createSchoolContractId) {
-                    setCreateError("مدرسه را انتخاب کنید");
-                    return;
-                  }
                   base.school_contract_id = Number(createSchoolContractId);
-                  createMutation.mutate(base);
-                  return;
+                } else {
+                  base.school_name = schoolName.trim() || undefined;
+                  base.school_address = schoolAddress.trim() || undefined;
+                  base.delivery_mode = deliveryMode;
                 }
-                const createRolePayoutInvalid = rolePayoutRows.some((r) =>
-                  !r.roleId ||
-                  !r.userId ||
-                  (r.amountKind === "PERCENT" &&
-                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                  (r.amountKind === "FIXED_PER_PAYMENT" &&
-                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
-                );
-                if (createCommissionInvalid || createRolePayoutInvalid) return;
-                const enrollAmountTomans = parseLocalizedInt(enrollmentAmount);
-                base.school_name = schoolName.trim() || undefined;
-                base.school_address = schoolAddress.trim() || undefined;
-                base.delivery_mode = deliveryMode;
-                base.role_payouts = buildRolePayoutPayload(rolePayoutRows);
-                base.current_plan_id = planId ? Number(planId) : undefined;
-                base.enrollment_amount_cents = enrollAmountTomans > 0 ? enrollAmountTomans * 10 : undefined;
                 appendAdvisorCommissionFields(base, {
                   advisorSelected: !!advisorId,
                   billingMode,
@@ -2197,17 +2248,16 @@ const Students = () => {
                 createMutation.isPending ||
                 !firstName.trim() ||
                 !lastName.trim() ||
-                (registrationChannel === "SCHOOL"
-                  ? !createSchoolContractId
-                  : createCommissionInvalid ||
-                    rolePayoutRows.some((r) =>
-                      !r.roleId ||
-                      !r.userId ||
-                      (r.amountKind === "PERCENT" &&
-                        (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                      (r.amountKind === "FIXED_PER_PAYMENT" &&
-                        (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
-                    ))
+                createCommissionInvalid ||
+                (registrationChannel === "SCHOOL" && !createSchoolContractId) ||
+                rolePayoutRows.some((r) =>
+                  !r.roleId ||
+                  !r.userId ||
+                  (r.amountKind === "PERCENT" &&
+                    (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
+                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                    (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
+                )
               }
             >
               {createMutation.isPending ? "در حال ثبت..." : "ثبت دانش‌آموز"}
@@ -2246,28 +2296,22 @@ const Students = () => {
                   dir="ltr"
                   value={contractStudentCount}
                   onChange={(e) => setContractStudentCount(formatGroupedFaIntInput(e.target.value))}
-                  placeholder="مثلاً ۴۰"
+                  placeholder="مثلاً ۱۰"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  مبلغ هر دانش‌آموز (تومان)
+                  مبلغ کل قرارداد (تومان)
                 </label>
                 <Input
                   inputMode="numeric"
                   dir="ltr"
-                  value={contractUnitPrice}
-                  onChange={(e) => setContractUnitPrice(formatGroupedFaIntInput(e.target.value))}
-                  placeholder="مثلاً ۱۰,۰۰۰,۰۰۰"
+                  value={contractTotalAmount}
+                  onChange={(e) => setContractTotalAmount(formatGroupedFaIntInput(e.target.value))}
+                  placeholder="مثلاً ۱۰۰,۰۰۰,۰۰۰"
                 />
               </div>
             </div>
-            <p className="text-sm text-primary">
-              مبلغ کل قرارداد:{" "}
-              {contractTotalPreview > 0
-                ? `${contractTotalPreview.toLocaleString("fa-IR")} تومان`
-                : "—"}
-            </p>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">توضیحات</label>
               <Input
@@ -2290,14 +2334,14 @@ const Students = () => {
                 createSchoolMutation.isPending ||
                 !contractSchoolName.trim() ||
                 contractCountNum <= 0 ||
-                contractUnitTomans <= 0
+                contractTotalTomans <= 0
               }
               onClick={() => {
                 setCreateSchoolError("");
                 createSchoolMutation.mutate({
                   school_name: contractSchoolName.trim(),
                   student_count: contractCountNum,
-                  unit_price_cents: contractUnitTomans * 10,
+                  total_amount_cents: contractTotalTomans * 10,
                   notes: contractNotes.trim() || undefined,
                 });
               }}

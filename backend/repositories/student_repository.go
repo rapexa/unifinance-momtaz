@@ -50,6 +50,8 @@ type StudentRepository interface {
 	CountPaidPayments(ctx context.Context, studentID uint) (int64, error)
 	// CountBySchoolContractIDs returns how many non-deleted students are linked to each contract.
 	CountBySchoolContractIDs(ctx context.Context, ids []uint) (map[uint]int64, error)
+	// SumEnrollmentAmountCentsBySchoolContractID sums enrollment_amount_cents for non-deleted students on a contract.
+	SumEnrollmentAmountCentsBySchoolContractID(ctx context.Context, contractID uint) (int64, error)
 }
 
 type GormStudentRepository struct {
@@ -256,6 +258,18 @@ func (r *GormStudentRepository) CountBySchoolContractIDs(ctx context.Context, id
 		out[r.SchoolContractID] = r.Cnt
 	}
 	return out, nil
+}
+
+func (r *GormStudentRepository) SumEnrollmentAmountCentsBySchoolContractID(ctx context.Context, contractID uint) (int64, error) {
+	if contractID == 0 {
+		return 0, nil
+	}
+	var sum int64
+	err := r.db.WithContext(ctx).Model(&models.Student{}).
+		Where("school_contract_id = ? AND status <> ?", contractID, models.StudentStatusDeleted).
+		Select("COALESCE(SUM(enrollment_amount_cents), 0)").
+		Scan(&sum).Error
+	return sum, err
 }
 
 // DistinctSchoolNames returns the non-empty school names visible to the user, for filter dropdowns.
