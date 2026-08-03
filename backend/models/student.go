@@ -143,6 +143,16 @@ func advisorContractTotalShareCents(st *Student) int64 {
 	}
 }
 
+// AdvisorContractTotalShareCents exports total contract advisor share (PERCENT_OF_CONTRACT).
+func AdvisorContractTotalShareCents(st *Student) int64 {
+	return advisorContractTotalShareCents(st)
+}
+
+// AdvisorAccrualMonthIndexForPeriod returns 1-based accrual slice index for the calendar month.
+func AdvisorAccrualMonthIndexForPeriod(st *Student, year, month int) (int, bool) {
+	return accrualMonthIndexWithMask(st, year, month)
+}
+
 // ComputeAdvisorMonthlyAccrualCents is the regular monthly slice (before last-month remainder).
 func ComputeAdvisorMonthlyAccrualCents(st *Student) int64 {
 	if st == nil || st.AdvisorID == nil || !st.IsSchoolEnrollment() {

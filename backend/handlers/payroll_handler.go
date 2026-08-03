@@ -891,3 +891,188 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 		Payments:           payments,
 	})
 }
+
+type paymentShareLineDTO struct {
+	ShareID               uint       `json:"share_id"`
+	PaymentID             uint       `json:"payment_id"`
+	StudentID             uint       `json:"student_id"`
+	StudentName           string     `json:"student_name"`
+	EnrollmentBillingMode string     `json:"enrollment_billing_mode"`
+	Kind                  string     `json:"kind"`
+	ShareCents            int64      `json:"share_cents"`
+	BasisAmountCents      int64      `json:"basis_amount_cents"`
+	PaymentAmountCents    int64      `json:"payment_amount_cents"`
+	PaidAt                *time.Time `json:"paid_at,omitempty"`
+}
+
+type accrualShareLineDTO struct {
+	StudentID               uint   `json:"student_id"`
+	StudentName             string `json:"student_name"`
+	EnrollmentBillingMode   string `json:"enrollment_billing_mode"`
+	EnrollmentAmountCents   int64  `json:"enrollment_amount_cents"`
+	ContractShareTotalCents int64  `json:"contract_share_total_cents"`
+	ShareCents              int64  `json:"share_cents"`
+	AccrualMonthIndex       int    `json:"accrual_month_index"`
+	AccrualMonthsTotal      int    `json:"accrual_months_total"`
+	RemainingMonths         int    `json:"remaining_months"`
+	Label                   string `json:"label"`
+}
+
+type compensationBreakdownDTO struct {
+	UserID              uint                   `json:"user_id"`
+	PeriodYear          int                    `json:"period_year"`
+	PeriodMonth         int                    `json:"period_month"`
+	BaseSalaryCents     int64                  `json:"base_salary_cents"`
+	VariableSalaryCents int64                  `json:"variable_salary_cents"`
+	TotalSalaryCents    int64                  `json:"total_salary_cents"`
+	PaymentSharesCents  int64                  `json:"payment_shares_cents"`
+	AccrualSharesCents  int64                  `json:"accrual_shares_cents"`
+	StudentsCount       int                    `json:"students_count"`
+	StudentsCountScope  string                 `json:"students_count_scope"`
+	CompensationKind    string                 `json:"compensation_kind"`
+	PaymentShareLines   []paymentShareLineDTO  `json:"payment_share_lines"`
+	AccrualShareLines   []accrualShareLineDTO  `json:"accrual_share_lines"`
+	EntryID             *uint                  `json:"entry_id,omitempty"`
+	EntryStatus         string                 `json:"entry_status,omitempty"`
+	EntryLocked         bool                   `json:"entry_locked"`
+}
+
+func toCompensationBreakdownDTO(d services.CompensationBreakdownDetail) compensationBreakdownDTO {
+	pay := make([]paymentShareLineDTO, len(d.PaymentShareLines))
+	for i, r := range d.PaymentShareLines {
+		pay[i] = paymentShareLineDTO{
+			ShareID:               r.ShareID,
+			PaymentID:             r.PaymentID,
+			StudentID:             r.StudentID,
+			StudentName:           r.StudentName,
+			EnrollmentBillingMode: r.EnrollmentBillingMode,
+			Kind:                  r.Kind,
+			ShareCents:            r.ShareCents,
+			BasisAmountCents:      r.BasisAmountCents,
+			PaymentAmountCents:    r.PaymentAmountCents,
+			PaidAt:                r.PaidAt,
+		}
+	}
+	acc := make([]accrualShareLineDTO, len(d.AccrualShareLines))
+	for i, r := range d.AccrualShareLines {
+		acc[i] = accrualShareLineDTO{
+			StudentID:               r.StudentID,
+			StudentName:             r.StudentName,
+			EnrollmentBillingMode:   r.EnrollmentBillingMode,
+			EnrollmentAmountCents:   r.EnrollmentAmountCents,
+			ContractShareTotalCents: r.ContractShareTotalCents,
+			ShareCents:              r.ShareCents,
+			AccrualMonthIndex:       r.AccrualMonthIndex,
+			AccrualMonthsTotal:      r.AccrualMonthsTotal,
+			RemainingMonths:         r.RemainingMonths,
+			Label:                   r.Label,
+		}
+	}
+	return compensationBreakdownDTO{
+		UserID:              d.UserID,
+		PeriodYear:          d.PeriodYear,
+		PeriodMonth:         d.PeriodMonth,
+		BaseSalaryCents:     d.BaseSalaryCents,
+		VariableSalaryCents: d.VariableSalaryCents,
+		TotalSalaryCents:    d.TotalSalaryCents,
+		PaymentSharesCents:  d.PaymentSharesCents,
+		AccrualSharesCents:  d.AccrualSharesCents,
+		StudentsCount:       d.StudentsCount,
+		StudentsCountScope:  string(d.StudentsCountScope),
+		CompensationKind:    string(d.CompensationKind),
+		PaymentShareLines:   pay,
+		AccrualShareLines:   acc,
+		EntryID:             d.EntryID,
+		EntryStatus:         d.EntryStatus,
+		EntryLocked:         d.EntryLocked,
+	}
+}
+
+func (h *PayrollHandler) writePayrollComputeError(c *gin.Context, err error) bool {
+	switch err {
+	case services.ErrPayrollUserNotFound:
+		c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
+	case services.ErrPayrollNoRole:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "کاربر نقش ندارد"})
+	case services.ErrPayrollInvalidRoleCompensation:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "تنظیمات حقوق نقش ناقص است؛ نقش را اصلاح کنید"})
+	case services.ErrPayrollInvalidPeriod:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "دوره حقوقی نامعتبر است"})
+	case services.ErrPayrollEntryPaidLocked:
+		c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است و قابل بازمحاسبه نیست"})
+	default:
+		return false
+	}
+	return true
+}
+
+// GetUserBreakdown handles GET /payroll/users/:user_id/breakdown
+func (h *PayrollHandler) GetUserBreakdown(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && uint(uid) != *scope {
+		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
+		return
+	}
+	detail, err := h.service.GetCompensationBreakdownDetail(c.Request.Context(), uint(uid), year, month)
+	if err != nil {
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت شکست محاسبه حقوق"})
+		return
+	}
+	c.JSON(http.StatusOK, toCompensationBreakdownDTO(detail))
+}
+
+// RecalculateUser handles POST /payroll/users/:user_id/recalculate
+func (h *PayrollHandler) RecalculateUser(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && uint(uid) != *scope {
+		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
+		return
+	}
+	entry, detail, err := h.service.RecalculateUserPeriod(c.Request.Context(), uint(uid), year, month)
+	if err != nil {
+		if err == services.ErrPayrollEntryPaidLocked {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":     "فیش پرداخت‌شده قفل است و قابل بازمحاسبه نیست",
+				"breakdown": toCompensationBreakdownDTO(detail),
+			})
+			return
+		}
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در محاسبه فیش حقوقی"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"entry":     h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)),
+		"breakdown": toCompensationBreakdownDTO(detail),
+	})
+}
+

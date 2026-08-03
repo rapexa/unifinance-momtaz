@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -14,7 +15,10 @@ var (
 	ErrPayrollUserNotFound            = errors.New("user not found")
 	ErrPayrollNoRole                  = errors.New("user has no role")
 	ErrPayrollInvalidRoleCompensation = errors.New("role compensation settings are incomplete")
+	ErrPayrollEntryPaidLocked         = errors.New("payslip is paid and locked")
+	ErrPayrollInvalidPeriod           = errors.New("invalid payroll period")
 )
+
 
 // PayrollCompensationBreakdown is the computed amounts for a user in a calendar month.
 type PayrollCompensationBreakdown struct {
@@ -574,6 +578,256 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	return out, nil
 }
 
+// PaymentShareLine is one payment_payroll_shares row attributed in the period.
+type PaymentShareLine struct {
+	ShareID               uint
+	PaymentID             uint
+	StudentID             uint
+	StudentName           string
+	EnrollmentBillingMode string
+	Kind                  string
+	ShareCents            int64
+	BasisAmountCents      int64
+	PaymentAmountCents    int64
+	PaidAt                *time.Time
+}
+
+// AccrualShareLine is school-enrollment advisor accrual for one student in the period.
+type AccrualShareLine struct {
+	StudentID               uint
+	StudentName             string
+	EnrollmentBillingMode   string
+	EnrollmentAmountCents   int64
+	ContractShareTotalCents int64
+	ShareCents              int64
+	AccrualMonthIndex       int
+	AccrualMonthsTotal      int
+	RemainingMonths         int
+	Label                   string
+}
+
+// CompensationBreakdownDetail is the full payslip math for one user/month (read model).
+type CompensationBreakdownDetail struct {
+	UserID              uint
+	PeriodYear          int
+	PeriodMonth         int
+	BaseSalaryCents     int64
+	VariableSalaryCents int64
+	TotalSalaryCents    int64
+	PaymentSharesCents  int64
+	AccrualSharesCents  int64
+	StudentsCount       int
+	StudentsCountScope  models.StudentsCountScope
+	CompensationKind    models.CompensationKind
+	PaymentShareLines   []PaymentShareLine
+	AccrualShareLines   []AccrualShareLine
+	EntryID             *uint
+	EntryStatus         string
+	EntryLocked         bool
+}
+
+// GetCompensationBreakdownDetail returns computed amounts + line items without mutating the payslip.
+func (s *PayrollService) GetCompensationBreakdownDetail(ctx context.Context, userID uint, year, month int) (CompensationBreakdownDetail, error) {
+	if year < 1 || month < 1 || month > 12 {
+		return CompensationBreakdownDetail{}, ErrPayrollInvalidPeriod
+	}
+	br, err := s.ComputeCompensationForUser(ctx, userID, year, month)
+	if err != nil {
+		return CompensationBreakdownDetail{}, err
+	}
+	payLines, paySum, err := s.listUserPaymentShareLines(ctx, userID, year, month)
+	if err != nil {
+		return CompensationBreakdownDetail{}, err
+	}
+	accLines, accSum, err := s.listUserAccrualShareLines(ctx, userID, year, month)
+	if err != nil {
+		return CompensationBreakdownDetail{}, err
+	}
+
+	out := CompensationBreakdownDetail{
+		UserID:              userID,
+		PeriodYear:          year,
+		PeriodMonth:         month,
+		BaseSalaryCents:     br.BaseSalaryCents,
+		VariableSalaryCents: br.VariableSalaryCents,
+		TotalSalaryCents:    br.BaseSalaryCents + br.VariableSalaryCents,
+		PaymentSharesCents:  paySum,
+		AccrualSharesCents:  accSum,
+		StudentsCount:       br.StudentsCount,
+		StudentsCountScope:  br.StudentsCountScope,
+		CompensationKind:    br.CompensationKind,
+		PaymentShareLines:   payLines,
+		AccrualShareLines:   accLines,
+	}
+
+	var entry models.PayrollEntry
+	err = s.db.WithContext(ctx).
+		Where("user_id = ? AND period_year = ? AND period_month = ?", userID, year, month).
+		First(&entry).Error
+	if err == nil {
+		id := entry.ID
+		out.EntryID = &id
+		out.EntryStatus = string(entry.Status)
+		out.EntryLocked = entry.Status == models.PayrollStatusPaid
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return CompensationBreakdownDetail{}, err
+	}
+	return out, nil
+}
+
+func (s *PayrollService) listUserPaymentShareLines(ctx context.Context, userID uint, year, month int) ([]PaymentShareLine, int64, error) {
+	start, endEx := payrollPeriodBounds(year, month)
+	type row struct {
+		ShareID            uint
+		PaymentID          uint
+		StudentID          *uint
+		FirstName          string
+		LastName           string
+		BillingMode        string
+		Kind               string
+		ShareCents         int64
+		BasisAmountCents   int64
+		PaymentAmountCents int64
+		PaidAt             *time.Time
+	}
+	var rows []row
+	err := s.db.WithContext(ctx).Raw(`
+SELECT
+  pps.id AS share_id,
+  pps.payment_id,
+  payments.student_id,
+  COALESCE(students.first_name, '') AS first_name,
+  COALESCE(students.last_name, '') AS last_name,
+  COALESCE(students.enrollment_billing_mode, '') AS billing_mode,
+  pps.kind,
+  pps.share_cents,
+  pps.basis_amount_cents,
+  payments.amount_cents AS payment_amount_cents,
+  payments.paid_at
+FROM payment_payroll_shares pps
+INNER JOIN payments ON payments.id = pps.payment_id AND payments.deleted_at IS NULL
+LEFT JOIN students ON students.id = payments.student_id AND students.deleted_at IS NULL
+WHERE pps.deleted_at IS NULL
+  AND pps.user_id = ?
+  AND payments.status = ?
+  AND payments.paid_at IS NOT NULL
+  AND payments.paid_at >= ? AND payments.paid_at < ?
+ORDER BY payments.paid_at ASC, pps.id ASC
+`, userID, models.PaymentStatusPaid, start, endEx).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]PaymentShareLine, 0, len(rows))
+	var sum int64
+	for _, r := range rows {
+		sum += r.ShareCents
+		sid := uint(0)
+		if r.StudentID != nil {
+			sid = *r.StudentID
+		}
+		name := strings.TrimSpace(r.FirstName + " " + r.LastName)
+		out = append(out, PaymentShareLine{
+			ShareID:               r.ShareID,
+			PaymentID:             r.PaymentID,
+			StudentID:             sid,
+			StudentName:           name,
+			EnrollmentBillingMode: r.BillingMode,
+			Kind:                  r.Kind,
+			ShareCents:            r.ShareCents,
+			BasisAmountCents:      r.BasisAmountCents,
+			PaymentAmountCents:    r.PaymentAmountCents,
+			PaidAt:                r.PaidAt,
+		})
+	}
+	return out, sum, nil
+}
+
+func (s *PayrollService) listUserAccrualShareLines(ctx context.Context, userID uint, year, month int) ([]AccrualShareLine, int64, error) {
+	var students []models.Student
+	if err := s.db.WithContext(ctx).
+		Where("advisor_id = ? AND enrollment_billing_mode = ? AND status = ?",
+			userID, models.EnrollmentBillingSchoolEnrollment, models.StudentStatusActive).
+		Find(&students).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]AccrualShareLine, 0)
+	var sum int64
+	for i := range students {
+		st := &students[i]
+		due := models.AdvisorAccrualDueForPeriod(st, year, month)
+		if due <= 0 {
+			continue
+		}
+		totalMonths := st.AdvisorAccrualMonthsCount()
+		idx, _ := models.AdvisorAccrualMonthIndexForPeriod(st, year, month)
+		remaining := totalMonths - idx
+		if remaining < 0 {
+			remaining = 0
+		}
+		sum += due
+		out = append(out, AccrualShareLine{
+			StudentID:               st.ID,
+			StudentName:             strings.TrimSpace(st.FirstName + " " + st.LastName),
+			EnrollmentBillingMode:   string(st.EnrollmentBillingMode),
+			EnrollmentAmountCents:   st.EnrollmentAmountCents,
+			ContractShareTotalCents: models.AdvisorContractTotalShareCents(st),
+			ShareCents:              due,
+			AccrualMonthIndex:       idx,
+			AccrualMonthsTotal:      totalMonths,
+			RemainingMonths:         remaining,
+			Label:                   "سهم قرارداد سالانه — قسط ماهانه حقوق",
+		})
+	}
+	return out, sum, nil
+}
+
+// RecalculateUserPeriod creates or refreshes the PENDING payslip for one user/month and returns breakdown.
+// PAID payslips are locked.
+func (s *PayrollService) RecalculateUserPeriod(ctx context.Context, userID uint, year, month int) (*models.PayrollEntry, CompensationBreakdownDetail, error) {
+	if year < 1 || month < 1 || month > 12 {
+		return nil, CompensationBreakdownDetail{}, ErrPayrollInvalidPeriod
+	}
+	var existing models.PayrollEntry
+	err := s.db.WithContext(ctx).
+		Where("user_id = ? AND period_year = ? AND period_month = ?", userID, year, month).
+		First(&existing).Error
+	if err == nil {
+		if existing.Status == models.PayrollStatusPaid {
+			detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
+			if dErr != nil {
+				return nil, CompensationBreakdownDetail{}, ErrPayrollEntryPaidLocked
+			}
+			return nil, detail, ErrPayrollEntryPaidLocked
+		}
+		entry, uErr := s.UpdateEntry(ctx, existing.ID, UpdateEntryParams{RecalculateFromRoleRules: true})
+		if uErr != nil {
+			return nil, CompensationBreakdownDetail{}, uErr
+		}
+		detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
+		if dErr != nil {
+			return entry, CompensationBreakdownDetail{}, dErr
+		}
+		return entry, detail, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, CompensationBreakdownDetail{}, err
+	}
+	entry, cErr := s.CreateEntry(ctx, CreateEntryParams{
+		UserID:         userID,
+		PeriodYear:     year,
+		PeriodMonth:    month,
+		ApplyRoleRules: true,
+		Status:         models.PayrollStatusPending,
+	})
+	if cErr != nil {
+		return nil, CompensationBreakdownDetail{}, cErr
+	}
+	detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
+	if dErr != nil {
+		return entry, CompensationBreakdownDetail{}, dErr
+	}
+	return entry, detail, nil
+}
 
 // CreateEntryParams is the input for creating a payroll entry.
 type CreateEntryParams struct {

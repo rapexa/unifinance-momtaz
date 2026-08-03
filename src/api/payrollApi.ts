@@ -343,3 +343,86 @@ export async function getAdvisorOpsUserDetail(
   }
   return data as AdvisorOpsUserDetailApi;
 }
+
+export interface PaymentShareLineApi {
+  share_id: number;
+  payment_id: number;
+  student_id: number;
+  student_name: string;
+  enrollment_billing_mode: string;
+  kind: string;
+  share_cents: number;
+  basis_amount_cents: number;
+  payment_amount_cents: number;
+  paid_at?: string | null;
+}
+
+export interface AccrualShareLineApi {
+  student_id: number;
+  student_name: string;
+  enrollment_billing_mode: string;
+  enrollment_amount_cents: number;
+  contract_share_total_cents: number;
+  share_cents: number;
+  accrual_month_index: number;
+  accrual_months_total: number;
+  remaining_months: number;
+  label: string;
+}
+
+export interface PayrollBreakdownApi {
+  user_id: number;
+  period_year: number;
+  period_month: number;
+  base_salary_cents: number;
+  variable_salary_cents: number;
+  total_salary_cents: number;
+  payment_shares_cents: number;
+  accrual_shares_cents: number;
+  students_count: number;
+  students_count_scope?: "ORG_TOTAL" | "ASSIGNED";
+  compensation_kind: string;
+  payment_share_lines: PaymentShareLineApi[];
+  accrual_share_lines: AccrualShareLineApi[];
+  entry_id?: number;
+  entry_status?: string;
+  entry_locked: boolean;
+}
+
+export async function getPayrollUserBreakdown(params: {
+  user_id: number;
+  year: number;
+  month: number;
+}): Promise<PayrollBreakdownApi> {
+  const url = new URL(`${API_BASE}/payroll/users/${params.user_id}/breakdown`);
+  url.searchParams.set("year", String(params.year));
+  url.searchParams.set("month", String(params.month));
+  const res = await authFetch(url.toString(), {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در دریافت شکست محاسبه حقوق");
+  }
+  return data as PayrollBreakdownApi;
+}
+
+export async function recalculatePayrollUser(params: {
+  user_id: number;
+  year: number;
+  month: number;
+}): Promise<{ entry: PayrollEntryApi; breakdown: PayrollBreakdownApi }> {
+  const url = new URL(`${API_BASE}/payroll/users/${params.user_id}/recalculate`);
+  url.searchParams.set("year", String(params.year));
+  url.searchParams.set("month", String(params.month));
+  const res = await authFetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در محاسبه فیش حقوقی");
+  }
+  return data as { entry: PayrollEntryApi; breakdown: PayrollBreakdownApi };
+}
+

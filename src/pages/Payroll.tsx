@@ -40,10 +40,13 @@ import {
   recalculatePayrollPeriod,
   listAdvisorOps,
   getAdvisorOpsUserDetail,
+  recalculatePayrollUser,
+  getPayrollUserBreakdown,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
   type AdvisorOpsApi,
+  type PayrollBreakdownApi,
 } from "@/api/payrollApi";
 import { listUsers } from "@/api/usersApi";
 import { getPaymentsSummary } from "@/api/paymentsApi";
@@ -218,7 +221,7 @@ function EditPayrollForm({
           onClick={onRecalculate}
           disabled={isSaving}
         >
-          محاسبه مجدد از قوانین نقش و پرداخت‌ها
+          محاسبه فیش از قوانین نقش و پرداخت‌ها
         </Button>
         <p className="text-xs text-muted-foreground">
           حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود.{" "}
@@ -276,6 +279,8 @@ const Payroll = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
   const [editEntryId, setEditEntryId] = useState<number | null>(null);
+  const [breakdown, setBreakdown] = useState<PayrollBreakdownApi | null>(null);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   // Create form
   const [createUserId, setCreateUserId] = useState("");
@@ -450,17 +455,29 @@ const Payroll = () => {
   });
 
   const recalculateMutation = useMutation({
-    mutationFn: (id: number) => updatePayrollEntry(id, { recalculate_from_role_rules: true }),
-    onSuccess: (_, id) => {
+    mutationFn: (entry: PayrollEntryApi) =>
+      recalculatePayrollUser({
+        user_id: entry.user_id,
+        year: entry.period_year,
+        month: entry.period_month,
+      }),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll-entry", id] });
-      toast({ title: "محاسبه مجدد انجام شد" });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
+      setBreakdown(data.breakdown);
+      setBreakdownOpen(true);
+      toast({
+        title: "محاسبه فیش انجام شد",
+        description: data.breakdown.accrual_share_lines?.length
+          ? "سهم قرارداد سالانه (قسط ماهانه) در شکست محاسبه آمده است."
+          : "مبالغ از قوانین نقش و پرداخت‌ها به‌روز شد.",
+      });
     },
     onError: (err: Error) => {
       toast({
         variant: "destructive",
-        title: "خطا در محاسبه",
+        title: "خطا در محاسبه فیش",
         description: err?.message ?? "درخواست ناموفق بود",
       });
     },
@@ -670,7 +687,7 @@ const Payroll = () => {
             </Button>
             <Button size="sm" className="w-full sm:w-auto" onClick={() => setIsCreateOpen(true)}>
               <Plus className="ml-2 h-4 w-4" />
-              ثبت حقوق
+              ایجاد فیش
             </Button>
           </div>
         </div>
@@ -680,12 +697,10 @@ const Payroll = () => {
           <div className="text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
             {" "}
-            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم‌های ثبت‌شده روی پرداخت‌هاست (سهم نقش روی دانش‌آموز و در صورت تنظیم، سهم قرارداد مشاور).{" "}
-            <span className="font-medium text-foreground">حقوق مدیرکل</span> به‌صورت «مجموع پرداخت‌های ماه − سهم‌های تخصیص‌یافته به نقش‌ها» در ستون حقوق متغیر محاسبه می‌شود. با هر بار ورود به این صفحه، فیش‌های{" "}
-            <span className="font-medium text-foreground">در انتظار</span> از روی پرداخت‌ها تا همان لحظه به‌روز می‌شوند.
-            {" "}
-            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> با این بازمحاسبه عوض نمی‌شود.
-            {" "}این صفحه برای مشاهده حساب‌کتاب است؛ ثبت وضعیت پرداخت حقوق از اینجا انجام نمی‌شود.
+            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم پرداخت‌های PAID ماهانه و در صورت دانش‌آموز سالانه از «سهم قرارداد سالانه — قسط ماهانه حقوق» است.{" "}
+            <span className="font-medium text-foreground">محاسبه فیش</span> روی هر ردیف، فقط همان کارمند را بازمحاسبه می‌کند و شکست را نشان می‌دهد.{" "}
+            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> قفل است و بازمحاسبه نمی‌شود.
+            {" "}این صفحه سند حقوق را می‌سازد؛ تیک پرداخت حقوق در فاز بعدی جدا می‌شود.
           </div>
         </div>
         <div className="card-elevated overflow-hidden">
@@ -817,14 +832,41 @@ const Payroll = () => {
                                     variant="ghost"
                                     size="sm"
                                     className="gap-1 text-muted-foreground"
-                                    onClick={() => recalculateMutation.mutate(entry.id)}
+                                    onClick={() => recalculateMutation.mutate(entry)}
                                     disabled={recalculateMutation.isPending}
-                                    title="محاسبه مجدد از پرداخت‌ها و قوانین نقش"
+                                    title="محاسبه فیش این کارمند از پرداخت‌ها و قوانین نقش"
                                   >
                                     <RefreshCw className="h-4 w-4" />
-                                    بروزرسانی
+                                    محاسبه فیش
                                   </Button>
                                 )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1"
+                                  onClick={async () => {
+                                    try {
+                                      const b = await getPayrollUserBreakdown({
+                                        user_id: entry.user_id,
+                                        year: entry.period_year,
+                                        month: entry.period_month,
+                                      });
+                                      setBreakdown(b);
+                                      setBreakdownOpen(true);
+                                    } catch (e) {
+                                      setDetailEntryId(entry.id);
+                                      toast({
+                                        variant: "destructive",
+                                        title: "خطا در دریافت شکست محاسبه",
+                                        description: e instanceof Error ? e.message : "ناموفق",
+                                      });
+                                    }
+                                  }}
+                                  title="شکست محاسبه و جزئیات فیش"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  جزئیات
+                                </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -834,16 +876,6 @@ const Payroll = () => {
                                 >
                                   <Pencil className="h-4 w-4" />
                                   ویرایش
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="gap-1"
-                                  onClick={() => setDetailEntryId(entry.id)}
-                                  title="دیدن جزئیات فیش حقوق"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                  جزئیات
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -1237,7 +1269,7 @@ const Payroll = () => {
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>ثبت حقوق</DialogTitle>
+            <DialogTitle>ایجاد فیش حقوقی</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
@@ -1432,6 +1464,127 @@ const Payroll = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Breakdown Dialog */}
+      <Dialog open={breakdownOpen} onOpenChange={(open) => { setBreakdownOpen(open); if (!open) setBreakdown(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>شکست محاسبه فیش</DialogTitle>
+          </DialogHeader>
+          {breakdown && (
+            <div className="space-y-5 py-2 text-right">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">حقوق ثابت</p>
+                  <p className="mt-1 font-bold number-display">{formatCentsToToman(breakdown.base_salary_cents)}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">حقوق متغیر</p>
+                  <p className="mt-1 font-bold number-display text-primary">
+                    {formatCentsToToman(breakdown.variable_salary_cents)}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">جمع کل</p>
+                  <p className="mt-1 font-bold number-display">{formatCentsToToman(breakdown.total_salary_cents)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {studentsCountLabel(breakdown.students_count_scope)}:{" "}
+                {breakdown.students_count.toLocaleString("fa-IR")}
+                {breakdown.entry_locked ? " · فیش پرداخت‌شده (قفل)" : null}
+              </p>
+
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">
+                  سهم از پرداخت‌های PAID این ماه ({formatCentsToToman(breakdown.payment_shares_cents)} تومان)
+                </h3>
+                {breakdown.payment_share_lines?.length ? (
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/40">
+                          <th className="p-2 text-right text-xs">دانش‌آموز</th>
+                          <th className="p-2 text-right text-xs">نوع</th>
+                          <th className="p-2 text-right text-xs">مبلغ پرداخت</th>
+                          <th className="p-2 text-right text-xs">سهم</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {breakdown.payment_share_lines.map((line) => (
+                          <tr key={line.share_id} className="border-b last:border-0">
+                            <td className="p-2">{line.student_name || "—"}</td>
+                            <td className="p-2 text-muted-foreground">
+                              {billingModeLabel(parseBillingMode(line.enrollment_billing_mode))}
+                              {line.kind === "ADVISOR_CONTRACT" ? " · مشاور" : " · نقش"}
+                            </td>
+                            <td className="p-2 number-display">{formatCentsToToman(line.payment_amount_cents)}</td>
+                            <td className="p-2 number-display font-medium">{formatCentsToToman(line.share_cents)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">سهم پرداختی برای این ماه ثبت نشده است.</p>
+                )}
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">
+                  سهم قرارداد سالانه — قسط ماهانه حقوق ({formatCentsToToman(breakdown.accrual_shares_cents)} تومان)
+                </h3>
+                {breakdown.accrual_share_lines?.length ? (
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/40">
+                          <th className="p-2 text-right text-xs">دانش‌آموز</th>
+                          <th className="p-2 text-right text-xs">روند</th>
+                          <th className="p-2 text-right text-xs">کل سهم قرارداد</th>
+                          <th className="p-2 text-right text-xs">این ماه</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {breakdown.accrual_share_lines.map((line) => (
+                          <tr key={line.student_id} className="border-b last:border-0">
+                            <td className="p-2">
+                              <p>{line.student_name || "—"}</p>
+                              <p className="text-[11px] text-amber-700 dark:text-amber-400">{line.label}</p>
+                            </td>
+                            <td className="p-2 text-muted-foreground text-xs">
+                              ماه {line.accrual_month_index.toLocaleString("fa-IR")} از{" "}
+                              {line.accrual_months_total.toLocaleString("fa-IR")}
+                              {line.remaining_months > 0
+                                ? ` · باقی‌مانده ${line.remaining_months.toLocaleString("fa-IR")} ماه`
+                                : " · آخرین قسط"}
+                            </td>
+                            <td className="p-2 number-display">
+                              {formatCentsToToman(line.contract_share_total_cents)}
+                            </td>
+                            <td className="p-2 number-display font-medium text-primary">
+                              {formatCentsToToman(line.share_cents)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    دانش‌آموز سالانه‌ای با سهم این ماه برای این کارمند نیست.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setBreakdownOpen(false)}>
+              بستن
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Payslip Detail Dialog */}
       <Dialog open={detailEntryId != null} onOpenChange={(open) => !open && setDetailEntryId(null)}>
         <DialogContent className="sm:max-w-md">
@@ -1478,11 +1631,8 @@ const Payroll = () => {
                 }
               }}
               onRecalculate={() => {
-                if (editEntryId != null) {
-                  updateMutation.mutate({
-                    id: editEntryId,
-                    payload: { recalculate_from_role_rules: true },
-                  });
+                if (editEntry) {
+                  recalculateMutation.mutate(editEntry);
                 }
               }}
               onCancel={() => setEditEntryId(null)}
