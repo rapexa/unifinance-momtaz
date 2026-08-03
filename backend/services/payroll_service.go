@@ -17,6 +17,10 @@ var (
 	ErrPayrollInvalidRoleCompensation = errors.New("role compensation settings are incomplete")
 	ErrPayrollEntryPaidLocked         = errors.New("payslip is paid and locked")
 	ErrPayrollInvalidPeriod           = errors.New("invalid payroll period")
+	ErrPayrollInvalidPaidAt           = errors.New("invalid paid_at")
+	ErrPayrollAlreadyPaid             = errors.New("payslip already paid")
+	ErrPayrollNotPaid                 = errors.New("payslip is not paid")
+	ErrPayrollForbidden               = errors.New("forbidden")
 )
 
 
@@ -988,10 +992,15 @@ type UpdateEntryParams struct {
 }
 
 // UpdateEntry updates an existing payroll entry. Total is recalculated from base + variable.
+// Recalculate / amount edits are blocked when status is PAID (use MarkPending first).
 func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntryParams) (*models.PayrollEntry, error) {
 	entry, err := s.GetEntryByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	changingAmounts := p.RecalculateFromRoleRules || p.BaseSalaryCents != nil || p.VariableSalaryCents != nil || p.StudentsCount != nil
+	if entry.Status == models.PayrollStatusPaid && changingAmounts {
+		return nil, ErrPayrollEntryPaidLocked
 	}
 	if p.RecalculateFromRoleRules {
 		br, err := s.ComputeCompensationForUser(ctx, entry.UserID, entry.PeriodYear, entry.PeriodMonth)
@@ -1024,7 +1033,6 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		}
 	}
 	entry.TotalSalaryCents = entry.BaseSalaryCents + entry.VariableSalaryCents
-	// Do not Save(entry): nested Preload("User.Role") still triggers association writes on some GORM versions (INSERT roles/users).
 	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).Where("id = ?", entry.ID).Updates(map[string]interface{}{
 		"base_salary_cents":     entry.BaseSalaryCents,
 		"variable_salary_cents": entry.VariableSalaryCents,
@@ -1036,6 +1044,44 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		return nil, err
 	}
 	return s.GetEntryByID(ctx, entry.ID)
+}
+
+// MarkPaid marks a PENDING payslip as PAID with the given paid_at (local calendar day).
+func (s *PayrollService) MarkPaid(ctx context.Context, id uint, paidAt time.Time) (*models.PayrollEntry, error) {
+	entry, err := s.GetEntryByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if entry.Status == models.PayrollStatusPaid {
+		return nil, ErrPayrollAlreadyPaid
+	}
+	loc := time.Local
+	day := time.Date(paidAt.Year(), paidAt.Month(), paidAt.Day(), 12, 0, 0, 0, loc)
+	st := models.PayrollStatusPaid
+	return s.UpdateEntry(ctx, id, UpdateEntryParams{
+		Status: &st,
+		PaidAt: &day,
+	})
+}
+
+// MarkPending reverts a PAID payslip to PENDING (clears paid_at). Explicit unlock for admin.
+func (s *PayrollService) MarkPending(ctx context.Context, id uint) (*models.PayrollEntry, error) {
+	entry, err := s.GetEntryByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if entry.Status != models.PayrollStatusPaid {
+		return nil, ErrPayrollNotPaid
+	}
+	st := models.PayrollStatusPending
+	// Direct DB update to bypass PAID amount-lock path when only unlocking status.
+	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":  st,
+		"paid_at": nil,
+	}).Error; err != nil {
+		return nil, err
+	}
+	return s.GetEntryByID(ctx, id)
 }
 
 // AdvisorOpsRow is one staff member (with RBAC role) and their assigned-student ops stats for a month.
@@ -1298,7 +1344,7 @@ func (s *PayrollService) ListAdvisorOps(ctx context.Context, year, month int, sc
 // ListAdvisorOpsStudents returns active students for one advisor with billing fields.
 func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID uint, year, month int, scopeUser *uint) ([]AdvisorOpsStudentRow, error) {
 	if scopeUser != nil && *scopeUser != advisorID {
-		return nil, errors.New("forbidden")
+		return nil, ErrPayrollForbidden
 	}
 	from, to := periodBounds(year, month)
 
@@ -1376,7 +1422,7 @@ func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID u
 // GetAdvisorOpsUserDetail returns KPIs, salary history, student payments and students for one staff user.
 func (s *PayrollService) GetAdvisorOpsUserDetail(ctx context.Context, userID uint, year, month int, scopeUser *uint) (*AdvisorOpsUserDetail, error) {
 	if scopeUser != nil && *scopeUser != userID {
-		return nil, errors.New("forbidden")
+		return nil, ErrPayrollForbidden
 	}
 
 	var user models.User
@@ -1499,4 +1545,105 @@ func (s *PayrollService) GetAdvisorOpsUserDetail(ctx context.Context, userID uin
 	}
 
 	return detail, nil
+}
+
+// UserLedgerDetail aggregates identity, month compensation breakdown, students, salary history and payments.
+type UserLedgerDetail struct {
+	UserID    uint
+	FirstName string
+	LastName  string
+	RoleCode  string
+	RoleName  string
+
+	PeriodYear          int
+	PeriodMonth         int
+	BaseSalaryCents     int64
+	VariableSalaryCents int64
+	TotalSalaryCents    int64
+	PaymentSharesCents  int64
+	AccrualSharesCents  int64
+	StudentsCount       int
+	StudentsCountScope  models.StudentsCountScope
+	CompensationKind    models.CompensationKind
+	PaymentShareLines   []PaymentShareLine
+	AccrualShareLines   []AccrualShareLine
+	EntryID             *uint
+	EntryStatus         string
+	EntryLocked         bool
+
+	StudentsTotal      int
+	PaymentsCount      int64
+	PaymentsTotalCents int64
+	SalariesCount      int
+	SalariesPaidCount  int
+	SalariesTotalCents int64
+	SalariesPaidCents  int64
+	ExpectedTotalCents int64
+	StudentsPaidTotal  int64
+	RemainingCents     int64
+	Students           []AdvisorOpsStudentRow
+	Salaries           []AdvisorOpsSalaryRow
+	Payments           []AdvisorOpsPaymentRow
+}
+
+// GetUserLedger returns the Phase 4 employee detail page payload for one user/month.
+func (s *PayrollService) GetUserLedger(ctx context.Context, userID uint, year, month int, scopeUser *uint) (UserLedgerDetail, error) {
+	if scopeUser != nil && *scopeUser != userID {
+		return UserLedgerDetail{}, ErrPayrollForbidden
+	}
+	if year < 1 || month < 1 || month > 12 {
+		return UserLedgerDetail{}, ErrPayrollInvalidPeriod
+	}
+
+	ops, err := s.GetAdvisorOpsUserDetail(ctx, userID, year, month, scopeUser)
+	if err != nil {
+		return UserLedgerDetail{}, err
+	}
+	breakdown, err := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
+	if err != nil {
+		return UserLedgerDetail{}, err
+	}
+
+	out := UserLedgerDetail{
+		UserID:              ops.UserID,
+		FirstName:           ops.FirstName,
+		LastName:            ops.LastName,
+		RoleCode:            ops.RoleCode,
+		RoleName:            ops.RoleName,
+		PeriodYear:          breakdown.PeriodYear,
+		PeriodMonth:         breakdown.PeriodMonth,
+		BaseSalaryCents:     breakdown.BaseSalaryCents,
+		VariableSalaryCents: breakdown.VariableSalaryCents,
+		TotalSalaryCents:    breakdown.TotalSalaryCents,
+		PaymentSharesCents:  breakdown.PaymentSharesCents,
+		AccrualSharesCents:  breakdown.AccrualSharesCents,
+		StudentsCount:       breakdown.StudentsCount,
+		StudentsCountScope:  breakdown.StudentsCountScope,
+		CompensationKind:    breakdown.CompensationKind,
+		PaymentShareLines:   breakdown.PaymentShareLines,
+		AccrualShareLines:   breakdown.AccrualShareLines,
+		EntryID:             breakdown.EntryID,
+		EntryStatus:         breakdown.EntryStatus,
+		EntryLocked:         breakdown.EntryLocked,
+		StudentsTotal:       ops.StudentsTotal,
+		PaymentsCount:       ops.PaymentsCount,
+		PaymentsTotalCents:  ops.PaymentsTotalCents,
+		SalariesCount:       ops.SalariesCount,
+		SalariesPaidCount:   ops.SalariesPaidCount,
+		SalariesTotalCents:  ops.SalariesTotalCents,
+		SalariesPaidCents:   ops.SalariesPaidCents,
+		ExpectedTotalCents:  ops.ExpectedTotalCents,
+		StudentsPaidTotal:   ops.StudentsPaidTotal,
+		RemainingCents:      ops.RemainingCents,
+		Students:            ops.Students,
+		Salaries:            ops.Salaries,
+		Payments:            ops.Payments,
+	}
+
+	// Prefer payroll scope count when ORG_TOTAL (same as advisor-ops detail handler).
+	if breakdown.StudentsCountScope == models.StudentsCountScopeOrgTotal {
+		out.StudentsTotal = breakdown.StudentsCount
+	}
+
+	return out, nil
 }

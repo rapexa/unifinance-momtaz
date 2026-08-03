@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -153,7 +154,7 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), defaultYear)
 	month := parseIntWithDefault(c.Query("month"), defaultMonth)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 
@@ -166,7 +167,7 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 
 	summary, err := h.service.GetMonthlySummary(c.Request.Context(), year, month, scope)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll summary"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری خلاصه حقوق"})
 		return
 	}
 
@@ -194,15 +195,15 @@ func (h *PayrollHandler) RecalculatePeriod(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), dy)
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 	if err := h.service.EnsureEntriesForPeriod(c.Request.Context(), year, month); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ensure payroll entries"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در آماده‌سازی فیش‌های حقوقی"})
 		return
 	}
 	if err := h.service.RecalculateAllPendingEntriesForPeriod(c.Request.Context(), year, month); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to recalculate payroll"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بازمحاسبه حقوق"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "year": year, "month": month})
@@ -222,12 +223,12 @@ func (h *PayrollHandler) RecalculatePeriod(c *gin.Context) {
 func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	userIDStr := c.Query("user_id")
 	if userIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر الزامی است"})
 		return
 	}
 	uid64, err := strconv.ParseUint(userIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
 		return
 	}
 	now := time.Now()
@@ -235,11 +236,11 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), dy)
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil && uint(uid64) != *scope {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
 		return
 	}
 
@@ -247,13 +248,13 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrPayrollUserNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
 		case services.ErrPayrollNoRole:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "کاربر نقش ندارد"})
 		case services.ErrPayrollInvalidRoleCompensation:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تنظیمات حقوق نقش ناقص است"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute compensation"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در محاسبه حقوق"})
 		}
 		return
 	}
@@ -294,7 +295,7 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), defaultYear)
 	month := parseIntWithDefault(c.Query("month"), defaultMonth)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 
@@ -329,7 +330,7 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 	} else if userIDStr != "" {
 		id64, err := strconv.ParseUint(userIDStr, 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
 			return
 		}
 		id := uint(id64)
@@ -338,7 +339,7 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 
 	entries, total, err := h.service.ListEntries(c.Request.Context(), year, month, pageSize, offset, status, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list payroll entries"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست فیش‌های حقوقی"})
 		return
 	}
 
@@ -382,7 +383,7 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 func (h *PayrollHandler) GetSchemes(c *gin.Context) {
 	schemes, err := h.service.GetSchemes(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll schemes"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری طرح‌های حقوق"})
 		return
 	}
 	c.JSON(http.StatusOK, toPayrollSchemeDTOSlice(schemes))
@@ -429,11 +430,11 @@ type createPayrollEntryRequest struct {
 func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 	var req createPayrollEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "درخواست نامعتبر است"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil && req.UserID != *scope {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
 		return
 	}
 
@@ -450,7 +451,7 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 		// Base / variable / students_count filled in service from Role + payments.
 	} else {
 		if req.BaseSalaryCents == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "base_salary_cents is required when apply_role_rules is false"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "وقتی قوانین نقش اعمال نمی‌شود، مبلغ پایه حقوق الزامی است"})
 			return
 		}
 		params.BaseSalaryCents = *req.BaseSalaryCents
@@ -467,13 +468,13 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrPayrollUserNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
 		case services.ErrPayrollNoRole:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "کاربر نقش ندارد"})
 		case services.ErrPayrollInvalidRoleCompensation:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete; fix role settings"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تنظیمات حقوق نقش ناقص است؛ نقش را اصلاح کنید"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payroll entry"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ایجاد فیش حقوقی"})
 		}
 		return
 	}
@@ -499,21 +500,21 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
 	entry, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPayrollEntryNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payroll entry"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت فیش حقوقی"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil && entry.UserID != *scope {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 		return
 	}
 
@@ -551,27 +552,27 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
 	var req updatePayrollEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "درخواست نامعتبر است"})
 		return
 	}
 
 	existing, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPayrollEntryNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payroll entry"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت فیش حقوقی"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil && existing.UserID != *scope {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 		return
 	}
 
@@ -594,7 +595,7 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 	if req.PaidAtStr != nil {
 		t, err := parseOptionalDate(*req.PaidAtStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid paid_at date"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پرداخت نامعتبر است"})
 			return
 		}
 		params.PaidAt = t
@@ -603,22 +604,114 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 	entry, err := h.service.UpdateEntry(c.Request.Context(), uint(id), params)
 	if err != nil {
 		if err == services.ErrPayrollEntryNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payroll entry not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 			return
 		}
 		switch err {
 		case services.ErrPayrollUserNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
 		case services.ErrPayrollNoRole:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "user has no role"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "کاربر نقش ندارد"})
 		case services.ErrPayrollInvalidRoleCompensation:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role compensation is incomplete"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تنظیمات حقوق نقش ناقص است"})
+		case services.ErrPayrollEntryPaidLocked:
+			c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است؛ ابتدا آن را به «در انتظار» برگردانید"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payroll entry"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در به‌روزرسانی فیش حقوقی"})
 		}
 		return
 	}
 
+	c.JSON(http.StatusOK, h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)))
+}
+
+type markPaidRequest struct {
+	PaidAtStr string `json:"paid_at" binding:"omitempty"` // YYYY-MM-DD؛ پیش‌فرض امروز
+}
+
+// MarkPaid handles POST /payroll/entries/:id/mark-paid
+func (h *PayrollHandler) MarkPaid(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه فیش نامعتبر است"})
+		return
+	}
+	existing, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPayrollEntryNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت فیش حقوقی"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && existing.UserID != *scope {
+		c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+		return
+	}
+
+	var req markPaidRequest
+	_ = c.ShouldBindJSON(&req)
+	paidAt := time.Now()
+	if strings.TrimSpace(req.PaidAtStr) != "" {
+		t, err := parseOptionalDate(req.PaidAtStr)
+		if err != nil || t == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پرداخت نامعتبر است"})
+			return
+		}
+		paidAt = *t
+	}
+
+	entry, err := h.service.MarkPaid(c.Request.Context(), uint(id), paidAt)
+	if err != nil {
+		switch err {
+		case services.ErrPayrollEntryNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+		case services.ErrPayrollAlreadyPaid:
+			c.JSON(http.StatusConflict, gin.H{"error": "این فیش قبلاً به‌عنوان پرداخت‌شده ثبت شده است"})
+		case services.ErrPayrollEntryPaidLocked:
+			c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ثبت پرداخت فیش"})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)))
+}
+
+// MarkPending handles POST /payroll/entries/:id/mark-pending
+func (h *PayrollHandler) MarkPending(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه فیش نامعتبر است"})
+		return
+	}
+	existing, err := h.service.GetEntryByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if err == services.ErrPayrollEntryNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت فیش حقوقی"})
+		return
+	}
+	if scope := middleware.DataScopeUserID(c); scope != nil && existing.UserID != *scope {
+		c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+		return
+	}
+
+	entry, err := h.service.MarkPending(c.Request.Context(), uint(id))
+	if err != nil {
+		switch err {
+		case services.ErrPayrollEntryNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
+		case services.ErrPayrollNotPaid:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "این فیش پرداخت‌شده نیست"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بازگرداندن فیش به حالت در انتظار"})
+		}
+		return
+	}
 	c.JSON(http.StatusOK, h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)))
 }
 
@@ -709,12 +802,12 @@ func (h *PayrollHandler) ListAdvisorOps(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), dy)
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 	rows, err := h.service.ListAdvisorOps(c.Request.Context(), year, month, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load advisor ops"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری حساب‌کتاب مشاوران"})
 		return
 	}
 	out := make([]AdvisorOpsDTO, len(rows))
@@ -751,7 +844,7 @@ func (h *PayrollHandler) ListAdvisorOps(c *gin.Context) {
 func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
 	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
 	if err != nil || uid == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
 		return
 	}
 	now := time.Now()
@@ -759,16 +852,16 @@ func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), dy)
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 	rows, err := h.service.ListAdvisorOpsStudents(c.Request.Context(), uint(uid), year, month, middleware.DataScopeUserID(c))
 	if err != nil {
-		if err.Error() == "forbidden" {
+		if err == services.ErrPayrollForbidden {
 			c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load students"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری دانش‌آموزان"})
 		return
 	}
 	out := make([]AdvisorOpsStudentDTO, len(rows))
@@ -794,7 +887,7 @@ func (h *PayrollHandler) ListAdvisorOpsStudents(c *gin.Context) {
 func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
 	if err != nil || uid == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
 		return
 	}
 	now := time.Now()
@@ -802,12 +895,12 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 	year := parseIntWithDefault(c.Query("year"), dy)
 	month := parseIntWithDefault(c.Query("month"), dm)
 	if month < 1 || month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; must be 1-12"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
 		return
 	}
 	detail, err := h.service.GetAdvisorOpsUserDetail(c.Request.Context(), uint(uid), year, month, middleware.DataScopeUserID(c))
 	if err != nil {
-		if err.Error() == "forbidden" {
+		if err == services.ErrPayrollForbidden {
 			c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
 			return
 		}
@@ -815,7 +908,7 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "کاربر یافت نشد"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load user detail"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری جزئیات کاربر"})
 		return
 	}
 	students := make([]AdvisorOpsStudentDTO, len(detail.Students))
@@ -1000,6 +1093,8 @@ func (h *PayrollHandler) writePayrollComputeError(c *gin.Context, err error) boo
 		c.JSON(http.StatusBadRequest, gin.H{"error": "دوره حقوقی نامعتبر است"})
 	case services.ErrPayrollEntryPaidLocked:
 		c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است و قابل بازمحاسبه نیست"})
+	case services.ErrPayrollForbidden:
+		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
 	default:
 		return false
 	}
@@ -1073,6 +1168,131 @@ func (h *PayrollHandler) RecalculateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"entry":     h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)),
 		"breakdown": toCompensationBreakdownDTO(detail),
+	})
+}
+
+// GetUserLedger handles GET /payroll/users/:user_id/ledger
+func (h *PayrollHandler) GetUserLedger(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
+		return
+	}
+	now := time.Now()
+	dy, dm := services.DefaultPeriod(now)
+	year := parseIntWithDefault(c.Query("year"), dy)
+	month := parseIntWithDefault(c.Query("month"), dm)
+	if month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ماه نامعتبر است؛ باید بین ۱ تا ۱۲ باشد"})
+		return
+	}
+	detail, err := h.service.GetUserLedger(c.Request.Context(), uint(uid), year, month, middleware.DataScopeUserID(c))
+	if err != nil {
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری جزئیات حساب‌کتاب"})
+		return
+	}
+
+	students := make([]AdvisorOpsStudentDTO, len(detail.Students))
+	for i, r := range detail.Students {
+		students[i] = AdvisorOpsStudentDTO{
+			StudentID:             r.StudentID,
+			FirstName:             r.FirstName,
+			LastName:              r.LastName,
+			DeliveryMode:          r.DeliveryMode,
+			EnrollmentBillingMode: r.EnrollmentBillingMode,
+			RegistrationChannel:   r.RegistrationChannel,
+			SchoolName:            r.SchoolName,
+			EnrollmentAmountCents: r.EnrollmentAmountCents,
+			PaidTotalCents:        r.PaidTotalCents,
+			RemainingBalanceCents: r.RemainingBalanceCents,
+			HasPaidThisMonth:      r.HasPaidThisMonth,
+		}
+	}
+	scopeStr := string(detail.StudentsCountScope)
+	salaries := make([]AdvisorOpsSalaryDTO, len(detail.Salaries))
+	for i, r := range detail.Salaries {
+		salaries[i] = AdvisorOpsSalaryDTO{
+			ID:                  r.ID,
+			PeriodYear:          r.PeriodYear,
+			PeriodMonth:         r.PeriodMonth,
+			BaseSalaryCents:     r.BaseSalaryCents,
+			VariableSalaryCents: r.VariableSalaryCents,
+			TotalSalaryCents:    r.TotalSalaryCents,
+			StudentsCount:       r.StudentsCount,
+			StudentsCountScope:  scopeStr,
+			Status:              r.Status,
+			PaidAt:              r.PaidAt,
+		}
+	}
+	payments := make([]AdvisorOpsPaymentDTO, len(detail.Payments))
+	for i, r := range detail.Payments {
+		payments[i] = AdvisorOpsPaymentDTO{
+			ID:          r.ID,
+			StudentID:   r.StudentID,
+			StudentName: r.StudentName,
+			AmountCents: r.AmountCents,
+			Status:      r.Status,
+			PaidAt:      r.PaidAt,
+			Description: r.Description,
+		}
+	}
+
+	bd := toCompensationBreakdownDTO(services.CompensationBreakdownDetail{
+		UserID:              detail.UserID,
+		PeriodYear:          detail.PeriodYear,
+		PeriodMonth:         detail.PeriodMonth,
+		BaseSalaryCents:     detail.BaseSalaryCents,
+		VariableSalaryCents: detail.VariableSalaryCents,
+		TotalSalaryCents:    detail.TotalSalaryCents,
+		PaymentSharesCents:  detail.PaymentSharesCents,
+		AccrualSharesCents:  detail.AccrualSharesCents,
+		StudentsCount:       detail.StudentsCount,
+		StudentsCountScope:  detail.StudentsCountScope,
+		CompensationKind:    detail.CompensationKind,
+		PaymentShareLines:   detail.PaymentShareLines,
+		AccrualShareLines:   detail.AccrualShareLines,
+		EntryID:             detail.EntryID,
+		EntryStatus:         detail.EntryStatus,
+		EntryLocked:         detail.EntryLocked,
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":                   detail.UserID,
+		"first_name":                detail.FirstName,
+		"last_name":                 detail.LastName,
+		"role_code":                 detail.RoleCode,
+		"role_name":                 detail.RoleName,
+		"period_year":               detail.PeriodYear,
+		"period_month":              detail.PeriodMonth,
+		"base_salary_cents":         bd.BaseSalaryCents,
+		"variable_salary_cents":     bd.VariableSalaryCents,
+		"total_salary_cents":        bd.TotalSalaryCents,
+		"payment_shares_cents":      bd.PaymentSharesCents,
+		"accrual_shares_cents":      bd.AccrualSharesCents,
+		"students_count":            bd.StudentsCount,
+		"students_count_scope":      bd.StudentsCountScope,
+		"compensation_kind":         bd.CompensationKind,
+		"payment_share_lines":       bd.PaymentShareLines,
+		"accrual_share_lines":       bd.AccrualShareLines,
+		"entry_id":                  bd.EntryID,
+		"entry_status":              bd.EntryStatus,
+		"entry_locked":              bd.EntryLocked,
+		"students_total":            detail.StudentsTotal,
+		"payments_count":            detail.PaymentsCount,
+		"payments_total_cents":      detail.PaymentsTotalCents,
+		"salaries_count":            detail.SalariesCount,
+		"salaries_paid_count":       detail.SalariesPaidCount,
+		"salaries_total_cents":      detail.SalariesTotalCents,
+		"salaries_paid_cents":       detail.SalariesPaidCents,
+		"expected_total_cents":      detail.ExpectedTotalCents,
+		"students_paid_total_cents": detail.StudentsPaidTotal,
+		"remaining_cents":           detail.RemainingCents,
+		"students":                  students,
+		"salaries":                  salaries,
+		"payments":                  payments,
 	})
 }
 

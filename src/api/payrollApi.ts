@@ -389,6 +389,41 @@ export interface PayrollBreakdownApi {
   entry_locked: boolean;
 }
 
+export interface PayrollUserLedgerApi extends AdvisorOpsUserDetailApi {
+  period_year: number;
+  period_month: number;
+  base_salary_cents: number;
+  variable_salary_cents: number;
+  total_salary_cents: number;
+  payment_shares_cents: number;
+  accrual_shares_cents: number;
+  students_count: number;
+  compensation_kind: string;
+  payment_share_lines: PaymentShareLineApi[];
+  accrual_share_lines: AccrualShareLineApi[];
+  entry_id?: number;
+  entry_status?: string;
+  entry_locked: boolean;
+}
+
+export async function getPayrollUserLedger(params: {
+  user_id: number;
+  year: number;
+  month: number;
+}): Promise<PayrollUserLedgerApi> {
+  const url = new URL(`${API_BASE}/payroll/users/${params.user_id}/ledger`);
+  url.searchParams.set("year", String(params.year));
+  url.searchParams.set("month", String(params.month));
+  const res = await authFetch(url.toString(), {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در دریافت جزئیات حساب‌کتاب");
+  }
+  return data as PayrollUserLedgerApi;
+}
+
 export async function getPayrollUserBreakdown(params: {
   user_id: number;
   year: number;
@@ -424,5 +459,33 @@ export async function recalculatePayrollUser(params: {
     throw new Error((data && data.error) || "خطا در محاسبه فیش حقوقی");
   }
   return data as { entry: PayrollEntryApi; breakdown: PayrollBreakdownApi };
+}
+
+export async function markPayrollEntryPaid(
+  id: number,
+  payload?: { paid_at?: string },
+): Promise<PayrollEntryApi> {
+  const res = await authFetch(`${API_BASE}/payroll/entries/${id}/mark-paid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload ?? {}),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در ثبت پرداخت فیش");
+  }
+  return data as PayrollEntryApi;
+}
+
+export async function markPayrollEntryPending(id: number): Promise<PayrollEntryApi> {
+  const res = await authFetch(`${API_BASE}/payroll/entries/${id}/mark-pending`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || "خطا در بازگرداندن فیش به در انتظار");
+  }
+  return data as PayrollEntryApi;
 }
 

@@ -9,9 +9,10 @@ import (
 type ReminderType string
 
 const (
-	ReminderTypeBeforeDue ReminderType = "BEFORE_DUE" // "۳ روز قبل"
-	ReminderTypeDueDay    ReminderType = "DUE_DAY"    // "روز سررسید"
-	ReminderTypeOverdue   ReminderType = "OVERDUE"    // "پس از تأخیر"
+	ReminderTypeBeforeDue       ReminderType = "BEFORE_DUE"       // قبل از سررسید پرداخت دانش‌آموز
+	ReminderTypeDueDay          ReminderType = "DUE_DAY"          // روز سررسید
+	ReminderTypeOverdue         ReminderType = "OVERDUE"          // پس از تأخیر
+	ReminderTypePayrollPending  ReminderType = "PAYROLL_PENDING"  // فیش حقوقی در انتظار نزدیک موعد
 )
 
 type ReminderChannel string
@@ -56,6 +57,29 @@ type PaymentReminder struct {
 	DaysOffset int    `gorm:"not null;default:0"`
 
 	AmountCents int64 `gorm:"not null;default:0"`
+
+	Status  ReminderStatus  `gorm:"type:varchar(32);not null;index"`
+	Channel ReminderChannel `gorm:"type:varchar(32);not null;index"`
+
+	SentAt *time.Time `gorm:"index"`
+}
+
+// PayrollReminder logs in-app (and optional SMS) reminders for unpaid employee payslips.
+type PayrollReminder struct {
+	gorm.Model
+	UserID uint `gorm:"not null;index"`
+	User   User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+
+	PayrollEntryID uint          `gorm:"not null;index"`
+	PayrollEntry   PayrollEntry  `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+
+	PeriodYear  int `gorm:"not null;index"`
+	PeriodMonth int `gorm:"not null;index"`
+
+	RuleType         string `gorm:"size:32;index"`
+	DaysBeforePayday int    `gorm:"not null;default:0"`
+
+	TotalSalaryCents int64 `gorm:"not null;default:0"`
 
 	Status  ReminderStatus  `gorm:"type:varchar(32);not null;index"`
 	Channel ReminderChannel `gorm:"type:varchar(32);not null;index"`

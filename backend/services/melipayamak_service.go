@@ -15,10 +15,14 @@ import (
 const melipayamakEndpoint = "http://api.payamak-panel.com/post/send.asmx"
 
 // Pattern body IDs registered in the Melipayamak panel.
+// PatternBefore7Days / PatternPayrollPending are 0 until registered in the panel;
+// SendPattern skips bodyID <= 0.
 const (
-	PatternOverdue2Days    = 436788 // بیشتر از ۲ روز از سررسید گذشته
-	PatternBefore1Day      = 436786 // ۱ روز قبل از سررسید
-	PatternBefore3Days     = 436785 // ۳ روز قبل از سررسید
+	PatternOverdue2Days   = 436788 // بیشتر از ۲ روز از سررسید گذشته
+	PatternBefore1Day     = 436786 // ۱ روز قبل از سررسید
+	PatternBefore3Days    = 436785 // ۳ روز قبل از سررسید
+	PatternBefore7Days    = 0      // ۷ روز قبل — پس از ثبت در پنل پر شود
+	PatternPayrollPending = 0      // یادآوری حقوق کارمند — اختیاری
 )
 
 // BodyIDForRule returns the Melipayamak bodyId for a given reminder rule,
@@ -27,6 +31,8 @@ func BodyIDForRule(r *models.ReminderRule) int {
 	switch r.Type {
 	case models.ReminderTypeBeforeDue:
 		switch r.DaysOffset {
+		case 7:
+			return PatternBefore7Days
 		case 3:
 			return PatternBefore3Days
 		case 1:
@@ -63,6 +69,10 @@ func (m *MelipayamakService) IsConfigured() bool {
 // SendPattern sends a pattern-based SMS to a single number.
 // variables is the ordered list of pattern variables (empty for fixed-text patterns).
 func (m *MelipayamakService) SendPattern(to string, bodyID int, variables []string) error {
+	if bodyID <= 0 {
+		log.Printf("melipayamak: skip send to %s – pattern bodyID not configured", to)
+		return nil
+	}
 	if !m.IsConfigured() {
 		log.Printf("melipayamak: skip send to %s – credentials not configured", to)
 		return nil

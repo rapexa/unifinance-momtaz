@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus,
   Pencil,
@@ -38,14 +38,13 @@ import {
   getPayrollEntry,
   getPayrollPreview,
   recalculatePayrollPeriod,
-  listAdvisorOps,
-  getAdvisorOpsUserDetail,
   recalculatePayrollUser,
   getPayrollUserBreakdown,
+  markPayrollEntryPaid,
+  markPayrollEntryPending,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
-  type AdvisorOpsApi,
   type PayrollBreakdownApi,
 } from "@/api/payrollApi";
 import { listUsers } from "@/api/usersApi";
@@ -122,42 +121,30 @@ function EditPayrollForm({
   const [baseTomans, setBaseTomans] = useState(String(Math.floor(entry.base_salary_cents / 10)));
   const [variableTomans, setVariableTomans] = useState(String(Math.floor(entry.variable_salary_cents / 10)));
   const [studentsCount, setStudentsCount] = useState(String(entry.students_count));
-  const [status, setStatus] = useState(entry.status);
-  const [paidAt, setPaidAt] = useState(isoToJalaliString(entry.paid_at) || todayJalaliString());
 
   useEffect(() => {
     setBaseTomans(String(Math.floor(entry.base_salary_cents / 10)));
     setVariableTomans(String(Math.floor(entry.variable_salary_cents / 10)));
     setStudentsCount(String(entry.students_count));
-    setStatus(entry.status);
-    setPaidAt(isoToJalaliString(entry.paid_at) || todayJalaliString());
-  }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count, entry.status, entry.paid_at]);
+  }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count]);
 
   const handleSubmit = () => {
+    if (entry.status === "PAID") {
+      toast({
+        variant: "destructive",
+        title: "فیش قفل است",
+        description: "برای ویرایش مبالغ، ابتدا تیک پرداخت را بردارید.",
+      });
+      return;
+    }
     const baseCents = parseLocalizedInt(baseTomans) * 10;
     const variableCents = parseLocalizedInt(variableTomans) * 10;
     const count = parseLocalizedInt(studentsCount);
-
-    let paidAtGregorian: string | undefined;
-    if (status === "PAID") {
-      const paidTrimmed = paidAt.trim();
-      if (!paidTrimmed) {
-        toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
-        return;
-      }
-      paidAtGregorian = jalaliToGregorianIso(paidTrimmed) || undefined;
-      if (!paidAtGregorian) {
-        toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
-        return;
-      }
-    }
 
     onSave({
       base_salary_cents: baseCents,
       variable_salary_cents: variableCents,
       students_count: count,
-      status,
-      paid_at: status === "PAID" ? paidAtGregorian : null,
     });
   };
 
@@ -173,6 +160,7 @@ function EditPayrollForm({
           inputMode="numeric"
           value={baseTomans}
           onChange={(e) => setBaseTomans(formatGroupedFaIntInput(e.target.value))}
+          disabled={entry.status === "PAID"}
         />
       </div>
       <div className="grid gap-2">
@@ -182,6 +170,7 @@ function EditPayrollForm({
           inputMode="numeric"
           value={variableTomans}
           onChange={(e) => setVariableTomans(formatGroupedFaIntInput(e.target.value))}
+          disabled={entry.status === "PAID"}
         />
       </div>
       <div className="grid gap-2">
@@ -193,25 +182,13 @@ function EditPayrollForm({
           inputMode="numeric"
           value={studentsCount}
           onChange={(e) => setStudentsCount(formatGroupedFaIntInput(e.target.value))}
+          disabled={entry.status === "PAID"}
         />
       </div>
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">وضعیت</label>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="PENDING">در انتظار</SelectItem>
-            <SelectItem value="PAID">پرداخت شده</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {status === "PAID" && (
-        <div className="grid gap-2">
-          <label className="text-sm font-medium">تاریخ پرداخت</label>
-          <JalaliDatePicker value={paidAt} onChange={setPaidAt} clearable={false} />
-        </div>
+      {entry.status === "PAID" && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          این فیش پرداخت شده و قفل است. برای ویرایش، تیک «پرداخت شده» را در لیست بردارید.
+        </p>
       )}
       <div className="flex flex-col gap-2">
         <Button
@@ -219,7 +196,7 @@ function EditPayrollForm({
           variant="secondary"
           className="w-full"
           onClick={onRecalculate}
-          disabled={isSaving}
+          disabled={isSaving || entry.status === "PAID"}
         >
           محاسبه فیش از قوانین نقش و پرداخت‌ها
         </Button>
@@ -251,36 +228,20 @@ function monthName(month: number): string {
   return names[month] ?? String(month);
 }
 
-function registrationChannelLabel(channel?: string): string {
-  if (channel === "SCHOOL") return "مدرسه‌ای";
-  if (channel === "PRIVATE" || !channel) return "خصوصی";
-  return channel;
-}
-
-function contractTypeLabel(billingMode?: string, _channel?: string): string {
-  // School-channel students use the same billing modes / payroll path as private.
-  return billingModeLabel(parseBillingMode(billingMode));
-}
-
-function rbacRoleLabel(row: Pick<AdvisorOpsApi, "role_name" | "role_code">): string {
-  if (row.role_name?.trim()) return row.role_name;
-  return roleLabels[row.role_code] ?? (row.role_code || "—");
-}
-
 const Payroll = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const now = new Date();
   const [currentYear] = useState(now.getFullYear());
   const [currentMonth] = useState(now.getMonth() + 1);
-
-  const [mainTab, setMainTab] = useState<"payslips" | "advisor-ops">("advisor-ops");
-  const [selectedAdvisor, setSelectedAdvisor] = useState<AdvisorOpsApi | null>(null);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
   const [editEntryId, setEditEntryId] = useState<number | null>(null);
   const [breakdown, setBreakdown] = useState<PayrollBreakdownApi | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [markPaidEntry, setMarkPaidEntry] = useState<PayrollEntryApi | null>(null);
+  const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString());
 
   // Create form
   const [createUserId, setCreateUserId] = useState("");
@@ -290,7 +251,6 @@ const Payroll = () => {
   const [createBaseTomans, setCreateBaseTomans] = useState("");
   const [createVariableTomans, setCreateVariableTomans] = useState("");
   const [createStudentsCount, setCreateStudentsCount] = useState("0");
-  const [createStatus, setCreateStatus] = useState("PENDING");
 
   /** هر بار ورود به صفحه: بازمحاسبهٔ فیش‌های در انتظار (مدیر کل)؛ سپس بارگذاری جدول. */
   const { data: bootstrapAt, isFetching: isBootstrapFetching } = useQuery({
@@ -350,37 +310,6 @@ const Payroll = () => {
     queryKey: ["roles"],
     queryFn: listRoles,
     enabled: isCreateOpen,
-  });
-
-  const {
-    data: advisorOpsData,
-    isLoading: isAdvisorOpsLoading,
-    isError: isAdvisorOpsError,
-    error: advisorOpsError,
-  } = useQuery({
-    queryKey: ["payroll-advisor-ops", currentYear, currentMonth],
-    queryFn: () => listAdvisorOps({ year: currentYear, month: currentMonth }),
-    enabled: mainTab === "advisor-ops",
-  });
-
-  const {
-    data: advisorDetail,
-    isLoading: isAdvisorDetailLoading,
-    isError: isAdvisorDetailError,
-    error: advisorDetailError,
-  } = useQuery({
-    queryKey: [
-      "payroll-advisor-ops-detail",
-      selectedAdvisor?.user_id,
-      currentYear,
-      currentMonth,
-    ],
-    queryFn: () =>
-      getAdvisorOpsUserDetail(selectedAdvisor!.user_id, {
-        year: currentYear,
-        month: currentMonth,
-      }),
-    enabled: selectedAdvisor != null,
   });
 
   const { data: paymentsSummary } = useQuery({
@@ -483,6 +412,42 @@ const Payroll = () => {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: ({ id, paid_at }: { id: number; paid_at: string }) =>
+      markPayrollEntryPaid(id, { paid_at }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
+      setMarkPaidEntry(null);
+      toast({ title: "پرداخت ثبت شد", description: "فیش به‌عنوان پرداخت‌شده قفل شد." });
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا در ثبت پرداخت",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
+    },
+  });
+
+  const markPendingMutation = useMutation({
+    mutationFn: (id: number) => markPayrollEntryPending(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
+      toast({ title: "به در انتظار برگشت", description: "می‌توانید دوباره فیش را محاسبه کنید." });
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "خطا",
+        description: err?.message ?? "درخواست ناموفق بود",
+      });
+    },
+  });
+
   const recalculateAllMutation = useMutation({
     mutationFn: () => recalculatePayrollPeriod({ year: currentYear, month: currentMonth }),
     onSuccess: () => {
@@ -510,7 +475,6 @@ const Payroll = () => {
     setCreateBaseTomans("");
     setCreateVariableTomans("");
     setCreateStudentsCount("0");
-    setCreateStatus("PENDING");
     setCreatePeriodYear(currentYear);
     setCreatePeriodMonth(currentMonth);
   }
@@ -527,7 +491,7 @@ const Payroll = () => {
       user_id: userId,
       period_year: createPeriodYear,
       period_month: createPeriodMonth,
-      status: createStatus,
+      status: "PENDING",
     };
     if (createAutoFromRole && isGmRole) {
       // مدیرکل: حقوق = مجموع دریافت ماه - مجموع حقوق سایر کارمندان؛ شمارش دانش‌آموز از بک‌اند (ORG_TOTAL)
@@ -550,7 +514,6 @@ const Payroll = () => {
     createBaseTomans,
     createVariableTomans,
     createStudentsCount,
-    createStatus,
     createPeriodYear,
     createPeriodMonth,
     createMutation,
@@ -647,23 +610,7 @@ const Payroll = () => {
         </div>
       </div>
 
-      <Tabs
-        value={mainTab}
-        onValueChange={(v) => setMainTab(v as "payslips" | "advisor-ops")}
-        className="space-y-4"
-      >
-        <div className="overflow-x-auto">
-          <TabsList className="min-w-max bg-muted/50">
-            <TabsTrigger value="advisor-ops" className="data-[state=active]:bg-background">
-              حساب‌کتاب کاربران
-            </TabsTrigger>
-            <TabsTrigger value="payslips" className="data-[state=active]:bg-background">
-              فیش حقوقی
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="payslips" className="mt-0 space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div />
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
@@ -698,9 +645,8 @@ const Payroll = () => {
             <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
             {" "}
             <span className="font-medium text-foreground">حقوق متغیر</span> از سهم پرداخت‌های PAID ماهانه و در صورت دانش‌آموز سالانه از «سهم قرارداد سالانه — قسط ماهانه حقوق» است.{" "}
-            <span className="font-medium text-foreground">محاسبه فیش</span> روی هر ردیف، فقط همان کارمند را بازمحاسبه می‌کند و شکست را نشان می‌دهد.{" "}
-            <span className="font-medium text-foreground">فیش پرداخت‌شده</span> قفل است و بازمحاسبه نمی‌شود.
-            {" "}این صفحه سند حقوق را می‌سازد؛ تیک پرداخت حقوق در فاز بعدی جدا می‌شود.
+            <span className="font-medium text-foreground">محاسبه فیش</span> سند حقوق را می‌سازد/به‌روز می‌کند؛{" "}
+            <span className="font-medium text-foreground">تیک پرداخت شده</span> یعنی حقوق به کارمند تسویه شده و فیش قفل می‌شود.
           </div>
         </div>
         <div className="card-elevated overflow-hidden">
@@ -741,7 +687,7 @@ const Payroll = () => {
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">جمع کل</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
+                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت شده</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
                     </tr>
                   </thead>
@@ -809,15 +755,34 @@ const Payroll = () => {
                               {formatCentsToToman(entry.total_salary_cents)}
                             </td>
                             <td className="p-4">
-                              <div className="flex flex-col gap-1">
-                                <span
-                                  className={cn(
-                                    "inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                                    entry.status === "PAID" ? "status-paid" : "status-pending"
-                                  )}
-                                >
-                                  {entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}
-                                </span>
+                              <div className="flex flex-col items-start gap-1.5">
+                                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                                  <Switch
+                                    checked={entry.status === "PAID"}
+                                    disabled={markPaidMutation.isPending || markPendingMutation.isPending}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setMarkPaidDate(todayJalaliString());
+                                        setMarkPaidEntry(entry);
+                                      } else if (
+                                        window.confirm(
+                                          "فیش از حالت پرداخت‌شده خارج شود و دوباره قابل محاسبه باشد؟",
+                                        )
+                                      ) {
+                                        markPendingMutation.mutate(entry.id);
+                                      }
+                                    }}
+                                    aria-label="پرداخت شده"
+                                  />
+                                  <span
+                                    className={cn(
+                                      "text-xs font-medium",
+                                      entry.status === "PAID" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}
+                                  </span>
+                                </label>
                                 {entry.status === "PAID" && entry.paid_at && (
                                   <span className="text-[11px] text-muted-foreground">
                                     {formatIsoDateShamsi(entry.paid_at)}
@@ -844,25 +809,12 @@ const Payroll = () => {
                                   variant="ghost"
                                   size="sm"
                                   className="gap-1"
-                                  onClick={async () => {
-                                    try {
-                                      const b = await getPayrollUserBreakdown({
-                                        user_id: entry.user_id,
-                                        year: entry.period_year,
-                                        month: entry.period_month,
-                                      });
-                                      setBreakdown(b);
-                                      setBreakdownOpen(true);
-                                    } catch (e) {
-                                      setDetailEntryId(entry.id);
-                                      toast({
-                                        variant: "destructive",
-                                        title: "خطا در دریافت شکست محاسبه",
-                                        description: e instanceof Error ? e.message : "ناموفق",
-                                      });
-                                    }
-                                  }}
-                                  title="شکست محاسبه و جزئیات فیش"
+                                  onClick={() =>
+                                    navigate(
+                                      `/payroll/users/${entry.user_id}?year=${entry.period_year}&month=${entry.period_month}`,
+                                    )
+                                  }
+                                  title="صفحه جزئیات حساب‌کتاب کارمند"
                                 >
                                   <Eye className="h-4 w-4" />
                                   جزئیات
@@ -898,373 +850,7 @@ const Payroll = () => {
               )}
             </div>
           </div>
-        </TabsContent>
-
-        <TabsContent value="advisor-ops" className="mt-0 space-y-4">
-          <div
-            dir="rtl"
-            className="rounded-lg border border-border bg-muted/30 p-3 flex flex-row items-start gap-2.5 text-right"
-          >
-            <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-            <div className="text-xs text-muted-foreground leading-relaxed text-right">
-              هر ردیف یک{" "}
-              <span className="font-medium text-foreground">کاربر سازمانی</span>{" "}
-              (مشاور، حسابدار و …) با دانش‌آموز فعال است. روی ردیف کلیک کنید تا دانش‌آموزان، پرداخت‌ها، حقوق‌ها و KPIها را ببینید.
-            </div>
-          </div>
-          <div className="card-elevated overflow-hidden">
-            <div className="overflow-x-auto" dir="rtl">
-              {isAdvisorOpsLoading && (
-                <div className="p-6 text-sm text-muted-foreground">در حال بارگذاری...</div>
-              )}
-              {isAdvisorOpsError && (
-                <div className="p-6 text-sm text-destructive">
-                  {(advisorOpsError as Error)?.message ?? "خطا در دریافت خلاصه"}
-                </div>
-              )}
-              {!isAdvisorOpsLoading && !isAdvisorOpsError && (
-                <table className="w-full text-right" dir="rtl">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نام</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش کاربر</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مدرسه / خصوصی</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">آنلاین / حضوری</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده این ماه</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">بدون پرداخت این ماه</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مبلغ مورد انتظار</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت‌شده (کل)</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مانده</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق (فیش)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(advisorOpsData?.data ?? []).length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="p-6 text-center text-muted-foreground">
-                          کاربری با دانش‌آموز فعال یافت نشد.
-                        </td>
-                      </tr>
-                    ) : (
-                      (advisorOpsData?.data ?? []).map((row) => {
-                        const name =
-                          [row.first_name, row.last_name].filter(Boolean).join(" ") || "—";
-                        return (
-                          <tr
-                            key={row.user_id}
-                            className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                            onClick={() => setSelectedAdvisor(row)}
-                          >
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                                  {name.charAt(0)}
-                                </div>
-                                <span className="font-medium text-foreground">{name}</span>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-medium text-foreground">
-                                {rbacRoleLabel(row)}
-                              </span>
-                            </td>
-                            <td className="p-4 number-display text-foreground">
-                              {row.students_total.toLocaleString("fa-IR")}
-                            </td>
-                            <td className="p-4 text-sm text-muted-foreground">
-                              {row.students_school.toLocaleString("fa-IR")} /{" "}
-                              {row.students_private.toLocaleString("fa-IR")}
-                            </td>
-                            <td className="p-4 text-sm text-muted-foreground">
-                              {row.students_online.toLocaleString("fa-IR")} /{" "}
-                              {row.students_in_person.toLocaleString("fa-IR")}
-                            </td>
-                            <td className="p-4 number-display text-success">
-                              {row.paid_count_this_month.toLocaleString("fa-IR")}
-                            </td>
-                            <td className="p-4 number-display text-destructive">
-                              {row.unpaid_count_this_month.toLocaleString("fa-IR")}
-                            </td>
-                            <td className="p-4 number-display text-foreground">
-                              {formatCentsToToman(row.expected_total_cents)}
-                            </td>
-                            <td className="p-4 number-display text-foreground">
-                              {formatCentsToToman(row.paid_total_cents)}
-                            </td>
-                            <td className="p-4 number-display text-foreground">
-                              {formatCentsToToman(row.remaining_cents)}
-                            </td>
-                            <td className="p-4">
-                              {row.salary_total_cents > 0 ? (
-                                <div>
-                                  <p className="number-display font-medium text-primary">
-                                    {formatCentsToToman(row.salary_total_cents)}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    {row.salary_status === "PAID"
-                                      ? "پرداخت شده"
-                                      : row.salary_status === "PENDING"
-                                        ? "در انتظار"
-                                        : ""}
-                                  </p>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      <Dialog
-        open={selectedAdvisor != null}
-        onOpenChange={(open) => {
-          if (!open) setSelectedAdvisor(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="text-right">
-              حساب‌کتاب{" "}
-              {selectedAdvisor
-                ? [selectedAdvisor.first_name, selectedAdvisor.last_name]
-                    .filter(Boolean)
-                    .join(" ")
-                : ""}
-              {selectedAdvisor ? (
-                <span className="mr-2 text-sm font-normal text-muted-foreground">
-                  ({rbacRoleLabel(selectedAdvisor)})
-                </span>
-              ) : null}
-            </DialogTitle>
-          </DialogHeader>
-          {isAdvisorDetailLoading && (
-            <p className="text-sm text-muted-foreground py-4 text-right">در حال بارگذاری...</p>
-          )}
-          {isAdvisorDetailError && (
-            <p className="text-sm text-destructive py-4 text-right">
-              {(advisorDetailError as Error)?.message ?? "خطا در دریافت جزئیات"}
-            </p>
-          )}
-          {!isAdvisorDetailLoading && !isAdvisorDetailError && advisorDetail && (
-            <div className="space-y-6 text-right" dir="rtl">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    <StudentsCountFieldLabel scope={advisorDetail.students_count_scope} className="text-xs" />
-                  </p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {advisorDetail.students_total.toLocaleString("fa-IR")}
-                  </p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">تعداد پرداخت‌ها</p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {advisorDetail.payments_count.toLocaleString("fa-IR")}
-                  </p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">مجموع پرداخت دانش‌آموزان</p>
-                  <p className="mt-1 text-xl font-bold number-display text-success">
-                    {formatCentsToToman(advisorDetail.payments_total_cents)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">تومان</p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">مانده ثبت‌نام</p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {formatCentsToToman(advisorDetail.remaining_cents)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">تومان</p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">تعداد فیش حقوق</p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {advisorDetail.salaries_count.toLocaleString("fa-IR")}
-                  </p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">حقوق پرداخت‌شده</p>
-                  <p className="mt-1 text-xl font-bold number-display text-primary">
-                    {formatCentsToToman(advisorDetail.salaries_paid_cents)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {advisorDetail.salaries_paid_count.toLocaleString("fa-IR")} فیش · تومان
-                  </p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">جمع کل حقوق (همه فیش‌ها)</p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {formatCentsToToman(advisorDetail.salaries_total_cents)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">تومان</p>
-                </div>
-                <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">مبلغ مورد انتظار ثبت‌نام</p>
-                  <p className="mt-1 text-xl font-bold number-display">
-                    {formatCentsToToman(advisorDetail.expected_total_cents)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">تومان</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">دانش‌آموزان</h3>
-                <div className="overflow-x-auto rounded-lg border" dir="rtl">
-                  <table className="w-full text-right" dir="rtl">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نام خانوادگی</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع قرارداد</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">نوع ثبت‌نام</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مدرسه</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {advisorDetail.students.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="p-6 text-center text-muted-foreground">
-                            دانش‌آموزی ثبت نشده است.
-                          </td>
-                        </tr>
-                      ) : (
-                        advisorDetail.students.map((st) => (
-                          <tr key={st.student_id} className="border-b last:border-0">
-                            <td className="p-3 font-medium text-foreground">{st.first_name || "—"}</td>
-                            <td className="p-3 font-medium text-foreground">{st.last_name || "—"}</td>
-                            <td className="p-3 text-muted-foreground">
-                              {contractTypeLabel(st.enrollment_billing_mode, st.registration_channel)}
-                            </td>
-                            <td className="p-3 text-muted-foreground">
-                              {registrationChannelLabel(st.registration_channel)}
-                            </td>
-                            <td className="p-3 text-muted-foreground">{st.school_name?.trim() || "—"}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">حقوق‌های پرداختی به کاربر</h3>
-                <div className="overflow-x-auto rounded-lg border" dir="rtl">
-                  <table className="w-full text-right" dir="rtl">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">دوره</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">جمع</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">تاریخ پرداخت</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {advisorDetail.salaries.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="p-6 text-center text-muted-foreground">
-                            فیش حقوقی ثبت نشده است.
-                          </td>
-                        </tr>
-                      ) : (
-                        advisorDetail.salaries.map((sal) => (
-                          <tr key={sal.id} className="border-b last:border-0">
-                            <td className="p-3 text-foreground">
-                              {monthName(sal.period_month)} {sal.period_year}
-                            </td>
-                            <td className="p-3 number-display">
-                              {formatCentsToToman(sal.base_salary_cents)}
-                            </td>
-                            <td className="p-3 number-display text-primary">
-                              {formatCentsToToman(sal.variable_salary_cents)}
-                            </td>
-                            <td className="p-3 number-display font-medium">
-                              {formatCentsToToman(sal.total_salary_cents)}
-                            </td>
-                            <td className="p-3">
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-                                  sal.status === "PAID" ? "status-paid" : "status-pending",
-                                )}
-                              >
-                                {sal.status === "PAID" ? "پرداخت شده" : "در انتظار"}
-                              </span>
-                            </td>
-                            <td className="p-3 text-muted-foreground">
-                              {sal.paid_at ? formatIsoDateShamsi(sal.paid_at) : "—"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">پرداخت‌های دانش‌آموزان</h3>
-                <div className="overflow-x-auto rounded-lg border" dir="rtl">
-                  <table className="w-full text-right" dir="rtl">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">دانش‌آموز</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مبلغ</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">تاریخ</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">توضیح</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {advisorDetail.payments.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="p-6 text-center text-muted-foreground">
-                            پرداختی ثبت نشده است.
-                          </td>
-                        </tr>
-                      ) : (
-                        advisorDetail.payments.map((pay) => (
-                          <tr key={pay.id} className="border-b last:border-0">
-                            <td className="p-3 font-medium text-foreground">
-                              {pay.student_name || "—"}
-                            </td>
-                            <td className="p-3 number-display text-success">
-                              {formatCentsToToman(pay.amount_cents)}
-                            </td>
-                            <td className="p-3 text-muted-foreground">
-                              {pay.paid_at ? formatIsoDateShamsi(pay.paid_at) : "—"}
-                            </td>
-                            <td className="p-3 text-muted-foreground">
-                              {pay.description?.trim() || "—"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedAdvisor(null)}>
-              بستن
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      </div>
       {/* Register Payroll Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="sm:max-w-md">
@@ -1433,18 +1019,9 @@ const Payroll = () => {
                 </div>
               </>
             )}
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">وضعیت</label>
-              <Select value={createStatus} onValueChange={setCreateStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PENDING">در انتظار</SelectItem>
-                  <SelectItem value="PAID">پرداخت شده</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              فیش جدید با وضعیت «در انتظار» ساخته می‌شود. پس از تسویه، از تیک «پرداخت شده» در لیست استفاده کنید.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
@@ -1461,6 +1038,62 @@ const Payroll = () => {
               {createMutation.isPending ? "در حال ثبت..." : "ثبت"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mark Paid Dialog */}
+      <Dialog
+        open={markPaidEntry != null}
+        onOpenChange={(open) => {
+          if (!open) setMarkPaidEntry(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>ثبت پرداخت فیش</DialogTitle>
+          </DialogHeader>
+          {markPaidEntry && (
+            <div className="space-y-4 py-2 text-right">
+              <p className="text-sm text-muted-foreground">
+                {[markPaidEntry.user_first_name, markPaidEntry.user_last_name].filter(Boolean).join(" ")} —{" "}
+                {monthName(markPaidEntry.period_month)} {markPaidEntry.period_year}
+              </p>
+              <p className="text-sm">
+                مبلغ:{" "}
+                <span className="font-bold number-display">
+                  {formatCentsToToman(markPaidEntry.total_salary_cents)} تومان
+                </span>
+              </p>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">تاریخ پرداخت</label>
+                <JalaliDatePicker value={markPaidDate} onChange={setMarkPaidDate} clearable={false} />
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button type="button" variant="outline" onClick={() => setMarkPaidEntry(null)}>
+                  انصراف
+                </Button>
+                <Button
+                  type="button"
+                  disabled={markPaidMutation.isPending}
+                  onClick={() => {
+                    const paidTrimmed = markPaidDate.trim();
+                    if (!paidTrimmed) {
+                      toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
+                      return;
+                    }
+                    const paidAtGregorian = jalaliToGregorianIso(paidTrimmed);
+                    if (!paidAtGregorian) {
+                      toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
+                      return;
+                    }
+                    markPaidMutation.mutate({ id: markPaidEntry.id, paid_at: paidAtGregorian });
+                  }}
+                >
+                  {markPaidMutation.isPending ? "در حال ذخیره..." : "تأیید پرداخت"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1610,6 +1243,35 @@ const Payroll = () => {
               {detailEntry.status === "PAID" && (
                 <p><strong>تاریخ پرداخت:</strong> {formatIsoDateShamsi(detailEntry.paid_at)}</p>
               )}
+              <div className="flex flex-wrap gap-2 pt-2">
+                {detailEntry.status !== "PAID" ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setMarkPaidDate(todayJalaliString());
+                      setMarkPaidEntry(detailEntry);
+                    }}
+                  >
+                    ثبت پرداخت شده
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={markPendingMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm("فیش از حالت پرداخت‌شده خارج شود؟")) {
+                        markPendingMutation.mutate(detailEntry.id);
+                        setDetailEntryId(null);
+                      }
+                    }}
+                  >
+                    بازگشت به در انتظار
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>

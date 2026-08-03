@@ -9,6 +9,9 @@ type Organization struct {
 	Phone   string `gorm:"size:20"`
 	Address string `gorm:"size:500"`
 	Email   string `gorm:"size:255"`
+	// PaydayDay is the Gregorian day-of-month (1–28) when employee salaries are typically paid.
+	// Used for payroll pending reminders. Default 25.
+	PaydayDay int `gorm:"not null;default:25"`
 
 	// One organization can have many users, students, plans, settings and reminder rules.
 	// Foreign keys are on the child models (OrganizationID).

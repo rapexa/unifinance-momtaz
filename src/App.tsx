@@ -9,6 +9,7 @@ import Students from "./pages/Students";
 import Plans from "./pages/Plans";
 import Payments from "./pages/Payments";
 import Payroll from "./pages/Payroll";
+import PayrollUserDetail from "./pages/PayrollUserDetail";
 import Reminders from "./pages/Reminders";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/plans" element={<Plans />} />
           <Route path="/payments" element={<Payments />} />
           <Route path="/payroll" element={<Payroll />} />
+          <Route path="/payroll/users/:userId" element={<PayrollUserDetail />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />

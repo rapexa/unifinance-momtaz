@@ -250,6 +250,7 @@ func main() {
 		payroll.POST("/recalculate-period", payrollHandler.RecalculatePeriod)
 		payroll.GET("/preview", payrollHandler.PreviewCompensation)
 		payroll.GET("/users/:user_id/breakdown", payrollHandler.GetUserBreakdown)
+		payroll.GET("/users/:user_id/ledger", payrollHandler.GetUserLedger)
 		payroll.POST("/users/:user_id/recalculate", payrollHandler.RecalculateUser)
 		payroll.GET("/advisor-ops", payrollHandler.ListAdvisorOps)
 		payroll.GET("/advisor-ops/:user_id/detail", payrollHandler.GetAdvisorOpsUserDetail)
@@ -258,6 +259,8 @@ func main() {
 		payroll.POST("/entries", payrollHandler.CreateEntry)
 		payroll.GET("/entries/:id", payrollHandler.GetEntry)
 		payroll.PUT("/entries/:id", payrollHandler.UpdateEntry)
+		payroll.POST("/entries/:id/mark-paid", payrollHandler.MarkPaid)
+		payroll.POST("/entries/:id/mark-pending", payrollHandler.MarkPending)
 		payroll.GET("/schemes", payrollHandler.GetSchemes)
 	}
 
@@ -318,6 +321,9 @@ func main() {
 		reminders.PUT("/rules", reminderHandler.ReplaceRules)
 		reminders.GET("/logs", reminderHandler.ListLogs)
 		reminders.POST("/run", reminderHandler.RunNow)
+		reminders.GET("/payroll-due", reminderHandler.ListPayrollDue)
+		reminders.GET("/payroll-logs", reminderHandler.ListPayrollLogs)
+		reminders.PUT("/payday", reminderHandler.UpdatePayday)
 	}
 
 	// Fiscal year (requires SETTINGS permission)
