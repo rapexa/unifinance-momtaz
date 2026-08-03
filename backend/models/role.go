@@ -14,6 +14,15 @@ const (
 	CompNetRevenue CompensationKind = "NET_REVENUE"
 )
 
+// HasOrgStudentsCountView reports whether payslip student KPI should show
+// all active students in the organization (مدیرکل / full access).
+func (r *Role) HasOrgStudentsCountView() bool {
+	if r == nil {
+		return false
+	}
+	return r.FullAccess || r.CompensationKind == CompNetRevenue
+}
+
 // Canonical role codes (slug). Display name is in Name (Persian).
 const (
 	RoleCodeGeneralManager = "general_manager" // مدیرکل — تنها نقش سیستمی

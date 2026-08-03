@@ -21,8 +21,16 @@ type PayrollCompensationBreakdown struct {
 	BaseSalaryCents     int64
 	VariableSalaryCents int64
 	StudentsCount       int
+	StudentsCountScope  models.StudentsCountScope
 	CompensationKind    models.CompensationKind
 }
+
+// StudentCountResult is the KPI count + semantic scope for one staff user.
+type StudentCountResult struct {
+	Count int
+	Scope models.StudentsCountScope
+}
+
 
 // PayrollSummary holds aggregated payroll metrics for a given period.
 type PayrollSummary struct {
@@ -358,37 +366,133 @@ func (s *PayrollService) sumPaidPaymentsInPeriod(ctx context.Context, year, mont
 	return sum, nil
 }
 
-// countAssignedStudentsForUser returns active students assigned to the user (students.advisor_id).
-func (s *PayrollService) countAssignedStudentsForUser(ctx context.Context, userID uint) (int, error) {
+// countOrgActiveStudents returns all ACTIVE students (private + school channels).
+func (s *PayrollService) countOrgActiveStudents(ctx context.Context) (int, error) {
 	var cnt int64
 	if err := s.db.WithContext(ctx).Model(&models.Student{}).
-		Where("advisor_id = ? AND status = ?", userID, models.StudentStatusActive).
+		Where("status = ?", models.StudentStatusActive).
 		Count(&cnt).Error; err != nil {
 		return 0, err
 	}
 	return int(cnt), nil
 }
 
-// CountAssignedStudentsByUserIDs returns active assigned-student counts keyed by user id.
+// countAssignedStudentsForUser returns distinct ACTIVE students linked as advisor or role payout.
+func (s *PayrollService) countAssignedStudentsForUser(ctx context.Context, userID uint) (int, error) {
+	m, err := s.CountAssignedStudentsByUserIDs(ctx, []uint{userID})
+	if err != nil {
+		return 0, err
+	}
+	return m[userID], nil
+}
+
+// CountAssignedStudentsByUserIDs returns distinct active assigned-student counts (advisor ∪ role payout).
 func (s *PayrollService) CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int, error) {
 	out := make(map[uint]int, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = 0
+	}
 	if len(userIDs) == 0 {
 		return out, nil
 	}
 	type row struct {
-		AdvisorID uint
-		Cnt       int64
+		UserID uint
+		Count  int64
 	}
 	var rows []row
-	if err := s.db.WithContext(ctx).Model(&models.Student{}).
-		Select("advisor_id, COUNT(*) AS cnt").
-		Where("advisor_id IN ? AND status = ?", userIDs, models.StudentStatusActive).
-		Group("advisor_id").
-		Scan(&rows).Error; err != nil {
+	err := s.db.WithContext(ctx).Raw(`
+SELECT uid AS user_id, COUNT(DISTINCT student_id) AS count FROM (
+  SELECT advisor_id AS uid, id AS student_id FROM students
+  WHERE deleted_at IS NULL AND status = ? AND advisor_id IN ?
+  UNION
+  SELECT srp.user_id AS uid, srp.student_id FROM student_role_payouts srp
+  INNER JOIN students s ON s.id = srp.student_id AND s.deleted_at IS NULL AND s.status = ?
+  WHERE srp.deleted_at IS NULL AND srp.user_id IN ?
+) t GROUP BY uid
+`, models.StudentStatusActive, userIDs, models.StudentStatusActive, userIDs).Scan(&rows).Error
+	if err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		out[r.AdvisorID] = int(r.Cnt)
+		out[r.UserID] = int(r.Count)
+	}
+	return out, nil
+}
+
+// ResolveStudentsCountForUser returns the payslip student KPI for one user based on role scope.
+func (s *PayrollService) ResolveStudentsCountForUser(ctx context.Context, userID uint) (StudentCountResult, error) {
+	var u models.User
+	if err := s.db.WithContext(ctx).Preload("Role").First(&u, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return StudentCountResult{}, ErrPayrollUserNotFound
+		}
+		return StudentCountResult{}, err
+	}
+	return s.resolveStudentsCountForLoadedUser(ctx, &u)
+}
+
+func (s *PayrollService) resolveStudentsCountForLoadedUser(ctx context.Context, u *models.User) (StudentCountResult, error) {
+	if u == nil {
+		return StudentCountResult{}, ErrPayrollUserNotFound
+	}
+	if u.Role != nil && u.Role.HasOrgStudentsCountView() {
+		n, err := s.countOrgActiveStudents(ctx)
+		if err != nil {
+			return StudentCountResult{}, err
+		}
+		return StudentCountResult{Count: n, Scope: models.StudentsCountScopeOrgTotal}, nil
+	}
+	n, err := s.countAssignedStudentsForUser(ctx, u.ID)
+	if err != nil {
+		return StudentCountResult{}, err
+	}
+	return StudentCountResult{Count: n, Scope: models.StudentsCountScopeAssigned}, nil
+}
+
+// ResolveStudentsCountsByUserIDs batch-resolves student KPIs (loads roles once).
+func (s *PayrollService) ResolveStudentsCountsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]StudentCountResult, error) {
+	out := make(map[uint]StudentCountResult, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	var users []models.User
+	if err := s.db.WithContext(ctx).Preload("Role").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[uint]models.User, len(users))
+	for i := range users {
+		byID[users[i].ID] = users[i]
+	}
+
+	needAssigned := make([]uint, 0, len(userIDs))
+	var orgTotal *int
+	for _, id := range userIDs {
+		u, ok := byID[id]
+		if !ok {
+			out[id] = StudentCountResult{Count: 0, Scope: models.StudentsCountScopeAssigned}
+			continue
+		}
+		if u.Role != nil && u.Role.HasOrgStudentsCountView() {
+			if orgTotal == nil {
+				n, err := s.countOrgActiveStudents(ctx)
+				if err != nil {
+					return nil, err
+				}
+				orgTotal = &n
+			}
+			out[id] = StudentCountResult{Count: *orgTotal, Scope: models.StudentsCountScopeOrgTotal}
+			continue
+		}
+		needAssigned = append(needAssigned, id)
+	}
+	if len(needAssigned) > 0 {
+		assigned, err := s.CountAssignedStudentsByUserIDs(ctx, needAssigned)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range needAssigned {
+			out[id] = StudentCountResult{Count: assigned[id], Scope: models.StudentsCountScopeAssigned}
+		}
 	}
 	return out, nil
 }
@@ -409,7 +513,7 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	}
 	r := u.Role
 
-	studentsCount, err := s.countAssignedStudentsForUser(ctx, userID)
+	sc, err := s.resolveStudentsCountForLoadedUser(ctx, &u)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
@@ -417,8 +521,9 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 	monthIndex := s.payrollMonthIndexInYear(ctx, year, month)
 	if r.CompensationKind != models.CompNetRevenue && !r.RolePaysInPayrollMonth(monthIndex) {
 		return PayrollCompensationBreakdown{
-			CompensationKind: r.CompensationKind,
-			StudentsCount:    studentsCount,
+			CompensationKind:   r.CompensationKind,
+			StudentsCount:      sc.Count,
+			StudentsCountScope: sc.Scope,
 		}, nil
 	}
 
@@ -434,7 +539,8 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 
 	out := PayrollCompensationBreakdown{
 		CompensationKind:    r.CompensationKind,
-		StudentsCount:       studentsCount,
+		StudentsCount:       sc.Count,
+		StudentsCountScope:  sc.Scope,
 		VariableSalaryCents: variableFromShares,
 	}
 	switch r.CompensationKind {
@@ -462,12 +568,12 @@ func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID 
 		}
 		out.BaseSalaryCents = 0
 		out.VariableSalaryCents = net
-		// Keep StudentsCount as assigned active students (already set).
 	default:
 		out.BaseSalaryCents = 0
 	}
 	return out, nil
 }
+
 
 // CreateEntryParams is the input for creating a payroll entry.
 type CreateEntryParams struct {
@@ -478,6 +584,7 @@ type CreateEntryParams struct {
 	BaseSalaryCents     int64
 	VariableSalaryCents int64
 	StudentsCount       int
+	StudentsCountSet    bool // when false and !ApplyRoleRules, resolve KPI from role scope
 	Status              models.PayrollStatus
 }
 
@@ -491,6 +598,12 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 		p.BaseSalaryCents = br.BaseSalaryCents
 		p.VariableSalaryCents = br.VariableSalaryCents
 		p.StudentsCount = br.StudentsCount
+	} else if !p.StudentsCountSet {
+		sc, err := s.ResolveStudentsCountForUser(ctx, p.UserID)
+		if err != nil {
+			return nil, err
+		}
+		p.StudentsCount = sc.Count
 	}
 
 	total := p.BaseSalaryCents + p.VariableSalaryCents

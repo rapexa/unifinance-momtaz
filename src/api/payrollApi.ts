@@ -21,6 +21,8 @@ export interface PayrollEntryApi {
   variable_salary_cents: number;
   total_salary_cents: number;
   students_count: number;
+  /** ORG_TOTAL = کل مرکز؛ ASSIGNED = منتسب به این کاربر */
+  students_count_scope?: "ORG_TOTAL" | "ASSIGNED";
   status: string;
   paid_at: string | null;
   created_at: string;
@@ -125,6 +127,7 @@ export interface PayrollPreview {
   base_salary_cents: number;
   variable_salary_cents: number;
   students_count: number;
+  students_count_scope?: "ORG_TOTAL" | "ASSIGNED";
   /** جمع سهم «درصد از مبلغ کل پرداخت» برای این کاربر در این ماه */
   role_gross_share_cents?: number;
   compensation_kind: string;
@@ -253,6 +256,7 @@ export interface AdvisorOpsSalaryApi {
   variable_salary_cents: number;
   total_salary_cents: number;
   students_count: number;
+  students_count_scope?: "ORG_TOTAL" | "ASSIGNED";
   status: string;
   paid_at?: string | null;
 }
@@ -274,6 +278,7 @@ export interface AdvisorOpsUserDetailApi {
   role_code: string;
   role_name: string;
   students_total: number;
+  students_count_scope?: "ORG_TOTAL" | "ASSIGNED";
   payments_count: number;
   payments_total_cents: number;
   salaries_count: number;

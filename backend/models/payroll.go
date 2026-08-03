@@ -13,6 +13,15 @@ const (
 	PayrollStatusPending PayrollStatus = "PENDING"
 )
 
+// StudentsCountScope describes what students_count means on a payslip/KPI.
+type StudentsCountScope string
+
+const (
+	StudentsCountScopeOrgTotal StudentsCountScope = "ORG_TOTAL" // all ACTIVE students (private + school)
+	StudentsCountScopeAssigned StudentsCountScope = "ASSIGNED"  // advisor ∪ role payout
+)
+
+
 // PayrollEntry represents a monthly payslip (Payroll > فیش‌های حقوقی, Employees tab).
 type PayrollEntry struct {
 	gorm.Model

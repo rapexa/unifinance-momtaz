@@ -51,6 +51,13 @@ import { listRoles } from "@/api/rolesApi";
 import { billingModeLabel, parseBillingMode } from "@/components/students/enrollmentBillingUtils";
 import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { studentsCountLabel, studentsCountTooltip } from "@/lib/payrollStudentsCount";
+import {
   jalaliToGregorianIso,
   formatIsoDateShamsi,
   isoToJalaliString,
@@ -69,6 +76,32 @@ const roleLabels: Record<string, string> = {
   ADVISOR: "مشاور",
   OPERATOR: "اپراتور",
 };
+
+function StudentsCountFieldLabel({
+  scope,
+  className,
+}: {
+  scope?: string | null;
+  className?: string;
+}) {
+  return (
+    <span className={cn("inline-flex items-center gap-1", className)}>
+      {studentsCountLabel(scope)}
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="توضیح">
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed" dir="rtl">
+            {studentsCountTooltip(scope)}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </span>
+  );
+}
 
 function EditPayrollForm({
   entry,
@@ -150,7 +183,7 @@ function EditPayrollForm({
       </div>
       <div className="grid gap-2">
         <label className="text-sm font-medium">
-          تعداد دانش‌آموزان منتسب
+          <StudentsCountFieldLabel scope={entry.students_count_scope} />
         </label>
         <Input
           type="text"
@@ -188,7 +221,8 @@ function EditPayrollForm({
           محاسبه مجدد از قوانین نقش و پرداخت‌ها
         </Button>
         <p className="text-xs text-muted-foreground">
-          حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود. تعداد دانش‌آموزان = دانش‌آموزان فعالی که به این کاربر منتسب شده‌اند.
+          حقوق ثابت/متغیر از قوانین نقش و پرداخت‌های پرداخت‌شده در همین ماه دوباره محاسبه می‌شود.{" "}
+          {studentsCountLabel(entry.students_count_scope)} از روی نقش کاربر به‌روز می‌شود.
         </p>
       </div>
       <DialogFooter>
@@ -479,10 +513,9 @@ const Payroll = () => {
       status: createStatus,
     };
     if (createAutoFromRole && isGmRole) {
-      // مدیرکل: حقوق = مجموع دریافت ماه - مجموع حقوق سایر کارمندان
+      // مدیرکل: حقوق = مجموع دریافت ماه - مجموع حقوق سایر کارمندان؛ شمارش دانش‌آموز از بک‌اند (ORG_TOTAL)
       payload.base_salary_cents = gmSalaryCents;
       payload.variable_salary_cents = 0;
-      payload.students_count = 0;
     } else if (createAutoFromRole) {
       payload.apply_role_rules = true;
     } else {
@@ -522,7 +555,7 @@ const Payroll = () => {
         <hr/>
         <p><strong>حقوق ثابت:</strong> ${formatCentsToToman(entry.base_salary_cents)} تومان</p>
         <p><strong>حقوق متغیر:</strong> ${formatCentsToToman(entry.variable_salary_cents)} تومان</p>
-        <p><strong>دانش‌آموزان منتسب:</strong> ${entry.students_count}</p>
+        <p><strong>${studentsCountLabel(entry.students_count_scope)}:</strong> ${entry.students_count}</p>
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(entry.total_salary_cents)} تومان</p>
         <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
@@ -674,7 +707,21 @@ const Payroll = () => {
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش (RBAC) / نوع حقوق</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
-                        دانش‌آموزان منتسب
+                        <span className="inline-flex items-center gap-1">
+                          دانش‌آموزان
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button" className="text-muted-foreground" aria-label="توضیح">
+                                  <Info className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed" dir="rtl">
+                                برای مدیرکل/دسترسی کامل: کل دانش‌آموزان فعال مرکز. برای بقیه: دانش‌آموزان منتسب به همان کاربر.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </span>
                       </th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
                       <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
@@ -726,7 +773,16 @@ const Payroll = () => {
                               </span>
                             </td>
                             <td className="p-4 text-foreground">
-                              {entry.students_count > 0 ? `${entry.students_count} نفر` : "—"}
+                              {entry.students_count > 0 ? (
+                                <span title={studentsCountTooltip(entry.students_count_scope)}>
+                                  {entry.students_count.toLocaleString("fa-IR")} نفر
+                                  {entry.students_count_scope === "ORG_TOTAL" ? (
+                                    <span className="mr-1 text-[10px] text-muted-foreground">(کل)</span>
+                                  ) : null}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td className="p-4 number-display text-foreground">
                               {entry.base_salary_cents > 0 ? formatCentsToToman(entry.base_salary_cents) : "—"}
@@ -971,7 +1027,9 @@ const Payroll = () => {
             <div className="space-y-6 text-right" dir="rtl">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">دانش‌آموزان</p>
+                  <p className="text-xs text-muted-foreground">
+                    <StudentsCountFieldLabel scope={advisorDetail.students_count_scope} className="text-xs" />
+                  </p>
                   <p className="mt-1 text-xl font-bold number-display">
                     {advisorDetail.students_total.toLocaleString("fa-IR")}
                   </p>
@@ -1262,6 +1320,17 @@ const Payroll = () => {
                 </div>
               </div>
             )}
+            {createAutoFromRole && isGmRole && payrollPreview && (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
+                <p>
+                  <span className="text-muted-foreground">
+                    {studentsCountLabel(payrollPreview.students_count_scope)}:
+                  </span>{" "}
+                  {payrollPreview.students_count.toLocaleString("fa-IR")}
+                </p>
+                <p className="text-xs text-muted-foreground">{studentsCountTooltip(payrollPreview.students_count_scope)}</p>
+              </div>
+            )}
             {createAutoFromRole && !isGmRole && (
               <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
                 {!createUserId ? (
@@ -1279,7 +1348,9 @@ const Payroll = () => {
                       {formatCentsToToman(payrollPreview.variable_salary_cents)} تومان
                     </p>
                     <p>
-                      <span className="text-muted-foreground">دانش‌آموزان منتسب:</span>{" "}
+                      <span className="text-muted-foreground">
+                        {studentsCountLabel(payrollPreview.students_count_scope)}:
+                      </span>{" "}
                       {payrollPreview.students_count}
                     </p>
                     {payrollPreview.role_gross_share_cents != null &&
@@ -1319,7 +1390,7 @@ const Payroll = () => {
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-medium">
-                    تعداد دانش‌آموزان منتسب
+                    <StudentsCountFieldLabel scope={payrollPreview?.students_count_scope} />
                   </label>
                   <Input
                     type="text"
@@ -1375,7 +1446,12 @@ const Payroll = () => {
               <p><strong>سمت:</strong> {roleLabels[detailEntry.user_role] ?? detailEntry.user_role}</p>
               <p><strong>حقوق ثابت:</strong> {formatCentsToToman(detailEntry.base_salary_cents)} تومان</p>
               <p><strong>حقوق متغیر:</strong> {formatCentsToToman(detailEntry.variable_salary_cents)} تومان</p>
-              <p><strong>دانش‌آموزان منتسب:</strong> {detailEntry.students_count}</p>
+              <p>
+                <strong>
+                  <StudentsCountFieldLabel scope={detailEntry.students_count_scope} />:
+                </strong>{" "}
+                {detailEntry.students_count}
+              </p>
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
               <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
               {detailEntry.status === "PAID" && (

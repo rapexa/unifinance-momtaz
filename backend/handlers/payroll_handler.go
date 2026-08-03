@@ -43,6 +43,7 @@ type PayrollEntryDTO struct {
 	VariableSalaryCents int64      `json:"variable_salary_cents"`
 	TotalSalaryCents    int64      `json:"total_salary_cents"`
 	StudentsCount       int        `json:"students_count"`
+	StudentsCountScope  string     `json:"students_count_scope"`
 	Status              string     `json:"status"`
 	PaidAt              *time.Time `json:"paid_at,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
@@ -69,6 +70,7 @@ func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
 		VariableSalaryCents: e.VariableSalaryCents,
 		TotalSalaryCents:    e.TotalSalaryCents,
 		StudentsCount:       e.StudentsCount,
+		StudentsCountScope:  string(models.StudentsCountScopeAssigned),
 		Status:              string(e.Status),
 		PaidAt:              e.PaidAt,
 		CreatedAt:           e.CreatedAt,
@@ -78,6 +80,28 @@ func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
 		dto.UserLastName = e.User.LastName
 		if e.User.Role != nil {
 			dto.UserRole = e.User.Role.Code
+			if e.User.Role.HasOrgStudentsCountView() {
+				dto.StudentsCountScope = string(models.StudentsCountScopeOrgTotal)
+			}
+		}
+	}
+	return dto
+}
+
+func applyStudentCountResults(dtos []PayrollEntryDTO, counts map[uint]services.StudentCountResult) {
+	for i := range dtos {
+		if sc, ok := counts[dtos[i].UserID]; ok {
+			dtos[i].StudentsCount = sc.Count
+			dtos[i].StudentsCountScope = string(sc.Scope)
+		}
+	}
+}
+
+func (h *PayrollHandler) enrichPayrollEntryDTO(c *gin.Context, dto PayrollEntryDTO) PayrollEntryDTO {
+	if counts, err := h.service.ResolveStudentsCountsByUserIDs(c.Request.Context(), []uint{dto.UserID}); err == nil {
+		if sc, ok := counts[dto.UserID]; ok {
+			dto.StudentsCount = sc.Count
+			dto.StudentsCountScope = string(sc.Scope)
 		}
 	}
 	return dto
@@ -238,6 +262,7 @@ func (h *PayrollHandler) PreviewCompensation(c *gin.Context) {
 		"base_salary_cents":     br.BaseSalaryCents,
 		"variable_salary_cents": br.VariableSalaryCents,
 		"students_count":        br.StudentsCount,
+		"students_count_scope":  string(br.StudentsCountScope),
 		"compensation_kind":     string(br.CompensationKind),
 		"period_year":           year,
 		"period_month":          month,
@@ -327,10 +352,8 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 		seen[e.UserID] = struct{}{}
 		userIDs = append(userIDs, e.UserID)
 	}
-	if counts, err := h.service.CountAssignedStudentsByUserIDs(c.Request.Context(), userIDs); err == nil {
-		for i := range dtos {
-			dtos[i].StudentsCount = counts[dtos[i].UserID]
-		}
+	if counts, err := h.service.ResolveStudentsCountsByUserIDs(c.Request.Context(), userIDs); err == nil {
+		applyStudentCountResults(dtos, counts)
 	}
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
@@ -436,6 +459,7 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 		}
 		if req.StudentsCount != nil {
 			params.StudentsCount = *req.StudentsCount
+			params.StudentsCountSet = true
 		}
 	}
 
@@ -454,7 +478,7 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, toPayrollEntryDTO(entry))
+	c.JSON(http.StatusCreated, h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)))
 }
 
 // GetEntry handles GET /payroll/entries/:id
@@ -493,10 +517,7 @@ func (h *PayrollHandler) GetEntry(c *gin.Context) {
 		return
 	}
 
-	dto := toPayrollEntryDTO(entry)
-	if counts, err := h.service.CountAssignedStudentsByUserIDs(c.Request.Context(), []uint{entry.UserID}); err == nil {
-		dto.StudentsCount = counts[entry.UserID]
-	}
+	dto := h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry))
 	c.JSON(http.StatusOK, dto)
 }
 
@@ -598,7 +619,7 @@ func (h *PayrollHandler) UpdateEntry(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toPayrollEntryDTO(entry))
+	c.JSON(http.StatusOK, h.enrichPayrollEntryDTO(c, toPayrollEntryDTO(entry)))
 }
 
 type AdvisorOpsDTO struct {
@@ -644,6 +665,7 @@ type AdvisorOpsSalaryDTO struct {
 	VariableSalaryCents int64      `json:"variable_salary_cents"`
 	TotalSalaryCents    int64      `json:"total_salary_cents"`
 	StudentsCount       int        `json:"students_count"`
+	StudentsCountScope  string     `json:"students_count_scope,omitempty"`
 	Status              string     `json:"status"`
 	PaidAt              *time.Time `json:"paid_at,omitempty"`
 }
@@ -659,24 +681,25 @@ type AdvisorOpsPaymentDTO struct {
 }
 
 type AdvisorOpsUserDetailDTO struct {
-	UserID             uint                   `json:"user_id"`
-	FirstName          string                 `json:"first_name"`
-	LastName           string                 `json:"last_name"`
-	RoleCode           string                 `json:"role_code"`
-	RoleName           string                 `json:"role_name"`
-	StudentsTotal      int                    `json:"students_total"`
-	PaymentsCount      int64                  `json:"payments_count"`
-	PaymentsTotalCents int64                  `json:"payments_total_cents"`
-	SalariesCount      int                    `json:"salaries_count"`
-	SalariesPaidCount  int                    `json:"salaries_paid_count"`
-	SalariesTotalCents int64                  `json:"salaries_total_cents"`
-	SalariesPaidCents  int64                  `json:"salaries_paid_cents"`
-	ExpectedTotalCents int64                  `json:"expected_total_cents"`
-	StudentsPaidTotal  int64                  `json:"students_paid_total_cents"`
-	RemainingCents     int64                  `json:"remaining_cents"`
-	Students           []AdvisorOpsStudentDTO `json:"students"`
-	Salaries           []AdvisorOpsSalaryDTO  `json:"salaries"`
-	Payments           []AdvisorOpsPaymentDTO `json:"payments"`
+	UserID               uint                   `json:"user_id"`
+	FirstName            string                 `json:"first_name"`
+	LastName             string                 `json:"last_name"`
+	RoleCode             string                 `json:"role_code"`
+	RoleName             string                 `json:"role_name"`
+	StudentsTotal        int                    `json:"students_total"`
+	StudentsCountScope   string                 `json:"students_count_scope"`
+	PaymentsCount        int64                  `json:"payments_count"`
+	PaymentsTotalCents   int64                  `json:"payments_total_cents"`
+	SalariesCount        int                    `json:"salaries_count"`
+	SalariesPaidCount    int                    `json:"salaries_paid_count"`
+	SalariesTotalCents   int64                  `json:"salaries_total_cents"`
+	SalariesPaidCents    int64                  `json:"salaries_paid_cents"`
+	ExpectedTotalCents   int64                  `json:"expected_total_cents"`
+	StudentsPaidTotal    int64                  `json:"students_paid_total_cents"`
+	RemainingCents       int64                  `json:"remaining_cents"`
+	Students             []AdvisorOpsStudentDTO `json:"students"`
+	Salaries             []AdvisorOpsSalaryDTO  `json:"salaries"`
+	Payments             []AdvisorOpsPaymentDTO `json:"payments"`
 }
 
 // ListAdvisorOps handles GET /payroll/advisor-ops
@@ -812,6 +835,14 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 		}
 	}
 	salaries := make([]AdvisorOpsSalaryDTO, len(detail.Salaries))
+	scopeStr := string(models.StudentsCountScopeAssigned)
+	kpiCount := detail.StudentsTotal
+	if sc, err := h.service.ResolveStudentsCountForUser(c.Request.Context(), uint(uid)); err == nil {
+		scopeStr = string(sc.Scope)
+		if sc.Scope == models.StudentsCountScopeOrgTotal {
+			kpiCount = sc.Count
+		}
+	}
 	for i, r := range detail.Salaries {
 		salaries[i] = AdvisorOpsSalaryDTO{
 			ID:                  r.ID,
@@ -821,6 +852,7 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 			VariableSalaryCents: r.VariableSalaryCents,
 			TotalSalaryCents:    r.TotalSalaryCents,
 			StudentsCount:       r.StudentsCount,
+			StudentsCountScope:  scopeStr,
 			Status:              r.Status,
 			PaidAt:              r.PaidAt,
 		}
@@ -843,7 +875,8 @@ func (h *PayrollHandler) GetAdvisorOpsUserDetail(c *gin.Context) {
 		LastName:           detail.LastName,
 		RoleCode:           detail.RoleCode,
 		RoleName:           detail.RoleName,
-		StudentsTotal:      detail.StudentsTotal,
+		StudentsTotal:      kpiCount,
+		StudentsCountScope: scopeStr,
 		PaymentsCount:      detail.PaymentsCount,
 		PaymentsTotalCents: detail.PaymentsTotalCents,
 		SalariesCount:      detail.SalariesCount,
