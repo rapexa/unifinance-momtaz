@@ -23,6 +23,9 @@ type UserRepository interface {
 	RoleStats(ctx context.Context) ([]UserRoleStat, error)
 	CountAssignedStudentsByUserIDs(ctx context.Context, userIDs []uint) (map[uint]int64, error)
 	RoleStudentCounts(ctx context.Context) (map[uint]int64, error)
+	CountRegisteredStudents(ctx context.Context) (int64, error)
+	RoleIDsWithOrgStudentsView(ctx context.Context) ([]uint, error)
+	UserIDsWithRoleIDs(ctx context.Context, userIDs, roleIDs []uint) ([]uint, error)
 }
 
 // UserRoleStat is one row for the users summary endpoint.
@@ -249,4 +252,34 @@ SELECT role_id, COUNT(DISTINCT student_id) AS count FROM (
 		out[rw.RoleID] = rw.Count
 	}
 	return out, nil
+}
+
+// CountRegisteredStudents returns all non-deleted students in the organization.
+func (r *GormUserRepository) CountRegisteredStudents(ctx context.Context) (int64, error) {
+	var cnt int64
+	err := r.db.WithContext(ctx).Model(&models.Student{}).
+		Where("status != ?", models.StudentStatusDeleted).
+		Count(&cnt).Error
+	return cnt, err
+}
+
+// RoleIDsWithOrgStudentsView returns role IDs that should see org-wide student totals (مدیرکل / NET_REVENUE).
+func (r *GormUserRepository) RoleIDsWithOrgStudentsView(ctx context.Context) ([]uint, error) {
+	var ids []uint
+	err := r.db.WithContext(ctx).Model(&models.Role{}).
+		Where("full_access = ? OR compensation_kind = ?", true, models.CompNetRevenue).
+		Pluck("id", &ids).Error
+	return ids, err
+}
+
+// UserIDsWithRoleIDs returns the subset of userIDs whose role_id is in roleIDs.
+func (r *GormUserRepository) UserIDsWithRoleIDs(ctx context.Context, userIDs, roleIDs []uint) ([]uint, error) {
+	if len(userIDs) == 0 || len(roleIDs) == 0 {
+		return nil, nil
+	}
+	var ids []uint
+	err := r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id IN ? AND role_id IN ?", userIDs, roleIDs).
+		Pluck("id", &ids).Error
+	return ids, err
 }

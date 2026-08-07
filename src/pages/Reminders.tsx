@@ -1,19 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Bell, Clock, Search, Send, Wallet } from "lucide-react";
+import { Bell, Clock, Search, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
   listReminderLogs,
   listReminderRules,
-  listPayrollDue,
-  listPayrollReminderLogs,
   runRemindersNow,
-  updatePaydayDay,
   type ReminderLogApi,
   type ReminderRuleApi,
 } from "@/api/remindersApi";
@@ -23,13 +19,11 @@ const typeLabels: Record<string, string> = {
   BEFORE_DUE: "قبل از سررسید",
   DUE_DAY: "روز سررسید",
   OVERDUE: "پس از تأخیر",
-  PAYROLL_PENDING: "حقوق در انتظار",
 };
 const typeColors: Record<string, string> = {
   BEFORE_DUE: "bg-success/10 text-success",
   DUE_DAY: "bg-warning/10 text-warning",
   OVERDUE: "bg-destructive/10 text-destructive",
-  PAYROLL_PENDING: "bg-primary/10 text-primary",
 };
 const statusLabel: Record<string, string> = {
   SENT: "ارسال شده",
@@ -48,7 +42,6 @@ function formatCentsToToman(cents: number): string {
 
 function ruleIcon(type: string) {
   if (type === "OVERDUE") return Clock;
-  if (type === "PAYROLL_PENDING") return Wallet;
   return Bell;
 }
 
@@ -65,7 +58,6 @@ function ruleDesc(rule: ReminderRuleApi): string {
 export default function Reminders() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [paydayInput, setPaydayInput] = useState("25");
 
   const { data: rules = [] } = useQuery<ReminderRuleApi[]>({
     queryKey: ["reminder-rules"],
@@ -77,28 +69,10 @@ export default function Reminders() {
     queryFn: () => listReminderLogs(search || undefined),
   });
 
-  const { data: payrollDue, isLoading: payrollLoading } = useQuery({
-    queryKey: ["reminder-payroll-due"],
-    queryFn: listPayrollDue,
-  });
-
-  const { data: payrollLogs = [] } = useQuery({
-    queryKey: ["reminder-payroll-logs"],
-    queryFn: listPayrollReminderLogs,
-  });
-
-  useEffect(() => {
-    if (payrollDue?.payday_day != null) {
-      setPaydayInput(String(payrollDue.payday_day));
-    }
-  }, [payrollDue?.payday_day]);
-
   const runMutation = useMutation({
     mutationFn: runRemindersNow,
     onSuccess: (n) => {
       queryClient.invalidateQueries({ queryKey: ["reminder-logs"] });
-      queryClient.invalidateQueries({ queryKey: ["reminder-payroll-due"] });
-      queryClient.invalidateQueries({ queryKey: ["reminder-payroll-logs"] });
       toast({
         title: "اجرای یادآوری‌ها",
         description: n > 0 ? `${n.toLocaleString("fa-IR")} مورد ثبت شد.` : "مورد جدیدی برای ارسال نبود.",
@@ -109,26 +83,11 @@ export default function Reminders() {
     },
   });
 
-  const paydayMutation = useMutation({
-    mutationFn: (day: number) => updatePaydayDay(day),
-    onSuccess: (day) => {
-      queryClient.invalidateQueries({ queryKey: ["reminder-payroll-due"] });
-      toast({ title: "روز پرداخت حقوق ذخیره شد", description: `روز ${day.toLocaleString("fa-IR")} هر ماه` });
-    },
-    onError: (err: Error) => {
-      toast({ variant: "destructive", title: "خطا", description: err.message });
-    },
-  });
-
-  const dueRows = payrollDue?.data ?? [];
-  const nearCount = dueRows.filter((r) => r.near_payday).length;
-
   return (
-    <MainLayout title="یادآوری‌ها" subtitle="قوانین دانش‌آموز، حقوق کارمند، و لاگ ارسال">
+    <MainLayout title="یادآوری‌ها" subtitle="قوانین و لاگ یادآوری پرداخت دانش‌آموزان">
       <div className="space-y-6 text-right" dir="rtl">
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-          یادآوری دانش‌آموز فقط برای پرداخت‌های دارای تاریخ سررسید است. یادآوری حقوق برای فیش‌های{" "}
-          <span className="font-medium text-foreground">در انتظار</span> نزدیک روز پرداخت سازمان ثبت می‌شود.
+          یادآوری فقط برای پرداخت‌های دانش‌آموز دارای تاریخ سررسید نمایش داده می‌شود.
         </div>
 
         {/* Student rules */}
@@ -162,139 +121,6 @@ export default function Reminders() {
               );
             })}
           </div>
-        </section>
-
-        {/* Employee payroll */}
-        <section className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold">یادآوری حقوق کارمند</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                فیش‌های در انتظار ماه جاری؛ نزدیک موعد = تا ۳ روز قبل از روز پرداخت سازمان.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="grid gap-1">
-                <label className="text-xs text-muted-foreground">روز پرداخت حقوق (۱–۲۸)</label>
-                <Input
-                  className="w-24"
-                  type="number"
-                  min={1}
-                  max={28}
-                  value={paydayInput}
-                  onChange={(e) => setPaydayInput(e.target.value)}
-                />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={paydayMutation.isPending}
-                onClick={() => {
-                  const day = Number(paydayInput);
-                  if (!Number.isFinite(day) || day < 1 || day > 28) {
-                    toast({ variant: "destructive", title: "روز نامعتبر", description: "عدد بین ۱ تا ۲۸ وارد کنید." });
-                    return;
-                  }
-                  paydayMutation.mutate(day);
-                }}
-              >
-                ذخیره موعد
-              </Button>
-            </div>
-          </div>
-
-          {nearCount > 0 && (
-            <p className="text-sm text-primary">
-              {nearCount.toLocaleString("fa-IR")} کارمند نزدیک موعد پرداخت حقوق هستند.
-            </p>
-          )}
-
-          <div className="card-elevated overflow-x-auto">
-            {payrollLoading ? (
-              <p className="p-4 text-sm text-muted-foreground">در حال بارگذاری...</p>
-            ) : dueRows.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">فیش در انتظار برای این ماه نیست.</p>
-            ) : (
-              <table className="w-full min-w-[560px] text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="p-3 text-right text-xs text-muted-foreground">کارمند</th>
-                    <th className="p-3 text-right text-xs text-muted-foreground">جمع فیش</th>
-                    <th className="p-3 text-right text-xs text-muted-foreground">نزدیک موعد</th>
-                    <th className="p-3 text-right text-xs text-muted-foreground">یادآوری</th>
-                    <th className="p-3 text-right text-xs text-muted-foreground">جزئیات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dueRows.map((row) => (
-                    <tr key={row.entry_id} className="border-b last:border-0">
-                      <td className="p-3 font-medium">{row.user_name || "—"}</td>
-                      <td className="p-3 number-display">
-                        {formatCentsToToman(row.total_salary_cents)} تومان
-                      </td>
-                      <td className="p-3">
-                        {row.near_payday ? (
-                          <span className="text-primary">
-                            بله
-                            {row.days_until_payday === 0
-                              ? " (امروز)"
-                              : ` (${row.days_until_payday.toLocaleString("fa-IR")} روز)`}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">خیر</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-muted-foreground">
-                        {row.reminder_sent_at ? formatIsoDateShamsi(row.reminder_sent_at) : "—"}
-                      </td>
-                      <td className="p-3">
-                        <Link
-                          className="text-primary hover:underline"
-                          to={`/payroll/users/${row.user_id}?year=${row.period_year}&month=${row.period_month}`}
-                        >
-                          مشاهده
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {payrollLogs.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">لاگ یادآوری حقوق</h3>
-              <div className="card-elevated overflow-x-auto">
-                <table className="w-full min-w-[480px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-3 text-right text-xs text-muted-foreground">کارمند</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">دوره</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">مبلغ</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">زمان</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">وضعیت</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payrollLogs.map((row) => (
-                      <tr key={row.id} className="border-b last:border-0">
-                        <td className="p-3">{row.user_name || "—"}</td>
-                        <td className="p-3 text-muted-foreground">
-                          {row.period_month}/{row.period_year}
-                        </td>
-                        <td className="p-3 number-display">
-                          {formatCentsToToman(row.total_salary_cents)}
-                        </td>
-                        <td className="p-3 text-muted-foreground">{formatIsoDateShamsi(row.sent_at)}</td>
-                        <td className={cn("p-3", statusColor[row.status])}>{statusLabel[row.status]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </section>
 
         {/* Student logs */}

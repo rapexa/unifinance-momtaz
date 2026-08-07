@@ -55,4 +55,7 @@ task.txt
 docs/school-per-student-billing-phases.md
 docs/payroll-ledger-reminders-phases.md
 
+# Local E2E dashboard seed tests (not for remote)
+e2e/
+
 Uploads

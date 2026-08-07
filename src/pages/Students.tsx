@@ -401,7 +401,10 @@ function EditStudentForm({
   const [motherPhone, setMotherPhone] = useState(student.mother_phone || "");
   const [fatherJob, setFatherJob] = useState(student.father_job || "");
   const [motherJob, setMotherJob] = useState(student.mother_job || "");
-  const isSchoolChannel = student.registration_channel === "SCHOOL";
+  const [registrationChannel, setRegistrationChannel] = useState<RegistrationChannel>(
+    student.registration_channel === "SCHOOL" ? "SCHOOL" : "PRIVATE",
+  );
+  const isSchoolChannel = registrationChannel === "SCHOOL";
   const [schoolName, setSchoolName] = useState(student.school_name || "");
   const [schoolAddress, setSchoolAddress] = useState(student.school_address || "");
   const [homeAddress, setHomeAddress] = useState(student.home_address || "");
@@ -498,6 +501,26 @@ function EditStudentForm({
   return (
     <div className="space-y-6 py-2">
       <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">نوع ثبت‌نام</label>
+        <Select
+          value={registrationChannel}
+          onValueChange={(v) => {
+            const ch = v as RegistrationChannel;
+            setRegistrationChannel(ch);
+            if (ch === "PRIVATE") setSchoolContractId("");
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PRIVATE">خصوصی</SelectItem>
+            <SelectItem value="SCHOOL">مدرسه‌ای</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">اطلاعات اولیه دانش‌آموز</h3>
         <Separator className="mb-3" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -526,6 +549,7 @@ function EditStudentForm({
             value={advisoryStartDate}
             onChange={setAdvisoryStartDate}
             placeholder="انتخاب تاریخ شروع مشاوره"
+            clearable={false}
           />
         </div>
       </div>
@@ -703,11 +727,11 @@ function EditStudentForm({
               father_job: fatherJob.trim() || undefined,
               mother_job: motherJob.trim() || undefined,
               home_address: homeAddress.trim() || undefined,
-              registration_channel: isSchoolChannel ? "SCHOOL" : "PRIVATE",
+              registration_channel: registrationChannel,
               status,
               advisor_id: advisorId === "none" ? null : Number(advisorId),
             };
-            if (isSchoolChannel) {
+            if (registrationChannel === "SCHOOL") {
               payload.school_contract_id = Number(schoolContractId);
             } else {
               payload.school_name = schoolName.trim() || undefined;

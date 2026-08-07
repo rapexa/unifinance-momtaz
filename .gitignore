@@ -152,3 +152,6 @@ vite.config.ts.timestamp-*
 backend/server
 backend/migrate-server
 backend/unifinance-server
+
+# Local E2E dashboard seed tests (not for remote)
+backend/e2e/

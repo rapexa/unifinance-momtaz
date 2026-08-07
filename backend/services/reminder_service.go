@@ -197,16 +197,9 @@ func nearPaydayWindow(daysUntil int) bool {
 	return daysUntil >= 0 && daysUntil <= payrollReminderWindowDays
 }
 
+// RunNow sends student payment reminders only (employee payroll reminders are not included).
 func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
-	studentSent, err := s.runStudentReminders(ctx)
-	if err != nil {
-		return studentSent, err
-	}
-	payrollSent, err := s.runPayrollReminders(ctx)
-	if err != nil {
-		return studentSent + payrollSent, err
-	}
-	return studentSent + payrollSent, nil
+	return s.runStudentReminders(ctx)
 }
 
 func (s *ReminderService) runStudentReminders(ctx context.Context) (int, error) {

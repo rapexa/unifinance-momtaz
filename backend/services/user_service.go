@@ -204,7 +204,8 @@ func (s *UserService) Deactivate(ctx context.Context, id uint) error {
 	return s.repo.Update(ctx, u)
 }
 
-// RoleStats returns counts of users per role, including assigned student counts per role.
+// RoleStats returns counts of users per role, including student counts per role.
+// Roles with org-wide view (مدیرکل / NET_REVENUE) get the total registered student count.
 func (s *UserService) RoleStats(ctx context.Context) ([]repositories.UserRoleStat, error) {
 	stats, err := s.repo.RoleStats(ctx)
 	if err != nil {
@@ -214,13 +215,59 @@ func (s *UserService) RoleStats(ctx context.Context) ([]repositories.UserRoleSta
 	if err != nil {
 		return nil, err
 	}
+	orgTotal, err := s.repo.CountRegisteredStudents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orgRoleIDs, err := s.repo.RoleIDsWithOrgStudentsView(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orgView := make(map[uint]bool, len(orgRoleIDs))
+	for _, id := range orgRoleIDs {
+		orgView[id] = true
+	}
 	for i := range stats {
-		stats[i].StudentsCount = studentCounts[stats[i].RoleID]
+		if orgView[stats[i].RoleID] {
+			stats[i].StudentsCount = orgTotal
+		} else {
+			stats[i].StudentsCount = studentCounts[stats[i].RoleID]
+		}
 	}
 	return stats, nil
 }
 
-// CountAssignedStudentsForUsers returns distinct student counts per user (advisor + role payout).
+// CountAssignedStudentsForUsers returns student counts per user.
+// Users whose role has org-wide view (مدیرکل / NET_REVENUE) get the total registered student count;
+// others get distinct assigned students (advisor ∪ role payout).
 func (s *UserService) CountAssignedStudentsForUsers(ctx context.Context, userIDs []uint) (map[uint]int64, error) {
-	return s.repo.CountAssignedStudentsByUserIDs(ctx, userIDs)
+	counts, err := s.repo.CountAssignedStudentsByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(userIDs) == 0 {
+		return counts, nil
+	}
+	orgRoleIDs, err := s.repo.RoleIDsWithOrgStudentsView(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(orgRoleIDs) == 0 {
+		return counts, nil
+	}
+	orgUserIDs, err := s.repo.UserIDsWithRoleIDs(ctx, userIDs, orgRoleIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(orgUserIDs) == 0 {
+		return counts, nil
+	}
+	orgTotal, err := s.repo.CountRegisteredStudents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range orgUserIDs {
+		counts[id] = orgTotal
+	}
+	return counts, nil
 }
