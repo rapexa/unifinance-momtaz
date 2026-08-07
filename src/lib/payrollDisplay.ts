@@ -1,26 +1,19 @@
 import { billingModeLabel, parseBillingMode } from "@/components/students/enrollmentBillingUtils";
+import { formatGregorianPeriodJalali, JALALI_MONTH_NAMES } from "@/lib/jalaliDate";
 
 export function formatCentsToToman(cents: number): string {
   return Math.floor((cents || 0) / 10).toLocaleString("fa-IR");
 }
 
+/** Jalali month name (1–12 = فروردین…اسفند). Prefer formatPayrollPeriod for API periods. */
 export function monthName(month: number): string {
-  const names = [
-    "",
-    "ژانویه",
-    "فوریه",
-    "مارس",
-    "آوریل",
-    "مه",
-    "ژوئن",
-    "ژوئیه",
-    "اوت",
-    "سپتامبر",
-    "اکتبر",
-    "نوامبر",
-    "دسامبر",
-  ];
-  return names[month] ?? String(month);
+  if (month < 1 || month > 12) return String(month);
+  return JALALI_MONTH_NAMES[month - 1] ?? String(month);
+}
+
+/** Display a Gregorian payroll period (API year/month) as Jalali. */
+export function formatPayrollPeriod(year: number, month: number): string {
+  return formatGregorianPeriodJalali(year, month);
 }
 
 export function registrationChannelLabel(channel?: string): string {

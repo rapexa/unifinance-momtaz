@@ -73,7 +73,7 @@ type AuthResultDoc struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBindError(c, err)
 		return
 	}
 
@@ -81,13 +81,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrInvalidCredentials:
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			writeAPIError(c, http.StatusUnauthorized, "ایمیل یا رمز عبور نامعتبر است.", err)
 		case services.ErrInactiveUser:
-			c.JSON(http.StatusForbidden, gin.H{"error": "user is inactive"})
+			writeAPIError(c, http.StatusForbidden, "حساب کاربری غیرفعال است.", err)
 		case services.ErrAdminOnly:
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: Admin only"})
+			writeAPIError(c, http.StatusForbidden, "دسترسی فقط برای مدیر مجاز است.", err)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			writeAPIError(c, http.StatusInternalServerError, "خطای داخلی سرور. لطفاً دوباره تلاش کنید.", err)
 		}
 		return
 	}
@@ -110,7 +110,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBindError(c, err)
 		return
 	}
 
@@ -118,11 +118,11 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrInvalidCredentials:
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+			writeAPIError(c, http.StatusUnauthorized, "نشست نامعتبر است. دوباره وارد شوید.", err)
 		case services.ErrInactiveUser:
-			c.JSON(http.StatusForbidden, gin.H{"error": "user is inactive"})
+			writeAPIError(c, http.StatusForbidden, "حساب کاربری غیرفعال است.", err)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			writeAPIError(c, http.StatusInternalServerError, "خطای داخلی سرور. لطفاً دوباره تلاش کنید.", err)
 		}
 		return
 	}
@@ -143,24 +143,23 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userIDVal, exists := c.Get(middleware.ContextUserIDKey)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user in context"})
+		writeAPIError(c, http.StatusUnauthorized, "نشست نامعتبر است. دوباره وارد شوید.", nil)
 		return
 	}
 
 	userID, ok := userIDVal.(uint)
 	if !ok {
-		// Gin stores values as interface{}, type assertion may fail if other types used.
 		if id64, ok2 := userIDVal.(int64); ok2 && id64 >= 0 {
 			userID = uint(id64)
 		} else {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user id type"})
+			writeAPIError(c, http.StatusUnauthorized, "نشست نامعتبر است. دوباره وارد شوید.", nil)
 			return
 		}
 	}
 
 	user, err := h.authService.GetByID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		writeAPIError(c, http.StatusNotFound, "کاربر یافت نشد.", err)
 		return
 	}
 
@@ -182,7 +181,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if exists {
 		if userID, ok := userIDVal.(uint); ok {
 			if err := h.authService.Logout(c.Request.Context(), userID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "logout failed"})
+				writeAPIError(c, http.StatusInternalServerError, "خروج با خطا مواجه شد.", err)
 				return
 			}
 		}
@@ -203,16 +202,16 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req forgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBindError(c, err)
 		return
 	}
 
 	if err := h.authService.ForgotPassword(c.Request.Context(), req.Email); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		writeAPIError(c, http.StatusInternalServerError, "خطای داخلی سرور. لطفاً دوباره تلاش کنید.", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "if this email exists, a reset link will be sent"})
+	c.JSON(http.StatusOK, gin.H{"message": "اگر این ایمیل ثبت شده باشد، لینک بازیابی ارسال می‌شود."})
 }
 
 // ResetPassword handles POST /api/v1/auth/reset-password
@@ -229,21 +228,18 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBindError(c, err)
 		return
 	}
 
 	if err := h.authService.ResetPassword(c.Request.Context(), req.Token, req.NewPassword); err != nil {
 		if err == services.ErrInvalidResetToken {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "لینک بازنشانی نامعتبر یا منقضی شده است"})
+			writeAPIError(c, http.StatusBadRequest, "لینک بازنشانی نامعتبر یا منقضی شده است.", err)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		writeAPIError(c, http.StatusInternalServerError, "خطای داخلی سرور. لطفاً دوباره تلاش کنید.", err)
 		return
 	}
 
 	c.Status(http.StatusNoContent)
 }
-
-
-	

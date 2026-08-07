@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface ReportSummary {
   total_revenue_cents: number;
@@ -41,8 +41,7 @@ export async function getReportsSummary(params: ReportFilter): Promise<ReportSum
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت خلاصه گزارش";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت خلاصه گزارش", res);
   }
   return data as ReportSummary;
 }
@@ -58,8 +57,7 @@ export async function getRevenueSeries(params: ReportFilter): Promise<RevenuePoi
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت سری درآمد";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت سری درآمد", res);
   }
   return data as RevenuePoint[];
 }
@@ -75,8 +73,7 @@ export async function getPayrollSeries(params: ReportFilter): Promise<PayrollPoi
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت سری حقوق";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت سری حقوق", res);
   }
   return data as PayrollPoint[];
 }
@@ -138,7 +135,7 @@ export async function getReportPaidPayments(params: ReportFilter): Promise<PaidP
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت جزئیات پرداخت‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت جزئیات پرداخت‌ها", res);
   return (data?.data ?? []) as PaidPaymentDetail[];
 }
 
@@ -150,7 +147,7 @@ export async function getReportRevenueByStudent(params: ReportFilter): Promise<R
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت تجمیع دانش‌آموز");
+  if (!res.ok) apiFail(data, "خطا در دریافت تجمیع دانش‌آموز", res);
   return (data?.data ?? []) as RevenueByStudent[];
 }
 
@@ -162,7 +159,7 @@ export async function getReportPayrollLines(params: ReportFilter): Promise<Payro
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت جزئیات حقوق");
+  if (!res.ok) apiFail(data, "خطا در دریافت جزئیات حقوق", res);
   return (data?.data ?? []) as PayrollLineDetail[];
 }
 
@@ -174,7 +171,7 @@ export async function getReportPayrollByUser(params: ReportFilter): Promise<Payr
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت حقوق به تفکیک کارمند");
+  if (!res.ok) apiFail(data, "خطا در دریافت حقوق به تفکیک کارمند", res);
   return (data?.data ?? []) as PayrollByUser[];
 }
 
@@ -184,7 +181,7 @@ export async function getReportStudentDebts(): Promise<StudentDebtDetail[]> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت بدهی دانش‌آموزان");
+  if (!res.ok) apiFail(data, "خطا در دریافت بدهی دانش‌آموزان", res);
   return (data?.data ?? []) as StudentDebtDetail[];
 }
 
@@ -200,8 +197,7 @@ export async function getDebtsByAdvisor(params?: { month?: string }): Promise<Ad
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت بدهی‌ها";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت بدهی‌ها", res);
   }
   return data as AdvisorDebt[];
 }

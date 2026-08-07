@@ -1,35 +1,41 @@
 /**
- * Minimal Shamsi (Jalali) ↔ Gregorian conversion for month/year only.
- * Used for Reports date range picker. Approximate conversion for display and API (YYYY-MM).
+ * Shamsi (Jalali) ↔ Gregorian month helpers.
+ * Re-exports the shared conversion from jalaliDate so Reports and other callers stay stable.
  */
 
+import {
+  JALALI_MONTH_NAMES,
+  gregorianYYYYMMToJalaliPeriod,
+  jalaliPeriodToGregorianYYYYMM,
+  jalaliYearOptions,
+} from "@/lib/jalaliDate";
+
 export const SHAMSI_MONTH_NAMES: Record<number, string> = {
-  1: "فروردین", 2: "اردیبهشت", 3: "خرداد", 4: "تیر", 5: "مرداد", 6: "شهریور",
-  7: "مهر", 8: "آبان", 9: "آذر", 10: "دی", 11: "بهمن", 12: "اسفند",
+  1: JALALI_MONTH_NAMES[0],
+  2: JALALI_MONTH_NAMES[1],
+  3: JALALI_MONTH_NAMES[2],
+  4: JALALI_MONTH_NAMES[3],
+  5: JALALI_MONTH_NAMES[4],
+  6: JALALI_MONTH_NAMES[5],
+  7: JALALI_MONTH_NAMES[6],
+  8: JALALI_MONTH_NAMES[7],
+  9: JALALI_MONTH_NAMES[8],
+  10: JALALI_MONTH_NAMES[9],
+  11: JALALI_MONTH_NAMES[10],
+  12: JALALI_MONTH_NAMES[11],
 };
 
-/** Shamsi (year, month 1–12) → Gregorian YYYY-MM. 1400/1 (Farvardin) ≈ 2021-03 */
+/** Shamsi (year, month 1–12) → Gregorian YYYY-MM */
 export function shamsiToGregorianYYYYMM(sYear: number, sMonth: number): string {
-  const gMonth = ((sMonth + 1) % 12) + 1;
-  const gYear = sMonth >= 11 ? sYear + 622 : sYear + 621;
-  return `${gYear}-${String(gMonth).padStart(2, "0")}`;
+  return jalaliPeriodToGregorianYYYYMM(sYear, sMonth);
 }
 
 /** Gregorian YYYY-MM → Shamsi (year, month 1–12) */
 export function gregorianYYYYMMToShamsi(ym: string): { year: number; month: number } {
-  const [yStr, mStr] = ym.split("-");
-  const gYear = parseInt(yStr!, 10);
-  const gMonth = parseInt(mStr!, 10);
-  const sMonth = ((gMonth - 2 + 11) % 12) + 1;
-  const sYear = gMonth >= 3 ? gYear - 621 : gYear - 622;
-  return { year: sYear, month: sMonth };
+  return gregorianYYYYMMToJalaliPeriod(ym);
 }
 
 /** List of Shamsi years for selector (e.g. 1398–1412) */
 export function shamsiYearOptions(): number[] {
-  const from = 1398;
-  const to = 1412;
-  const arr: number[] = [];
-  for (let y = to; y >= from; y--) arr.push(y);
-  return arr;
+  return jalaliYearOptions(1398, 1412);
 }

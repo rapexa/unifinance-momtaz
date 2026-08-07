@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -27,23 +28,23 @@ func AuthMiddleware(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "نشست منقضی شده است. دوباره وارد شوید."})
 			return
 		}
 
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid Authorization header"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "نشست نامعتبر است. دوباره وارد شوید."})
 			return
 		}
 
 		claims, err := utils.ParseToken(parts[1], cfg)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "نشست منقضی شده است. دوباره وارد شوید."})
 			return
 		}
 		if claims.TokenType != "access" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token type"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "نشست نامعتبر است. دوباره وارد شوید."})
 			return
 		}
 
@@ -57,15 +58,16 @@ func AuthMiddleware(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 		if err := db.WithContext(c.Request.Context()).Model(&models.User{}).
 			Select("is_active", "tokens_valid_from").
 			Where("id = ?", claims.UserID).Scan(&acct).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to verify session"})
+			log.Printf("auth verify session: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "خطا در بررسی نشست. دوباره تلاش کنید."})
 			return
 		}
 		if !acct.IsActive {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user is inactive"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "حساب کاربری غیرفعال است."})
 			return
 		}
 		if acct.TokensValidFrom != nil && claims.IssuedAt != nil && claims.IssuedAt.Time.Before(*acct.TokensValidFrom) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session expired, please log in again"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "نشست منقضی شده است. دوباره وارد شوید."})
 			return
 		}
 
@@ -95,18 +97,18 @@ func RoleMiddleware(allowed ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		roleVal, exists := c.Get(ContextUserRole)
 		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing role in context"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست."})
 			return
 		}
 
 		role, ok := roleVal.(string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid role type"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست."})
 			return
 		}
 
 		if _, ok := allowedSet[role]; !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "شما به این بخش دسترسی ندارید."})
 			return
 		}
 
@@ -119,12 +121,12 @@ func PermissionMiddleware(permService *services.PermissionService, required mode
 	return func(c *gin.Context) {
 		userIDVal, exists := c.Get(ContextUserIDKey)
 		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing user in context"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست."})
 			return
 		}
 		userID, ok := userIDVal.(uint)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid user id type"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست."})
 			return
 		}
 		fullAccessVal, _ := c.Get(ContextUserFullAccess)
@@ -132,11 +134,12 @@ func PermissionMiddleware(permService *services.PermissionService, required mode
 
 		ok, err := permService.HasPermission(c.Request.Context(), userID, fullAccess, required)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to check permission"})
+			log.Printf("permission check: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "خطا در بررسی دسترسی."})
 			return
 		}
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "شما به این بخش دسترسی ندارید."})
 			return
 		}
 		c.Next()

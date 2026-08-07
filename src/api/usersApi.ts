@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import { API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface UserApi {
   id: number;
@@ -82,9 +82,7 @@ export async function getUsersSummary(): Promise<UsersSummary> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت خلاصه کاربران";
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت خلاصه کاربران", res);
   }
 
   const typed = data as UsersSummary & { by_role?: RoleCountRow[] };
@@ -112,9 +110,7 @@ export async function listUsers(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت لیست کاربران";
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت لیست کاربران", res);
   }
 
   return data as PaginatedUsersResponse;
@@ -151,9 +147,7 @@ export async function getUser(id: number): Promise<UserApi> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت اطلاعات کاربر";
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت اطلاعات کاربر", res);
   }
 
   return data as UserApi;
@@ -185,9 +179,7 @@ export async function updateUser(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در بروزرسانی کاربر";
-    throw new Error(message);
+    apiFail(data, "خطا در بروزرسانی کاربر", res);
   }
 
   return data as UserApi;
@@ -201,9 +193,7 @@ export async function deactivateUser(id: number): Promise<void> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در غیرفعال کردن کاربر";
-    throw new Error(message);
+    apiFail(data, "خطا در غیرفعال کردن کاربر", res);
   }
 }
 
@@ -231,9 +221,7 @@ export async function createUser(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "ثبت کاربر جدید با خطا مواجه شد";
-    throw new Error(message);
+    apiFail(data, "ثبت کاربر جدید با خطا مواجه شد", res);
   }
 
   return data as UserApi;
@@ -261,9 +249,7 @@ export async function exportUsers(params: {
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const message =
-      data?.error || "خروجی گرفتن از کاربران با خطا مواجه شد";
-    throw new Error(message);
+    apiFail(data, "خروجی گرفتن از کاربران با خطا مواجه شد", res);
   }
 
   return await res.blob();

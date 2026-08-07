@@ -69,7 +69,7 @@ func (h *ReportHandler) GetSummary(c *gin.Context) {
 
 	summary, err := h.service.GetSummary(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load reports summary"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت خلاصه گزارش‌ها"})
 		return
 	}
 
@@ -104,7 +104,7 @@ func (h *ReportHandler) GetRevenueSeries(c *gin.Context) {
 
 	points, err := h.service.GetRevenueSeries(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load revenue series"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت نمودار درآمد"})
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *ReportHandler) GetPayrollSeries(c *gin.Context) {
 
 	points, err := h.service.GetPayrollSeries(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll series"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت نمودار حقوق"})
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *ReportHandler) GetPaidPaymentsDetail(c *gin.Context) {
 	}
 	rows, err := h.service.GetPaidPaymentsDetail(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payment details"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت جزئیات پرداخت‌ها"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
@@ -180,7 +180,7 @@ func (h *ReportHandler) GetRevenueByStudent(c *gin.Context) {
 	}
 	rows, err := h.service.GetRevenueByStudent(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load revenue by student"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت درآمد به تفکیک دانش‌آموز"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
@@ -195,7 +195,7 @@ func (h *ReportHandler) GetPayrollLines(c *gin.Context) {
 	}
 	rows, err := h.service.GetPayrollLinesInRange(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll lines"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت جزئیات حقوق"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
@@ -210,7 +210,7 @@ func (h *ReportHandler) GetPayrollByUser(c *gin.Context) {
 	}
 	rows, err := h.service.GetPayrollByUser(c.Request.Context(), from, to)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payroll by user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت حقوق به تفکیک کارمند"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
@@ -221,7 +221,7 @@ func (h *ReportHandler) GetPayrollByUser(c *gin.Context) {
 func (h *ReportHandler) GetStudentDebts(c *gin.Context) {
 	rows, err := h.service.GetStudentDebtsDetail(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load student debts"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت بدهی دانش‌آموزان"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
@@ -245,13 +245,13 @@ func (h *ReportHandler) GetDebtsByAdvisor(c *gin.Context) {
 	now := time.Now()
 	monthStr := c.DefaultQuery("month", now.Format("2006-01"))
 	if _, err := time.Parse("2006-01", monthStr); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month; expected YYYY-MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "فرمت ماه نامعتبر است"})
 		return
 	}
 
 	debts, err := h.service.GetAdvisorDebts(c.Request.Context(), now)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load advisor debts"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت بدهی مشاوران"})
 		return
 	}
 
@@ -276,17 +276,17 @@ func parseMonthRangeOrDefault(c *gin.Context) (time.Time, time.Time, bool) {
 
 	fromMonth, err := time.ParseInLocation("2006-01", fromStr, loc)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from; expected YYYY-MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ شروع نامعتبر است"})
 		return time.Time{}, time.Time{}, false
 	}
 	toMonth, err := time.ParseInLocation("2006-01", toStr, loc)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to; expected YYYY-MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان نامعتبر است"})
 		return time.Time{}, time.Time{}, false
 	}
 
 	if toMonth.Before(fromMonth) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "to must be greater than or equal to from"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان باید بعد از شروع باشد"})
 		return time.Time{}, time.Time{}, false
 	}
 

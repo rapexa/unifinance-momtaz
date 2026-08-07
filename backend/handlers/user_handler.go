@@ -129,7 +129,7 @@ func (h *UserHandler) List(c *gin.Context) {
 	status := c.DefaultQuery("status", "")
 
 	if status != "" && status != "active" && status != "inactive" {
-		userError(c, http.StatusBadRequest, "invalid status; must be 'active' or 'inactive'")
+		userError(c, http.StatusBadRequest, "وضعیت نامعتبر است؛ باید active یا inactive باشد")
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *UserHandler) List(c *gin.Context) {
 
 	users, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, role, status)
 	if err != nil {
-		userError(c, http.StatusInternalServerError, "failed to list users")
+		userError(c, http.StatusInternalServerError, "خطا در دریافت لیست کاربران")
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *UserHandler) List(c *gin.Context) {
 func (h *UserHandler) Summary(c *gin.Context) {
 	stats, err := h.service.RoleStats(c.Request.Context())
 	if err != nil {
-		userError(c, http.StatusInternalServerError, "failed to load users summary")
+		userError(c, http.StatusInternalServerError, "خطا در دریافت خلاصه کاربران")
 		return
 	}
 	type row struct {
@@ -233,17 +233,17 @@ func (h *UserHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		userError(c, http.StatusBadRequest, "invalid id")
+		userError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
 	u, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrUserNotFound {
-			userError(c, http.StatusNotFound, "user not found")
+			userError(c, http.StatusNotFound, "کاربر یافت نشد")
 			return
 		}
-		userError(c, http.StatusInternalServerError, "failed to get user")
+		userError(c, http.StatusInternalServerError, "خطا در دریافت کاربر")
 		return
 	}
 
@@ -297,14 +297,14 @@ func (h *UserHandler) Create(c *gin.Context) {
 	u, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
 		if err == services.ErrEmailAlreadyExists {
-			userError(c, http.StatusConflict, "email already exists")
+			userError(c, http.StatusConflict, "این ایمیل قبلاً ثبت شده است")
 			return
 		}
 		if err == services.ErrInvalidRoleID {
-			userError(c, http.StatusBadRequest, "invalid role_id")
+			userError(c, http.StatusBadRequest, "شناسه نقش نامعتبر است")
 			return
 		}
-		userError(c, http.StatusInternalServerError, "failed to create user")
+		userError(c, http.StatusInternalServerError, "ثبت کاربر با خطا مواجه شد")
 		return
 	}
 
@@ -332,7 +332,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		userError(c, http.StatusBadRequest, "invalid id")
+		userError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
@@ -363,13 +363,13 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrUserNotFound:
-			userError(c, http.StatusNotFound, "user not found")
+			userError(c, http.StatusNotFound, "کاربر یافت نشد")
 		case services.ErrEmailAlreadyExists:
-			userError(c, http.StatusConflict, "email already exists")
+			userError(c, http.StatusConflict, "این ایمیل قبلاً ثبت شده است")
 		case services.ErrInvalidRoleID:
-			userError(c, http.StatusBadRequest, "invalid role_id")
+			userError(c, http.StatusBadRequest, "شناسه نقش نامعتبر است")
 		default:
-			userError(c, http.StatusInternalServerError, "failed to update user")
+			userError(c, http.StatusInternalServerError, "ویرایش کاربر با خطا مواجه شد")
 		}
 		return
 	}
@@ -395,16 +395,16 @@ func (h *UserHandler) Deactivate(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		userError(c, http.StatusBadRequest, "invalid id")
+		userError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
 	if err := h.service.Deactivate(c.Request.Context(), uint(id)); err != nil {
 		if err == services.ErrUserNotFound {
-			userError(c, http.StatusNotFound, "user not found")
+			userError(c, http.StatusNotFound, "کاربر یافت نشد")
 			return
 		}
-		userError(c, http.StatusInternalServerError, "failed to deactivate user")
+		userError(c, http.StatusInternalServerError, "غیرفعال‌سازی کاربر با خطا مواجه شد")
 		return
 	}
 
@@ -437,7 +437,7 @@ func (h *UserHandler) Export(c *gin.Context) {
 	status := c.DefaultQuery("status", "")
 
 	if status != "" && status != "active" && status != "inactive" {
-		userError(c, http.StatusBadRequest, "invalid status; must be 'active' or 'inactive'")
+		userError(c, http.StatusBadRequest, "وضعیت نامعتبر است؛ باید active یا inactive باشد")
 		return
 	}
 
@@ -445,7 +445,7 @@ func (h *UserHandler) Export(c *gin.Context) {
 	const pageSize = 10000
 	users, _, err := h.service.List(c.Request.Context(), pageSize, 0, search, role, status)
 	if err != nil {
-		userError(c, http.StatusInternalServerError, "failed to export users")
+		userError(c, http.StatusInternalServerError, "خروجی کاربران با خطا مواجه شد")
 		return
 	}
 
@@ -484,7 +484,7 @@ func (h *UserHandler) Export(c *gin.Context) {
 		})
 	}
 	if err := writeCSVAttachment(c.Writer, filename, header, rows); err != nil {
-		userError(c, http.StatusInternalServerError, "failed to export users")
+		userError(c, http.StatusInternalServerError, "خروجی کاربران با خطا مواجه شد")
 	}
 }
 

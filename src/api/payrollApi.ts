@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface PayrollSummary {
   period_year: number;
@@ -61,8 +61,7 @@ export async function getPayrollSummary(params?: {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت خلاصه حقوق";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت خلاصه حقوق", res);
   }
   return data as PayrollSummary;
 }
@@ -81,8 +80,7 @@ export async function recalculatePayrollPeriod(params: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در بازمحاسبه حقوق";
-    throw new Error(msg);
+    apiFail(data, "خطا در بازمحاسبه حقوق", res);
   }
   return data as { ok: boolean; year: number; month: number };
 }
@@ -104,8 +102,7 @@ export async function listPayrollEntries(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت لیست حقوق";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت لیست حقوق", res);
   }
   return data as PaginatedPayrollEntriesResponse;
 }
@@ -117,8 +114,7 @@ export async function getPayrollEntry(id: number): Promise<PayrollEntryApi> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت فیش حقوقی";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت فیش حقوقی", res);
   }
   return data as PayrollEntryApi;
 }
@@ -150,7 +146,7 @@ export async function getPayrollPreview(params: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در پیش‌نمایش حقوق");
+    apiFail(data, "خطا در پیش‌نمایش حقوق", res);
   }
   return data as PayrollPreview;
 }
@@ -178,8 +174,7 @@ export async function createPayrollEntry(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "ثبت حقوق با خطا مواجه شد";
-    throw new Error(msg);
+    apiFail(data, "ثبت حقوق با خطا مواجه شد", res);
   }
   return data as PayrollEntryApi;
 }
@@ -207,8 +202,7 @@ export async function updatePayrollEntry(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "ویرایش حقوق با خطا مواجه شد";
-    throw new Error(msg);
+    apiFail(data, "ویرایش حقوق با خطا مواجه شد", res);
   }
   return data as PayrollEntryApi;
 }
@@ -305,7 +299,7 @@ export async function listAdvisorOps(params?: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت خلاصه افراد");
+    apiFail(data, "خطا در دریافت خلاصه افراد", res);
   }
   return data as { period_year: number; period_month: number; data: AdvisorOpsApi[] };
 }
@@ -322,7 +316,7 @@ export async function listAdvisorOpsStudents(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت لیست دانش‌آموزان");
+    apiFail(data, "خطا در دریافت لیست دانش‌آموزان", res);
   }
   return ((data as { data?: AdvisorOpsStudentApi[] })?.data ?? []) as AdvisorOpsStudentApi[];
 }
@@ -339,7 +333,7 @@ export async function getAdvisorOpsUserDetail(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت جزئیات کاربر");
+    apiFail(data, "خطا در دریافت جزئیات کاربر", res);
   }
   return data as AdvisorOpsUserDetailApi;
 }
@@ -419,7 +413,7 @@ export async function getPayrollUserLedger(params: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت جزئیات حساب‌کتاب");
+    apiFail(data, "خطا در دریافت جزئیات حساب‌کتاب", res);
   }
   return data as PayrollUserLedgerApi;
 }
@@ -437,7 +431,7 @@ export async function getPayrollUserBreakdown(params: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت شکست محاسبه حقوق");
+    apiFail(data, "خطا در دریافت شکست محاسبه حقوق", res);
   }
   return data as PayrollBreakdownApi;
 }
@@ -456,7 +450,7 @@ export async function recalculatePayrollUser(params: {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در محاسبه فیش حقوقی");
+    apiFail(data, "خطا در محاسبه فیش حقوقی", res);
   }
   return data as { entry: PayrollEntryApi; breakdown: PayrollBreakdownApi };
 }
@@ -472,7 +466,7 @@ export async function markPayrollEntryPaid(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در ثبت پرداخت فیش");
+    apiFail(data, "خطا در ثبت پرداخت فیش", res);
   }
   return data as PayrollEntryApi;
 }
@@ -484,7 +478,7 @@ export async function markPayrollEntryPending(id: number): Promise<PayrollEntryA
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در بازگرداندن فیش به در انتظار");
+    apiFail(data, "خطا در بازگرداندن فیش به در انتظار", res);
   }
   return data as PayrollEntryApi;
 }

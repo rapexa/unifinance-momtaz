@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 /** سروری که /uploads روی آن سرو می‌شود (بدون مسیر /api/v1). */
 export function getApiOrigin(): string {
@@ -29,7 +29,7 @@ export async function getOrganization(): Promise<OrganizationSettings> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت تنظیمات سازمان");
+  if (!res.ok) apiFail(data, "خطا در دریافت تنظیمات سازمان", res);
   return data as OrganizationSettings;
 }
 
@@ -40,7 +40,7 @@ export async function updateOrganization(payload: Partial<OrganizationSettings>)
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره تنظیمات سازمان");
+  if (!res.ok) apiFail(data, "خطا در ذخیره تنظیمات سازمان", res);
   return data as OrganizationSettings;
 }
 
@@ -82,7 +82,7 @@ export async function getProfile(): Promise<Profile> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت پروفایل");
+  if (!res.ok) apiFail(data, "خطا در دریافت پروفایل", res);
   return data as Profile;
 }
 
@@ -93,7 +93,7 @@ export async function updateProfile(payload: Partial<Profile>): Promise<Profile>
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره پروفایل");
+  if (!res.ok) apiFail(data, "خطا در ذخیره پروفایل", res);
   return data as Profile;
 }
 
@@ -111,7 +111,7 @@ export async function uploadProfileAvatar(file: File): Promise<Profile> {
     body: formData,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در بارگذاری تصویر");
+  if (!res.ok) apiFail(data, "خطا در بارگذاری تصویر", res);
   return data as Profile;
 }
 
@@ -123,7 +123,7 @@ export async function changePassword(current_password: string, new_password: str
     body: JSON.stringify({ current_password, new_password }),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در تغییر رمز عبور");
+  if (!res.ok) apiFail(data, "خطا در تغییر رمز عبور", res);
 }
 
 export async function toggle2FA(enabled: boolean): Promise<void> {
@@ -133,7 +133,7 @@ export async function toggle2FA(enabled: boolean): Promise<void> {
     body: JSON.stringify({ enabled }),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در تنظیم احراز هویت دو مرحله‌ای");
+  if (!res.ok) apiFail(data, "خطا در تنظیم احراز هویت دو مرحله‌ای", res);
 }
 
 // --- Notifications ---
@@ -156,7 +156,7 @@ export async function getNotifications(): Promise<NotificationSettingItem[]> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت تنظیمات اعلان‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت تنظیمات اعلان‌ها", res);
   return data as NotificationSettingItem[];
 }
 
@@ -167,7 +167,7 @@ export async function updateNotifications(settings: NotificationSettingItem[]): 
     body: JSON.stringify({ settings }),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره اعلان‌ها");
+  if (!res.ok) apiFail(data, "خطا در ذخیره اعلان‌ها", res);
 }
 
 // --- Fiscal Year ---
@@ -196,7 +196,7 @@ export async function listFiscalYears(): Promise<FiscalYear[]> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت سال‌های مالی");
+  if (!res.ok) apiFail(data, "خطا در دریافت سال‌های مالی", res);
   return (data as FiscalYear[]) ?? [];
 }
 
@@ -206,7 +206,7 @@ export async function getCurrentFiscalYear(): Promise<FiscalYear | null> {
   });
   if (res.status === 404) return null;
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت سال مالی جاری");
+  if (!res.ok) apiFail(data, "خطا در دریافت سال مالی جاری", res);
   return data as FiscalYear;
 }
 
@@ -217,7 +217,7 @@ export async function createFiscalYear(payload: CreateFiscalYearPayload): Promis
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ایجاد سال مالی");
+  if (!res.ok) apiFail(data, "خطا در ایجاد سال مالی", res);
   return data as FiscalYear;
 }
 
@@ -228,7 +228,7 @@ export async function updateFiscalYear(id: number, payload: UpdateFiscalYearPayl
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ویرایش سال مالی");
+  if (!res.ok) apiFail(data, "خطا در ویرایش سال مالی", res);
   return data as FiscalYear;
 }
 
@@ -238,7 +238,7 @@ export async function closeFiscalYear(id: number): Promise<FiscalYear> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در بستن سال مالی");
+  if (!res.ok) apiFail(data, "خطا در بستن سال مالی", res);
   return data as FiscalYear;
 }
 
@@ -248,7 +248,7 @@ export async function reopenFiscalYear(id: number): Promise<FiscalYear> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در باز کردن سال مالی");
+  if (!res.ok) apiFail(data, "خطا در باز کردن سال مالی", res);
   return data as FiscalYear;
 }
 
@@ -258,7 +258,7 @@ export async function restoreFiscalYear(id: number): Promise<FiscalYear> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در بازگردانی سال مالی");
+  if (!res.ok) apiFail(data, "خطا در بازگردانی سال مالی", res);
   return data as FiscalYear;
 }
 
@@ -270,7 +270,7 @@ export async function purgeFiscalYear(id: number): Promise<void> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "حذف کامل سال مالی با خطا مواجه شد");
+    apiFail(data, "حذف کامل سال مالی با خطا مواجه شد", res);
   }
 }
 
@@ -289,7 +289,7 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت تنظیمات پرداخت");
+  if (!res.ok) apiFail(data, "خطا در دریافت تنظیمات پرداخت", res);
   return data as PaymentSettings;
 }
 
@@ -300,6 +300,6 @@ export async function updatePaymentSettings(payload: Partial<PaymentSettings>): 
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره تنظیمات پرداخت");
+  if (!res.ok) apiFail(data, "خطا در ذخیره تنظیمات پرداخت", res);
   return data as PaymentSettings;
 }

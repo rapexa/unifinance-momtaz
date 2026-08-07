@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface CompensationRuleApi {
   id: number;
@@ -37,7 +37,7 @@ export async function listCompensationRules(): Promise<CompensationRuleApi[]> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت قوانین تسهیم");
+  if (!res.ok) apiFail(data, "خطا در دریافت قوانین تسهیم", res);
   return (data?.data ?? []) as CompensationRuleApi[];
 }
 
@@ -48,7 +48,7 @@ export async function createCompensationRule(payload: UpsertCompensationRulePayl
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ایجاد قانون تسهیم");
+  if (!res.ok) apiFail(data, "خطا در ایجاد قانون تسهیم", res);
   return data as CompensationRuleApi;
 }
 
@@ -59,7 +59,7 @@ export async function updateCompensationRule(id: number, payload: UpsertCompensa
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ویرایش قانون تسهیم");
+  if (!res.ok) apiFail(data, "خطا در ویرایش قانون تسهیم", res);
   return data as CompensationRuleApi;
 }
 
@@ -69,7 +69,7 @@ export async function deleteCompensationRule(id: number): Promise<void> {
     headers: getAuthHeaders(),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در حذف قانون تسهیم");
+  if (!res.ok) apiFail(data, "خطا در حذف قانون تسهیم", res);
 }
 
 export async function replaceCompensationRuleStudents(id: number, studentIds: number[]): Promise<void> {
@@ -79,6 +79,6 @@ export async function replaceCompensationRuleStudents(id: number, studentIds: nu
     body: JSON.stringify({ student_ids: studentIds }),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ثبت دانش‌آموزان قانون");
+  if (!res.ok) apiFail(data, "خطا در ثبت دانش‌آموزان قانون", res);
 }
 

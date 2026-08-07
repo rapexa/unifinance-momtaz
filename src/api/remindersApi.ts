@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface ReminderRuleApi {
   type: "BEFORE_DUE" | "DUE_DAY" | "OVERDUE" | "PAYROLL_PENDING";
@@ -49,7 +49,7 @@ export interface PayrollReminderLogApi {
 export async function listReminderRules(): Promise<ReminderRuleApi[]> {
   const res = await authFetch(`${API_BASE}/reminders/rules`, { headers: getAuthHeaders() });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت قوانین یادآوری");
+  if (!res.ok) apiFail(data, "خطا در دریافت قوانین یادآوری", res);
   return (data?.data ?? []) as ReminderRuleApi[];
 }
 
@@ -58,7 +58,7 @@ export async function listReminderLogs(search?: string): Promise<ReminderLogApi[
   if (search) url.searchParams.set("search", search);
   const res = await authFetch(url.toString(), { headers: getAuthHeaders() });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لاگ یادآوری");
+  if (!res.ok) apiFail(data, "خطا در دریافت لاگ یادآوری", res);
   return (data?.data ?? []) as ReminderLogApi[];
 }
 
@@ -68,14 +68,14 @@ export async function runRemindersNow(): Promise<number> {
     headers: getAuthHeaders(),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در اجرای ارسال یادآور");
+  if (!res.ok) apiFail(data, "خطا در اجرای ارسال یادآور", res);
   return data?.sent_count ?? 0;
 }
 
 export async function listPayrollDue(): Promise<{ payday_day: number; data: PayrollDueApi[] }> {
   const res = await authFetch(`${API_BASE}/reminders/payroll-due`, { headers: getAuthHeaders() });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت فیش‌های در انتظار حقوق");
+  if (!res.ok) apiFail(data, "خطا در دریافت فیش‌های در انتظار حقوق", res);
   return {
     payday_day: data?.payday_day ?? 25,
     data: (data?.data ?? []) as PayrollDueApi[],
@@ -85,7 +85,7 @@ export async function listPayrollDue(): Promise<{ payday_day: number; data: Payr
 export async function listPayrollReminderLogs(): Promise<PayrollReminderLogApi[]> {
   const res = await authFetch(`${API_BASE}/reminders/payroll-logs`, { headers: getAuthHeaders() });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لاگ یادآوری حقوق");
+  if (!res.ok) apiFail(data, "خطا در دریافت لاگ یادآوری حقوق", res);
   return (data?.data ?? []) as PayrollReminderLogApi[];
 }
 
@@ -96,6 +96,6 @@ export async function updatePaydayDay(payday_day: number): Promise<number> {
     body: JSON.stringify({ payday_day }),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در ذخیره روز پرداخت حقوق");
+  if (!res.ok) apiFail(data, "خطا در ذخیره روز پرداخت حقوق", res);
   return data?.payday_day ?? payday_day;
 }

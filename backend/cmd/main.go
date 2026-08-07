@@ -85,8 +85,10 @@ func main() {
 	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
 	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
-	// Gin engine
-	r := gin.Default()
+	// Gin engine (custom recovery logs panics in Persian-friendly JSON)
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(middleware.RecoveryWithLog())
 
 	// CORS origins come from config.yaml (local vs production).
 	corsConfig := cors.Config{

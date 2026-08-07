@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export type PlanType = "MONTHLY" | "YEARLY" | "SINGLE_SESSION" | "COURSE";
 
@@ -44,7 +44,7 @@ export async function listActivePlans(): Promise<PlanApi[]> {
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لیست پلن‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت لیست پلن‌ها", res);
 
   const typed = data as PaginatedPlansResponse;
   return typed.data ?? [];
@@ -73,7 +73,7 @@ export async function listPlans(
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت لیست پلن‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت لیست پلن‌ها", res);
 
   return data as PaginatedPlansResponse;
 }
@@ -84,7 +84,7 @@ export async function getPlansSummary(): Promise<PlanSummary> {
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت خلاصه پلن‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت خلاصه پلن‌ها", res);
 
   return data as PlanSummary;
 }
@@ -109,7 +109,7 @@ export async function createPlan(payload: CreatePlanPayload): Promise<PlanApi> {
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "ثبت پلن جدید با خطا مواجه شد");
+  if (!res.ok) apiFail(data, "ثبت پلن جدید با خطا مواجه شد", res);
 
   return data as PlanApi;
 }
@@ -137,7 +137,7 @@ export async function updatePlan(
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "ویرایش پلن با خطا مواجه شد");
+  if (!res.ok) apiFail(data, "ویرایش پلن با خطا مواجه شد", res);
 
   return data as PlanApi;
 }
@@ -150,6 +150,6 @@ export async function deactivatePlan(id: number): Promise<void> {
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error(data?.error || "غیرفعال کردن پلن با خطا مواجه شد");
+    apiFail(data, "غیرفعال کردن پلن با خطا مواجه شد", res);
   }
 }

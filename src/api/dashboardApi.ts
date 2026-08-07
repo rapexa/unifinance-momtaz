@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface DashboardKPIs {
   total_revenue_cents: number;
@@ -59,7 +59,7 @@ export async function getDashboardSummary(params?: {
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت خلاصه داشبورد");
+  if (!res.ok) apiFail(data, "خطا در دریافت خلاصه داشبورد", res);
   return data as DashboardSummary;
 }
 
@@ -72,6 +72,6 @@ export async function getRevenueTrend(params?: { months?: number }): Promise<Rev
   });
 
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت نمودار");
+  if (!res.ok) apiFail(data, "خطا در دریافت نمودار", res);
   return data as RevenueTrendPoint[];
 }

@@ -1,4 +1,4 @@
-import { API_BASE } from "./apiClient";
+import {API_BASE, apiFail} from "./apiClient";
 
 export interface PublicPayment {
   id: number;
@@ -14,7 +14,7 @@ export async function getPublicPayment(id: number | string): Promise<PublicPayme
   const res = await fetch(`${API_BASE}/public/payments/${id}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || "خطا در دریافت اطلاعات پرداخت");
+    apiFail(body, "خطا در دریافت اطلاعات پرداخت", res);
   }
   return res.json();
 }
@@ -26,7 +26,7 @@ export async function initiatePayment(id: number | string): Promise<{ payment_ur
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || "خطا در اتصال به درگاه پرداخت");
+    apiFail(body, "خطا در اتصال به درگاه پرداخت", res);
   }
   return res.json();
 }

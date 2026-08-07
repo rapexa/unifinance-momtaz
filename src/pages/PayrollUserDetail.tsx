@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { studentsCountLabel, studentsCountTooltip } from "@/lib/payrollStudentsCount";
 import {
   formatCentsToToman,
-  monthName,
+  formatPayrollPeriod,
   registrationChannelLabel,
   contractTypeLabel,
   rbacRoleLabel,
@@ -144,7 +144,7 @@ export default function PayrollUserDetail() {
       <head><meta charset="utf-8"><title>فیش حقوقی - ${name}</title></head>
       <body style="font-family: Tahoma, Arial; padding: 24px; max-width: 600px; margin: 0 auto;">
         <h2 style="text-align: center;">فیش حقوقی</h2>
-        <p><strong>دوره:</strong> ${monthName(month)} ${year}</p>
+        <p><strong>دوره:</strong> ${formatPayrollPeriod(year, month)}</p>
         <p><strong>کارمند:</strong> ${name}</p>
         <p><strong>سمت:</strong> ${rbacRoleLabel(ledger.role_name, ledger.role_code)}</p>
         <hr/>
@@ -189,7 +189,7 @@ export default function PayrollUserDetail() {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">دوره:</span>
             <span className="font-medium">
-              {monthName(month)} {year.toLocaleString("fa-IR")}
+              {formatPayrollPeriod(year, month)}
             </span>
             <Button
               variant="outline"
@@ -397,7 +397,7 @@ export default function PayrollUserDetail() {
                               className="text-primary hover:underline"
                               to={`/payroll/users/${userId}?year=${sal.period_year}&month=${sal.period_month}`}
                             >
-                              {monthName(sal.period_month)} {sal.period_year}
+                              {formatPayrollPeriod(sal.period_year, sal.period_month)}
                             </Link>
                           </td>
                           <td className="p-3 number-display">

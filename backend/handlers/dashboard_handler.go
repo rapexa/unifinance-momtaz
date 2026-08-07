@@ -80,25 +80,25 @@ func (h *DashboardHandler) GetSummary(c *gin.Context) {
 	scope := middleware.DataScopeUserID(c)
 	kpis, err := h.service.GetKPIs(ctx, now, scope)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dashboard KPIs"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت شاخص‌های داشبورد"})
 		return
 	}
 
 	payments, err := h.service.GetRecentPayments(ctx, recentLimit, scope)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load recent payments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت‌های اخیر"})
 		return
 	}
 
 	alerts, err := h.service.GetDebtAlerts(ctx, alertsLimit, scope)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load debt alerts"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت هشدار بدهی‌ها"})
 		return
 	}
 
 	studentDebt, err := h.payments.SumActiveStudentDebtCents(ctx, scope)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dashboard KPIs"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت شاخص‌های داشبورد"})
 		return
 	}
 
@@ -150,7 +150,7 @@ func (h *DashboardHandler) GetRecentPayments(c *gin.Context) {
 
 	payments, err := h.service.GetRecentPayments(ctx, limit, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load recent payments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت‌های اخیر"})
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *DashboardHandler) GetDebtAlerts(c *gin.Context) {
 
 	alerts, err := h.service.GetDebtAlerts(ctx, limit, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load debt alerts"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت هشدار بدهی‌ها"})
 		return
 	}
 
@@ -210,7 +210,7 @@ func (h *DashboardHandler) GetRevenueTrend(c *gin.Context) {
 
 	points, err := h.service.GetRevenueTrend(ctx, months, now, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load revenue trend"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت روند درآمد"})
 		return
 	}
 

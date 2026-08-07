@@ -91,7 +91,7 @@ func (h *PlanHandler) List(c *gin.Context) {
 	status := c.DefaultQuery("status", "")
 
 	if status != "" && status != "active" && status != "inactive" {
-		planError(c, http.StatusBadRequest, "invalid status; must be 'active' or 'inactive'")
+		planError(c, http.StatusBadRequest, "وضعیت نامعتبر است؛ باید active یا inactive باشد")
 		return
 	}
 
@@ -110,7 +110,7 @@ func (h *PlanHandler) List(c *gin.Context) {
 
 	plans, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, planType, status)
 	if err != nil {
-		planError(c, http.StatusInternalServerError, "failed to list plans")
+		planError(c, http.StatusInternalServerError, "خطا در دریافت لیست پلن‌ها")
 		return
 	}
 
@@ -133,17 +133,17 @@ func (h *PlanHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		planError(c, http.StatusBadRequest, "invalid id")
+		planError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
 	p, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPlanNotFound {
-			planError(c, http.StatusNotFound, "plan not found")
+			planError(c, http.StatusNotFound, "پلن یافت نشد")
 			return
 		}
-		planError(c, http.StatusInternalServerError, "failed to get plan")
+		planError(c, http.StatusInternalServerError, "خطا در دریافت پلن")
 		return
 	}
 
@@ -176,7 +176,7 @@ func (h *PlanHandler) Create(c *gin.Context) {
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
 		default:
-			planError(c, http.StatusInternalServerError, "failed to create plan")
+			planError(c, http.StatusInternalServerError, "ثبت پلن با خطا مواجه شد")
 		}
 		return
 	}
@@ -189,7 +189,7 @@ func (h *PlanHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		planError(c, http.StatusBadRequest, "invalid id")
+		planError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
@@ -215,11 +215,11 @@ func (h *PlanHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrPlanNotFound:
-			planError(c, http.StatusNotFound, "plan not found")
+			planError(c, http.StatusNotFound, "پلن یافت نشد")
 		case services.ErrPlanNameExists:
 			planError(c, http.StatusConflict, "plan name already exists")
 		default:
-			planError(c, http.StatusInternalServerError, "failed to update plan")
+			planError(c, http.StatusInternalServerError, "ویرایش پلن با خطا مواجه شد")
 		}
 		return
 	}
@@ -239,18 +239,18 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		planError(c, http.StatusBadRequest, "invalid id")
+		planError(c, http.StatusBadRequest, "شناسه نامعتبر است")
 		return
 	}
 
 	if err := h.service.Deactivate(c.Request.Context(), uint(id)); err != nil {
 		switch err {
 		case services.ErrPlanNotFound:
-			planError(c, http.StatusNotFound, "plan not found")
+			planError(c, http.StatusNotFound, "پلن یافت نشد")
 		case services.ErrPlanInUse:
 			planError(c, http.StatusConflict, "cannot deactivate plan with active enrollments")
 		default:
-			planError(c, http.StatusInternalServerError, "failed to deactivate plan")
+			planError(c, http.StatusInternalServerError, "غیرفعال‌سازی پلن با خطا مواجه شد")
 		}
 		return
 	}
@@ -265,7 +265,7 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 func (h *PlanHandler) Summary(c *gin.Context) {
 	summary, err := h.service.Summary(c.Request.Context())
 	if err != nil {
-		planError(c, http.StatusInternalServerError, "failed to load plans summary")
+		planError(c, http.StatusInternalServerError, "خطا در دریافت خلاصه پلن‌ها")
 		return
 	}
 

@@ -448,7 +448,7 @@ func (h *StudentHandler) List(c *gin.Context) {
 
 	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list students"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست دانش‌آموزان"})
 		return
 	}
 
@@ -519,19 +519,19 @@ func (h *StudentHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
 	student, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
 		if err != nil || !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 			return
 		}
 	}
@@ -631,7 +631,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 
 	if channel == models.RegistrationChannelSchool {
 		if payload.SchoolContractID == nil || *payload.SchoolContractID == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "school_contract_id is required for school registration"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "برای ثبت‌نام مدرسه‌ای، انتخاب قرارداد مدرسه الزامی است"})
 			return
 		}
 		if h.schoolContracts == nil {
@@ -640,7 +640,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		}
 		contract, _, err := h.schoolContracts.GetByID(c.Request.Context(), *payload.SchoolContractID)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
 		student.SchoolContractID = payload.SchoolContractID
@@ -662,7 +662,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 		}
 	} else {
 		if payload.DeliveryMode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "نحوه برگزاری (آنلاین یا حضوری) الزامی است"})
 			return
 		}
 		student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
@@ -683,7 +683,7 @@ func (h *StudentHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.service.Create(c.Request.Context(), student); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create student"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ثبت دانش‌آموز با خطا مواجه شد"})
 		return
 	}
 	rows, err := normalizeStudentRolePayoutPayloads(payload.RolePayouts)
@@ -733,7 +733,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
@@ -776,13 +776,13 @@ func (h *StudentHandler) Update(c *gin.Context) {
 
 	student, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
 		if err != nil || !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 			return
 		}
 	}
@@ -832,7 +832,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 			cid = student.SchoolContractID
 		}
 		if cid == nil || *cid == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "school_contract_id is required for school registration"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "برای ثبت‌نام مدرسه‌ای، انتخاب قرارداد مدرسه الزامی است"})
 			return
 		}
 		if h.schoolContracts == nil {
@@ -841,7 +841,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		}
 		contract, _, err := h.schoolContracts.GetByID(c.Request.Context(), *cid)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
 		student.SchoolContractID = cid
@@ -871,7 +871,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 		if payload.DeliveryMode != "" {
 			student.DeliveryMode = models.DeliveryMode(payload.DeliveryMode)
 		} else if student.DeliveryMode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "delivery_mode is required (ONLINE or IN_PERSON)"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "نحوه برگزاری (آنلاین یا حضوری) الزامی است"})
 			return
 		}
 		if payload.CurrentPlanID != nil {
@@ -894,7 +894,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.service.Update(c.Request.Context(), student); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update student"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ویرایش دانش‌آموز با خطا مواجه شد"})
 		return
 	}
 	rows, err := normalizeStudentRolePayoutPayloads(payload.RolePayouts)
@@ -940,13 +940,13 @@ func (h *StudentHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
 		if err != nil || !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 			return
 		}
 	}
@@ -963,13 +963,13 @@ func (h *StudentHandler) HardDelete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	if scope := middleware.DataScopeUserID(c); scope != nil {
 		ok, err := h.service.IsStudentVisibleToUser(c.Request.Context(), uint(id), *scope)
 		if err != nil || !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 			return
 		}
 	}
@@ -986,7 +986,7 @@ func (h *StudentHandler) HardDelete(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to permanently delete student"})

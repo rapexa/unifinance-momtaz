@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface SchoolContractApi {
   id: number;
@@ -73,7 +73,7 @@ export async function listSchoolContracts(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت قراردادهای مدرسه");
+    apiFail(data, "خطا در دریافت قراردادهای مدرسه", res);
   }
   return data as PaginatedSchoolContractsResponse;
 }
@@ -99,7 +99,7 @@ export async function getSchoolContract(id: number): Promise<SchoolContractApi> 
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "قرارداد مدرسه یافت نشد");
+    apiFail(data, "قرارداد مدرسه یافت نشد", res);
   }
   return data as SchoolContractApi;
 }
@@ -114,7 +114,7 @@ export async function createSchoolContract(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در ثبت قرارداد مدرسه");
+    apiFail(data, "خطا در ثبت قرارداد مدرسه", res);
   }
   return data as SchoolContractApi;
 }
@@ -130,7 +130,7 @@ export async function updateSchoolContract(
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در ویرایش قرارداد مدرسه");
+    apiFail(data, "خطا در ویرایش قرارداد مدرسه", res);
   }
   return data as SchoolContractApi;
 }
@@ -142,6 +142,6 @@ export async function deleteSchoolContract(id: number): Promise<void> {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error((data && data.error) || "خطا در حذف قرارداد مدرسه");
+    apiFail(data, "خطا در حذف قرارداد مدرسه", res);
   }
 }

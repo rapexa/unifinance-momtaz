@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface PaymentApi {
   id: number;
@@ -75,10 +75,7 @@ export async function listPayments(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg =
-      (data && data.error) ||
-      (res.status === 401 ? "احراز هویت نامعتبر است" : "خطا در دریافت لیست پرداخت‌ها");
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت لیست پرداخت‌ها", res);
   }
   return data as PaginatedPaymentsResponse;
 }
@@ -90,8 +87,7 @@ export async function getPaymentsSummary(): Promise<PaymentsSummary> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در دریافت خلاصه پرداخت‌ها";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت خلاصه پرداخت‌ها", res);
   }
   return data as PaymentsSummary;
 }
@@ -120,8 +116,7 @@ export async function getPayment(id: number): Promise<PaymentApi> {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 404) throw new Error("پرداخت یافت نشد");
-    const msg = (data && data.error) || "خطا در دریافت پرداخت";
-    throw new Error(msg);
+    apiFail(data, "خطا در دریافت پرداخت", res);
   }
   return data as PaymentApi;
 }
@@ -154,8 +149,7 @@ export async function createPayment(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "ثبت پرداخت با خطا مواجه شد";
-    throw new Error(msg);
+    apiFail(data, "ثبت پرداخت با خطا مواجه شد", res);
   }
   return data as PaymentApi;
 }
@@ -196,8 +190,7 @@ export async function updatePayment(
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 404) throw new Error("پرداخت یافت نشد");
-    const msg = (data && data.error) || "ویرایش پرداخت با خطا مواجه شد";
-    throw new Error(msg);
+    apiFail(data, "ویرایش پرداخت با خطا مواجه شد", res);
   }
   return data as PaymentApi;
 }
@@ -218,8 +211,7 @@ export async function generatePaymentLink(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const msg = (data && data.error) || "خطا در ایجاد لینک پرداخت";
-    throw new Error(msg);
+    apiFail(data, "خطا در ایجاد لینک پرداخت", res);
   }
   return data as PaymentLinkResponse;
 }
@@ -246,8 +238,7 @@ export async function exportPayments(
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const msg = (data && data.error) || "خطا در خروجی گرفتن از پرداخت‌ها";
-    throw new Error(msg);
+    apiFail(data, "خطا در خروجی گرفتن از پرداخت‌ها", res);
   }
 
   const blob = await res.blob();

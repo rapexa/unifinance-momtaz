@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CreditCard, User, Phone, FileText, Calendar, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { getPublicPayment, initiatePayment } from "@/api/publicPaymentApi";
+import { formatIsoDateShamsi } from "@/lib/jalaliDate";
 
 function formatToman(rials: number): string {
   const tomans = Math.round(rials / 10);
@@ -141,7 +142,7 @@ const PayPage = () => {
                     </div>
                     <div>
                       <p className="text-xs text-slate-400">سررسید</p>
-                      <p className="font-medium">{payment.due_date}</p>
+                      <p className="font-medium">{formatIsoDateShamsi(payment.due_date)}</p>
                     </div>
                   </div>
                 )}

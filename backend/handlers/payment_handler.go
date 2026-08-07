@@ -175,7 +175,7 @@ func (h *PaymentHandler) Summary(c *gin.Context) {
 	_, _ = h.service.PromotePendingPastDueToOverdue(c.Request.Context())
 	sum, err := h.service.Summary(c.Request.Context(), middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment summary"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت خلاصه پرداخت‌ها"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -237,7 +237,7 @@ func (h *PaymentHandler) List(c *gin.Context) {
 		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
 			fromDate = &t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from_date"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ شروع نامعتبر است"})
 			return
 		}
 	}
@@ -246,14 +246,14 @@ func (h *PaymentHandler) List(c *gin.Context) {
 		if t, err := time.Parse("2006-01-02", toStr); err == nil {
 			toDate = &t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to_date"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان نامعتبر است"})
 			return
 		}
 	}
 
 	payments, total, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list payments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست پرداخت‌ها"})
 		return
 	}
 
@@ -288,7 +288,7 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
@@ -297,14 +297,14 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 	p, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت"})
 		}
 		return
 	}
 	if !h.requirePaymentAccess(c, p) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		return
 	}
 
@@ -379,7 +379,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		return
 	}
 	if !h.requireStudentPaymentAccess(c, *req.StudentID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "student not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "دانش‌آموز یافت نشد"})
 		return
 	}
 
@@ -400,7 +400,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 	p, err := h.service.Create(c.Request.Context(), params)
 	if err != nil {
 		if err == services.ErrSchoolContractNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
 		msg := err.Error()
@@ -435,7 +435,7 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
@@ -468,14 +468,14 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 	existing, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت"})
 		}
 		return
 	}
 	if !h.requirePaymentAccess(c, existing) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		return
 	}
 
@@ -494,9 +494,9 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 	p, err := h.service.Update(c.Request.Context(), uint(id), params)
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ویرایش پرداخت با خطا مواجه شد"})
 		}
 		return
 	}
@@ -522,29 +522,29 @@ func (h *PaymentHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
 	p, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت"})
 		}
 		return
 	}
 	if !h.requirePaymentAccess(c, p) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		return
 	}
 
 	if err := h.service.SoftDelete(c.Request.Context(), uint(id)); err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "حذف پرداخت با خطا مواجه شد"})
 		}
 		return
 	}
@@ -608,7 +608,7 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
 			fromDate = &t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from_date"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ شروع نامعتبر است"})
 			return
 		}
 	}
@@ -617,14 +617,14 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		if t, err := time.Parse("2006-01-02", toStr); err == nil {
 			toDate = &t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to_date"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان نامعتبر است"})
 			return
 		}
 	}
 
 	payments, _, err := h.service.List(c.Request.Context(), pageSize, offset, search, status, method, fromDate, toDate, sort, middleware.DataScopeUserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export payments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خروجی پرداخت‌ها با خطا مواجه شد"})
 		return
 	}
 
@@ -685,7 +685,7 @@ func (h *PaymentHandler) Export(c *gin.Context) {
 		})
 	}
 	if err := writeCSVAttachment(c.Writer, filename, header, rows); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export payments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خروجی پرداخت‌ها با خطا مواجه شد"})
 	}
 }
 
@@ -745,21 +745,21 @@ func (h *PaymentHandler) GenerateLink(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
 	p, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if err == services.ErrPaymentNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get payment"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پرداخت"})
 		}
 		return
 	}
 	if !h.requirePaymentAccess(c, p) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "payment not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 		return
 	}
 	if p.IsLegacySchoolContractPayment() {

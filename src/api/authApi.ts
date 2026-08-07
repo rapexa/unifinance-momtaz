@@ -1,3 +1,6 @@
+import { localizeApiError } from "@/lib/apiError";
+import { API_BASE } from "./apiClient";
+
 export interface LoginSuccess {
   success: true;
   data: any;
@@ -10,13 +13,11 @@ export interface LoginFailure {
 
 export type LoginResult = LoginSuccess | LoginFailure;
 
-import { API_BASE } from "./apiClient";
-
 /**
  * Login with email and password against the backend API.
  * - Sends POST /auth/login
  * - On success, stores tokens in localStorage.
- * - Returns { success, data } or { success, error }.
+ * - Returns { success, data } or { success, error } with Persian messages.
  */
 export async function login(
   email: string,
@@ -34,28 +35,31 @@ export async function login(
     const data = await res.json().catch(() => null);
 
     if (!res.ok) {
-      const status = res.status;
-      let message =
+      const raw =
         (data && data.error) ||
-        (status === 401
-          ? "Invalid credentials"
-          : status === 403
-          ? "Access denied"
-          : "Login failed");
-
-      return { success: false, error: message };
-    }
-
-    // Expect tokens.access_token / tokens.refresh_token (from current backend)
-    const access = data?.tokens?.access_token;
-    if (!access) {
+        (res.status === 401
+          ? "invalid credentials"
+          : res.status === 403
+            ? "Access denied"
+            : "Login failed");
+      if (typeof console !== "undefined") {
+        console.error("[api] login failed:", res.status, raw);
+      }
       return {
         success: false,
-        error: "Invalid response from server",
+        error: localizeApiError(raw, "خطا در ورود. دوباره تلاش کنید."),
       };
     }
 
-    // Store tokens for later use
+    const access = data?.tokens?.access_token;
+    if (!access) {
+      console.error("[api] login: missing access_token in response");
+      return {
+        success: false,
+        error: "پاسخ سرور نامعتبر است.",
+      };
+    }
+
     localStorage.setItem("accessToken", access);
     const refresh = data.tokens?.refresh_token;
     if (refresh) {
@@ -64,11 +68,10 @@ export async function login(
 
     return { success: true, data };
   } catch (err) {
-    console.error("login API error", err);
+    console.error("[api] login API error", err);
     return {
       success: false,
-      error: "Server unreachable. Please try again later.",
+      error: "خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید.",
     };
   }
 }
-

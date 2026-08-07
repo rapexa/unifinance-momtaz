@@ -1,9 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
-const MONTH_NAMES: Record<number, string> = {
-  1: "فروردین", 2: "اردیبهشت", 3: "خرداد", 4: "تیر", 5: "مرداد", 6: "شهریور",
-  7: "مهر", 8: "آبان", 9: "آذر", 10: "دی", 11: "بهمن", 12: "اسفند",
-};
+import { formatGregorianPeriodJalali } from "@/lib/jalaliDate";
 
 export interface RevenueTrendPoint {
   year: number;
@@ -19,7 +15,7 @@ interface RevenueChartProps {
 
 export function RevenueChart({ data = [], isLoading }: RevenueChartProps) {
   const chartData = data.map((p) => ({
-    month: `${MONTH_NAMES[p.month] ?? p.month} ${p.year}`,
+    month: formatGregorianPeriodJalali(p.year, p.month),
     revenue: Math.floor(p.revenue_cents / 10),
     expenses: Math.floor(p.payroll_cents / 10),
   }));

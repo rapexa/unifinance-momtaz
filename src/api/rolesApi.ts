@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export type CompensationKind = "FIXED" | "VARIABLE" | "NET_REVENUE";
 
@@ -44,7 +44,7 @@ export async function listRoles(): Promise<RoleApi[]> {
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "خطا در دریافت نقش‌ها");
+  if (!res.ok) apiFail(data, "خطا در دریافت نقش‌ها", res);
   return (data?.data ?? []) as RoleApi[];
 }
 
@@ -55,7 +55,7 @@ export async function createRole(payload: CreateRolePayload): Promise<RoleApi> {
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "ثبت نقش با خطا مواجه شد");
+  if (!res.ok) apiFail(data, "ثبت نقش با خطا مواجه شد", res);
   return data as RoleApi;
 }
 
@@ -69,7 +69,7 @@ export async function updateRole(
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "به‌روزرسانی نقش با خطا مواجه شد");
+  if (!res.ok) apiFail(data, "به‌روزرسانی نقش با خطا مواجه شد", res);
   return data as RoleApi;
 }
 
@@ -79,5 +79,5 @@ export async function deleteRole(id: number): Promise<void> {
     headers: getAuthHeaders(),
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || "حذف نقش با خطا مواجه شد");
+  if (!res.ok) apiFail(data, "حذف نقش با خطا مواجه شد", res);
 }

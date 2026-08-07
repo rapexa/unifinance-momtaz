@@ -1,4 +1,4 @@
-import { API_BASE, authFetch, getAuthHeaders } from "./apiClient";
+import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export type RegistrationChannel = "PRIVATE" | "SCHOOL";
 
@@ -144,12 +144,7 @@ export async function listStudents(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) ||
-      (res.status === 401
-        ? "احراز هویت نامعتبر است"
-        : "خطا در دریافت لیست دانش‌آموزان");
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت لیست دانش‌آموزان", res);
   }
 
   return data as PaginatedStudentsResponse;
@@ -183,7 +178,7 @@ export async function listStudentSchools(): Promise<string[]> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || "خطا در دریافت فهرست مدارس");
+    apiFail(data, "خطا در دریافت فهرست مدارس", res);
   }
   return ((data as { data?: string[] })?.data ?? []) as string[];
 }
@@ -241,9 +236,7 @@ export async function createStudent(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "ثبت دانش‌آموز جدید با خطا مواجه شد";
-    throw new Error(message);
+    apiFail(data, "ثبت دانش‌آموز جدید با خطا مواجه شد", res);
   }
 
   return data as StudentApi;
@@ -259,9 +252,7 @@ export async function getStudentsSummary(): Promise<StudentsSummary> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت خلاصه دانش‌آموزان";
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت خلاصه دانش‌آموزان", res);
   }
 
   return data as StudentsSummary;
@@ -277,9 +268,7 @@ export async function getStudent(id: number): Promise<StudentApi> {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در دریافت اطلاعات دانش‌آموز";
-    throw new Error(message);
+    apiFail(data, "خطا در دریافت اطلاعات دانش‌آموز", res);
   }
 
   return data as StudentApi;
@@ -332,9 +321,7 @@ export async function updateStudent(
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (data && data.error) || "خطا در بروزرسانی دانش‌آموز";
-    throw new Error(message);
+    apiFail(data, "خطا در بروزرسانی دانش‌آموز", res);
   }
 
   return data as StudentApi;
@@ -348,9 +335,7 @@ export async function deleteStudent(id: number): Promise<void> {
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const message =
-      (data && data.error) || "خطا در حذف دانش‌آموز";
-    throw new Error(message);
+    apiFail(data, "خطا در حذف دانش‌آموز", res);
   }
 }
 
@@ -363,9 +348,7 @@ export async function purgeStudent(id: number): Promise<void> {
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const message =
-      (data && data.error) || "خطا در حذف کامل دانش‌آموز";
-    throw new Error(message);
+    apiFail(data, "خطا در حذف کامل دانش‌آموز", res);
   }
 }
 

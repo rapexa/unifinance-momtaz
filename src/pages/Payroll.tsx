@@ -30,6 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
+import { toUserError } from "@/lib/apiError";
 import {
   getPayrollSummary,
   listPayrollEntries,
@@ -62,9 +63,13 @@ import { studentsCountLabel, studentsCountTooltip } from "@/lib/payrollStudentsC
 import {
   jalaliToGregorianIso,
   formatIsoDateShamsi,
-  isoToJalaliString,
   todayJalaliString,
+  todayJalaliPeriod,
+  jalaliPeriodToGregorianYYYYMM,
+  JALALI_MONTH_NAMES,
+  jalaliYearOptions,
 } from "@/lib/jalaliDate";
+import { formatPayrollPeriod } from "@/lib/payrollDisplay";
 
 const roleLabels: Record<string, string> = {
   general_manager: "مدیرکل",
@@ -151,7 +156,8 @@ function EditPayrollForm({
   return (
     <div className="space-y-4 py-2">
       <p className="text-sm text-muted-foreground">
-        {[entry.user_first_name, entry.user_last_name].filter(Boolean).join(" ")} — {monthName(entry.period_month)} {entry.period_year}
+        {[entry.user_first_name, entry.user_last_name].filter(Boolean).join(" ")} —{" "}
+        {formatPayrollPeriod(entry.period_year, entry.period_month)}
       </p>
       <div className="grid gap-2">
         <label className="text-sm font-medium">حقوق ثابت (تومان)</label>
@@ -220,20 +226,14 @@ function formatCentsToToman(cents: number): string {
   return tomans.toLocaleString("fa-IR");
 }
 
-function monthName(month: number): string {
-  const names: Record<number, string> = {
-    1: "فروردین", 2: "اردیبهشت", 3: "خرداد", 4: "تیر", 5: "مرداد", 6: "شهریور",
-    7: "مهر", 8: "آبان", 9: "آذر", 10: "دی", 11: "بهمن", 12: "اسفند",
-  };
-  return names[month] ?? String(month);
-}
-
 const Payroll = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const now = new Date();
+  // API periods are Gregorian calendar months; UI labels convert to Jalali.
   const [currentYear] = useState(now.getFullYear());
   const [currentMonth] = useState(now.getMonth() + 1);
+  const currentJalali = todayJalaliPeriod();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailEntryId, setDetailEntryId] = useState<number | null>(null);
@@ -243,10 +243,10 @@ const Payroll = () => {
   const [markPaidEntry, setMarkPaidEntry] = useState<PayrollEntryApi | null>(null);
   const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString());
 
-  // Create form
+  // Create form — Jalali year/month in UI, converted to Gregorian on submit
   const [createUserId, setCreateUserId] = useState("");
-  const [createPeriodYear, setCreatePeriodYear] = useState(currentYear);
-  const [createPeriodMonth, setCreatePeriodMonth] = useState(currentMonth);
+  const [createJalaliYear, setCreateJalaliYear] = useState(currentJalali.year);
+  const [createJalaliMonth, setCreateJalaliMonth] = useState(currentJalali.month);
   const [createAutoFromRole, setCreateAutoFromRole] = useState(true);
   const [createBaseTomans, setCreateBaseTomans] = useState("");
   const [createVariableTomans, setCreateVariableTomans] = useState("");
@@ -319,13 +319,18 @@ const Payroll = () => {
   });
 
   const createUserIdNum = parseInt(createUserId, 10);
+  const createGregorianPeriod = (() => {
+    const ym = jalaliPeriodToGregorianYYYYMM(createJalaliYear, createJalaliMonth);
+    const [gy, gm] = ym.split("-").map(Number);
+    return { year: gy, month: gm };
+  })();
   const { data: payrollPreview, isError: isPreviewError, error: previewError } = useQuery({
-    queryKey: ["payroll-preview", createUserIdNum, createPeriodYear, createPeriodMonth],
+    queryKey: ["payroll-preview", createUserIdNum, createGregorianPeriod.year, createGregorianPeriod.month],
     queryFn: () =>
       getPayrollPreview({
         user_id: createUserIdNum,
-        year: createPeriodYear,
-        month: createPeriodMonth,
+        year: createGregorianPeriod.year,
+        month: createGregorianPeriod.month,
       }),
     enabled:
       isCreateOpen &&
@@ -475,8 +480,9 @@ const Payroll = () => {
     setCreateBaseTomans("");
     setCreateVariableTomans("");
     setCreateStudentsCount("0");
-    setCreatePeriodYear(currentYear);
-    setCreatePeriodMonth(currentMonth);
+    const j = todayJalaliPeriod();
+    setCreateJalaliYear(j.year);
+    setCreateJalaliMonth(j.month);
   }
 
   const totalMonthCents =
@@ -487,10 +493,12 @@ const Payroll = () => {
   const handleCreateSubmit = useCallback(() => {
     const userId = parseInt(createUserId, 10);
     if (!userId) return;
+    const ym = jalaliPeriodToGregorianYYYYMM(createJalaliYear, createJalaliMonth);
+    const [gy, gm] = ym.split("-").map(Number);
     const payload: CreatePayrollEntryPayload = {
       user_id: userId,
-      period_year: createPeriodYear,
-      period_month: createPeriodMonth,
+      period_year: gy,
+      period_month: gm,
       status: "PENDING",
     };
     if (createAutoFromRole && isGmRole) {
@@ -514,8 +522,8 @@ const Payroll = () => {
     createBaseTomans,
     createVariableTomans,
     createStudentsCount,
-    createPeriodYear,
-    createPeriodMonth,
+    createJalaliYear,
+    createJalaliMonth,
     createMutation,
   ]);
 
@@ -529,7 +537,7 @@ const Payroll = () => {
       <head><meta charset="utf-8"><title>فیش حقوقی - ${name}</title></head>
       <body style="font-family: Tahoma, Arial; padding: 24px; max-width: 600px; margin: 0 auto;">
         <h2 style="text-align: center;">فیش حقوقی</h2>
-        <p><strong>دوره:</strong> ${monthName(entry.period_month)} ${entry.period_year}</p>
+        <p><strong>دوره:</strong> ${formatPayrollPeriod(entry.period_year, entry.period_month)}</p>
         <p><strong>کارمند:</strong> ${name}</p>
         <p><strong>سمت:</strong> ${roleLabels[entry.user_role] ?? entry.user_role}</p>
         <hr/>
@@ -875,28 +883,36 @@ const Payroll = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">سال دوره</label>
-                <Input
-                  type="number"
-                  min={1400}
-                  max={1500}
-                  value={createPeriodYear}
-                  onChange={(e) => setCreatePeriodYear(parseInt(e.target.value, 10) || currentYear)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <label className="text-sm font-medium">ماه دوره</label>
+                <label className="text-sm font-medium">سال دوره (جلالی)</label>
                 <Select
-                  value={String(createPeriodMonth)}
-                  onValueChange={(v) => setCreatePeriodMonth(parseInt(v, 10))}
+                  value={String(createJalaliYear)}
+                  onValueChange={(v) => setCreateJalaliYear(parseInt(v, 10))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                      <SelectItem key={m} value={String(m)}>
-                        {monthName(m)}
+                    {jalaliYearOptions(1398, 1412).map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y.toLocaleString("fa-IR")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">ماه دوره (جلالی)</label>
+                <Select
+                  value={String(createJalaliMonth)}
+                  onValueChange={(v) => setCreateJalaliMonth(parseInt(v, 10))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {JALALI_MONTH_NAMES.map((name, idx) => (
+                      <SelectItem key={name} value={String(idx + 1)}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1056,7 +1072,7 @@ const Payroll = () => {
             <div className="space-y-4 py-2 text-right">
               <p className="text-sm text-muted-foreground">
                 {[markPaidEntry.user_first_name, markPaidEntry.user_last_name].filter(Boolean).join(" ")} —{" "}
-                {monthName(markPaidEntry.period_month)} {markPaidEntry.period_year}
+                {formatPayrollPeriod(markPaidEntry.period_year, markPaidEntry.period_month)}
               </p>
               <p className="text-sm">
                 مبلغ:{" "}
@@ -1227,7 +1243,7 @@ const Payroll = () => {
           {isDetailLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
           {detailEntry && (
             <div className="space-y-3 py-2">
-              <p><strong>دوره:</strong> {monthName(detailEntry.period_month)} {detailEntry.period_year}</p>
+              <p><strong>دوره:</strong> {formatPayrollPeriod(detailEntry.period_year, detailEntry.period_month)}</p>
               <p><strong>کارمند:</strong> {[detailEntry.user_first_name, detailEntry.user_last_name].filter(Boolean).join(" ")}</p>
               <p><strong>سمت:</strong> {roleLabels[detailEntry.user_role] ?? detailEntry.user_role}</p>
               <p><strong>حقوق ثابت:</strong> {formatCentsToToman(detailEntry.base_salary_cents)} تومان</p>

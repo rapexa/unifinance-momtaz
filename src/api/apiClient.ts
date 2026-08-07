@@ -1,4 +1,6 @@
 // Default: local backend. Override with VITE_API_BASE_URL for production builds.
+import { localizeApiError } from "@/lib/apiError";
+
 const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
 
 export const API_BASE =
@@ -52,4 +54,25 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit): P
   if (url.includes("/auth/login")) return res;
   redirectToAdminLogin();
   return res;
+}
+
+/**
+ * Throw a localized Persian Error for a failed API response.
+ * Logs the raw backend message to the browser console for debugging.
+ */
+export function apiFail(
+  data: unknown,
+  fallback: string,
+  res?: Pick<Response, "status" | "url">,
+): never {
+  const raw =
+    data && typeof data === "object" && data !== null && "error" in data
+      ? String((data as { error?: unknown }).error ?? "")
+      : "";
+  if (typeof console !== "undefined") {
+    const status = res?.status ?? "?";
+    const url = res?.url ? ` ${res.url}` : "";
+    console.error(`[api] ${status}${url}:`, raw || fallback);
+  }
+  throw new Error(localizeApiError(raw, fallback));
 }

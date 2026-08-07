@@ -2,6 +2,7 @@ import { FormEvent, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail } from "lucide-react";
 import { login as loginApi } from "@/api/authApi";
+import { todayJalaliYear } from "@/lib/jalaliDate";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -30,19 +31,7 @@ const Login = () => {
     try {
       const result = await loginApi(email, password);
       if (!result.success) {
-        // Map generic English messages to localized ones
-        if (result.error === "Invalid credentials") {
-          setError("ایمیل یا رمز عبور نامعتبر است.");
-        } else if (result.error === "Access denied") {
-          setError("دسترسی فقط برای ادمین مجاز است.");
-        } else if (
-          result.error ===
-          "Server unreachable. Please try again later."
-        ) {
-          setError("خطای اتصال به سرور. لطفاً بعداً دوباره تلاش کنید.");
-        } else {
-          setError(result.error || "خطا در ورود. دوباره تلاش کنید.");
-        }
+        setError(result.error || "خطا در ورود. دوباره تلاش کنید.");
         return;
       }
 
@@ -132,7 +121,7 @@ const Login = () => {
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} یونی‌فاینانس ممتاز – داشبورد مدیریتی
+          © {todayJalaliYear().toLocaleString("fa-IR")} یونی‌فاینانس ممتاز – داشبورد مدیریتی
         </p>
       </div>
     </div>

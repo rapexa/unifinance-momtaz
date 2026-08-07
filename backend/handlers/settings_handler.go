@@ -88,7 +88,7 @@ type PaymentSettingsDTO struct {
 func getCurrentUserID(c *gin.Context) (uint, bool) {
 	userIDVal, exists := c.Get(middleware.ContextUserIDKey)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user in context"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "نشست نامعتبر است. دوباره وارد شوید."})
 		return 0, false
 	}
 	switch v := userIDVal.(type) {
@@ -100,7 +100,7 @@ func getCurrentUserID(c *gin.Context) (uint, bool) {
 		}
 	default:
 	}
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user id type"})
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "نشست نامعتبر است. دوباره وارد شوید."})
 	return 0, false
 }
 
@@ -132,7 +132,7 @@ func (h *SettingsHandler) GetOrganization(c *gin.Context) {
 
 	org, err := h.service.GetOrganizationSettings(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load organization settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت تنظیمات سازمان"})
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *SettingsHandler) UpdateOrganization(c *gin.Context) {
 	}
 	org, err := h.service.UpdateOrganizationSettings(c.Request.Context(), userID, params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update organization settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ذخیره تنظیمات سازمان"})
 		return
 	}
 
@@ -221,7 +221,7 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 
 	user, err := h.service.GetProfile(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load profile"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت پروفایل"})
 		return
 	}
 
@@ -246,14 +246,14 @@ func (h *SettingsHandler) UploadProfileAvatar(c *gin.Context) {
 
 	file, err := c.FormFile("avatar")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "avatar file is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "انتخاب تصویر الزامی است"})
 		return
 	}
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
 	if !allowed[ext] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid image type; use jpg, png, gif or webp"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "فرمت تصویر نامعتبر است؛ از jpg، png، gif یا webp استفاده کنید"})
 		return
 	}
 
@@ -261,7 +261,7 @@ func (h *SettingsHandler) UploadProfileAvatar(c *gin.Context) {
 	_ = os.MkdirAll(uploadDir, 0755)
 	savePath := filepath.Join(uploadDir, strconv.FormatUint(uint64(userID), 10)+ext)
 	if err := c.SaveUploadedFile(file, savePath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save avatar"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ذخیره تصویر با خطا مواجه شد"})
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *SettingsHandler) UploadProfileAvatar(c *gin.Context) {
 	params := services.UpdateProfileParams{AvatarURL: &avatarURL}
 	user, err := h.service.UpdateProfile(c.Request.Context(), userID, params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ذخیره پروفایل با خطا مواجه شد"})
 		return
 	}
 
@@ -314,10 +314,10 @@ func (h *SettingsHandler) UpdateProfile(c *gin.Context) {
 	user, err := h.service.UpdateProfile(c.Request.Context(), userID, params)
 	if err != nil {
 		if errors.Is(err, services.ErrEmailAlreadyExists) {
-			c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+			c.JSON(http.StatusConflict, gin.H{"error": "این ایمیل قبلاً ثبت شده است"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ذخیره پروفایل با خطا مواجه شد"})
 		return
 	}
 
@@ -359,11 +359,11 @@ func (h *SettingsHandler) ChangePassword(c *gin.Context) {
 	if err := h.service.ChangePassword(c.Request.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
 		switch {
 		case errors.Is(err, services.ErrCurrentPasswordInvalid):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "current password is incorrect"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "رمز عبور فعلی نادرست است"})
 		case errors.Is(err, services.ErrPasswordTooShort):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "new password is too short"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "رمز عبور جدید کوتاه است"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "تغییر رمز عبور با خطا مواجه شد"})
 		}
 		return
 	}
@@ -401,7 +401,7 @@ func (h *SettingsHandler) ToggleTwoFactor(c *gin.Context) {
 	}
 
 	if err := h.service.SetTwoFactorEnabled(c.Request.Context(), userID, req.Enabled); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update 2FA setting"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در تنظیم احراز هویت دو مرحله‌ای"})
 		return
 	}
 
@@ -428,7 +428,7 @@ func (h *SettingsHandler) GetNotifications(c *gin.Context) {
 
 	settings, err := h.service.GetNotificationSettings(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load notifications settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت تنظیمات اعلان‌ها"})
 		return
 	}
 
@@ -499,7 +499,7 @@ func (h *SettingsHandler) UpdateNotifications(c *gin.Context) {
 	}
 
 	if err := h.service.SetNotificationSettings(c.Request.Context(), userID, toggles); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update notifications settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ذخیره تنظیمات اعلان‌ها"})
 		return
 	}
 
@@ -536,7 +536,7 @@ func (h *SettingsHandler) GetPaymentSettings(c *gin.Context) {
 
 	ps, err := h.service.GetPaymentSettings(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load payment settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت تنظیمات پرداخت"})
 		return
 	}
 
@@ -587,7 +587,7 @@ func (h *SettingsHandler) UpdatePaymentSettings(c *gin.Context) {
 
 	ps, err := h.service.UpdatePaymentSettings(c.Request.Context(), userID, params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update payment settings"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ذخیره تنظیمات پرداخت"})
 		return
 	}
 

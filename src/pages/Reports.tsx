@@ -210,11 +210,10 @@ const Reports = () => {
 
   const exportPayroll = () => {
     const dateRange = `${fromShamsi.year}-${fromShamsi.month}_${toShamsi.year}-${toShamsi.month}`;
-    const h1 = ["کارمند", "سال", "ماه", "حقوق ثابت (تومان)", "حقوق متغیر (تومان)", "جمع (تومان)", "وضعیت", "تاریخ پرداخت"];
+    const h1 = ["کارمند", "دوره (جلالی)", "حقوق ثابت (تومان)", "حقوق متغیر (تومان)", "جمع (تومان)", "وضعیت", "تاریخ پرداخت"];
     const r1 = payrollLines.map((p) => [
       p.user_name,
-      String(p.period_year),
-      String(p.period_month),
+      formatGregorianMonth(p.period_year, p.period_month),
       String(Math.round(p.base_salary_cents / 10)),
       String(Math.round(p.variable_salary_cents / 10)),
       String(Math.round(p.total_salary_cents / 10)),

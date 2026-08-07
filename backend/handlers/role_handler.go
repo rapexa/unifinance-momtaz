@@ -85,7 +85,7 @@ func parsePermissions(ss []string) []models.Permission {
 func (h *RoleHandler) List(c *gin.Context) {
 	roles, err := h.service.List(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list roles"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت نقش‌ها"})
 		return
 	}
 	out := make([]RoleDTO, 0, len(roles))
@@ -101,13 +101,13 @@ func (h *RoleHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	role, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if errorsIsNotFound(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "نقش یافت نشد"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load role"})
@@ -155,7 +155,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 
@@ -182,7 +182,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 	role, err := h.service.Update(c.Request.Context(), uint(id), params)
 	if err != nil {
 		if errorsIsNotFound(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "نقش یافت نشد"})
 			return
 		}
 		if err == services.ErrInvalidCompensation {
@@ -201,7 +201,7 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	if err := h.service.Delete(c.Request.Context(), uint(id)); err != nil {
@@ -212,7 +212,7 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		default:
 			if errorsIsNotFound(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
+				c.JSON(http.StatusNotFound, gin.H{"error": "نقش یافت نشد"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete role"})

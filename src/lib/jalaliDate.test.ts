@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   addJalaliMonths,
+  formatGregorianPeriodJalali,
   formatIsoDateShamsi,
   formatJalaliParts,
   gregorianIsoToJalali,
   gregorianToJalali,
+  gregorianYYYYMMToJalaliPeriod,
   isoToJalaliString,
   jalaliMonthLength,
+  jalaliPeriodToGregorianYYYYMM,
   jalaliToGregorian,
   jalaliToGregorianIso,
   jalaliWeekday,
@@ -88,5 +91,12 @@ describe("jalaliDate conversions", () => {
 
   it("formats Persian digits for display", () => {
     expect(toPersianDigits("1403/01/15")).toBe("۱۴۰۳/۰۱/۱۵");
+  });
+
+  it("round-trips Jalali period ↔ Gregorian YYYY-MM", () => {
+    const ym = jalaliPeriodToGregorianYYYYMM(1403, 1);
+    expect(ym).toBe("2024-03");
+    expect(gregorianYYYYMMToJalaliPeriod(ym)).toEqual({ year: 1403, month: 1 });
+    expect(formatGregorianPeriodJalali(2024, 3)).toBe("فروردین 1403");
   });
 });

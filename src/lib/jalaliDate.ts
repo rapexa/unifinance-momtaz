@@ -216,3 +216,49 @@ export function formatJalaliDisplay(jalali: string | null | undefined): string {
   return toPersianDigits(formatJalaliParts(parts));
 }
 
+/**
+ * Approximate Jalali ↔ Gregorian month mapping (Farvardin↔March), round-trip safe.
+ * Used for period filters/payroll month selectors (API still stores Gregorian YYYY-MM).
+ */
+export function jalaliPeriodToGregorianYYYYMM(jYear: number, jMonth: number): string {
+  const gMonth = ((jMonth + 1) % 12) + 1;
+  const gYear = jMonth >= 11 ? jYear + 622 : jYear + 621;
+  return `${gYear}-${String(gMonth).padStart(2, "0")}`;
+}
+
+export function gregorianYYYYMMToJalaliPeriod(ym: string): { year: number; month: number } {
+  const [yStr, mStr] = ym.split("-");
+  const gYear = parseInt(yStr!, 10);
+  const gMonth = parseInt(mStr!, 10);
+  const month = ((gMonth - 2 + 11) % 12) + 1;
+  const year = gMonth >= 3 ? gYear - 621 : gYear - 622;
+  return { year, month };
+}
+
+export function gregorianPeriodToJalali(gy: number, gm: number): { year: number; month: number } {
+  return gregorianYYYYMMToJalaliPeriod(`${gy}-${String(gm).padStart(2, "0")}`);
+}
+
+/** Human-readable Jalali period label for a Gregorian API year/month. */
+export function formatGregorianPeriodJalali(gy: number, gm: number): string {
+  if (!gy || !gm || gm < 1 || gm > 12) return "—";
+  const { year, month } = gregorianPeriodToJalali(gy, gm);
+  return `${JALALI_MONTH_NAMES[month - 1] ?? month} ${year}`;
+}
+
+export function todayJalaliPeriod(): { year: number; month: number } {
+  const d = new Date();
+  return gregorianPeriodToJalali(d.getFullYear(), d.getMonth() + 1);
+}
+
+export function todayJalaliYear(): number {
+  const parts = parseJalaliParts(todayJalaliString());
+  return parts?.jy ?? todayJalaliPeriod().year;
+}
+
+export function jalaliYearOptions(from = 1398, to = 1412): number[] {
+  const arr: number[] = [];
+  for (let y = to; y >= from; y--) arr.push(y);
+  return arr;
+}
+

@@ -127,7 +127,7 @@ func (h *SchoolContractHandler) List(c *gin.Context) {
 		Sort:   c.DefaultQuery("sort", "newest"),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list school contracts"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت قراردادهای مدرسه"})
 		return
 	}
 	ids := make([]uint, len(rows))
@@ -158,16 +158,16 @@ func (h *SchoolContractHandler) List(c *gin.Context) {
 func (h *SchoolContractHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	contract, paid, err := h.service.GetByID(c.Request.Context(), uint(id))
 	if err != nil {
 		if errors.Is(err, services.ErrSchoolContractNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get school contract"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت قرارداد مدرسه"})
 		return
 	}
 	regMap, legacyMap, statsMap := h.financeForIDs(c, []uint{contract.ID})
@@ -204,7 +204,7 @@ func (h *SchoolContractHandler) Create(c *gin.Context) {
 func (h *SchoolContractHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	var body schoolContractBody
@@ -228,7 +228,7 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrSchoolContractNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -242,15 +242,15 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 func (h *SchoolContractHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
 		return
 	}
 	if err := h.service.Delete(c.Request.Context(), uint(id)); err != nil {
 		if errors.Is(err, services.ErrSchoolContractNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "school contract not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "قرارداد مدرسه یافت نشد"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete school contract"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "حذف قرارداد مدرسه با خطا مواجه شد"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
