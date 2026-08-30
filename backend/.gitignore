@@ -58,4 +58,7 @@ docs/payroll-ledger-reminders-phases.md
 # Local E2E dashboard seed tests (not for remote)
 e2e/
 
+# Local manual settlement test (not for remote)
+scripts/test_staff_settlement.go
+
 Uploads

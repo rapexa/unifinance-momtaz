@@ -287,6 +287,21 @@ export interface AdvisorOpsUserDetailApi {
   payments: AdvisorOpsPaymentApi[];
 }
 
+export interface StaffPayoutApi {
+  id: number;
+  amount_cents: number;
+  paid_at: string;
+  note?: string;
+  created_at: string;
+}
+
+export interface StaffSettlementApi {
+  accrued_total_cents: number;
+  paid_out_total_cents: number;
+  balance_cents: number;
+  payouts: StaffPayoutApi[];
+}
+
 export async function listAdvisorOps(params?: {
   year?: number;
   month?: number;
@@ -398,6 +413,10 @@ export interface PayrollUserLedgerApi extends AdvisorOpsUserDetailApi {
   entry_id?: number;
   entry_status?: string;
   entry_locked: boolean;
+  settlement_accrued_cents: number;
+  settlement_paid_out_cents: number;
+  settlement_balance_cents: number;
+  settlement_payouts: StaffPayoutApi[];
 }
 
 export async function getPayrollUserLedger(params: {
@@ -481,5 +500,32 @@ export async function markPayrollEntryPending(id: number): Promise<PayrollEntryA
     apiFail(data, "خطا در بازگرداندن فیش به در انتظار", res);
   }
   return data as PayrollEntryApi;
+}
+
+export async function getStaffSettlement(userId: number): Promise<StaffSettlementApi> {
+  const res = await authFetch(`${API_BASE}/payroll/users/${userId}/settlement`, {
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    apiFail(data, "خطا در دریافت تسویه", res);
+  }
+  return data as StaffSettlementApi;
+}
+
+export async function createStaffPayout(
+  userId: number,
+  payload: { amount_cents: number; paid_at?: string; note?: string },
+): Promise<StaffPayoutApi> {
+  const res = await authFetch(`${API_BASE}/payroll/users/${userId}/payouts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    apiFail(data, "خطا در ثبت پرداخت به کارمند", res);
+  }
+  return data as StaffPayoutApi;
 }
 

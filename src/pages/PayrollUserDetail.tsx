@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Download, RefreshCw } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -24,6 +25,7 @@ import {
   rbacRoleLabel,
 } from "@/lib/payrollDisplay";
 import { billingModeLabel, parseBillingMode } from "@/components/students/enrollmentBillingUtils";
+import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
 import {
   jalaliToGregorianIso,
   formatIsoDateShamsi,
@@ -34,6 +36,7 @@ import {
   recalculatePayrollUser,
   markPayrollEntryPaid,
   markPayrollEntryPending,
+  createStaffPayout,
   type PayrollUserLedgerApi,
   type PaymentShareLineApi,
   type AccrualShareLineApi,
@@ -51,6 +54,10 @@ export default function PayrollUserDetail() {
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString());
+  const [payoutOpen, setPayoutOpen] = useState(false);
+  const [payoutAmountTomans, setPayoutAmountTomans] = useState("");
+  const [payoutDate, setPayoutDate] = useState(todayJalaliString());
+  const [payoutNote, setPayoutNote] = useState("");
 
   const {
     data: ledger,
@@ -127,6 +134,21 @@ export default function PayrollUserDetail() {
     },
     onError: (err: Error) => {
       toast({ variant: "destructive", title: "خطا", description: err.message });
+    },
+  });
+
+  const payoutMutation = useMutation({
+    mutationFn: (payload: { amount_cents: number; paid_at: string; note?: string }) =>
+      createStaffPayout(userId, payload),
+    onSuccess: () => {
+      setPayoutOpen(false);
+      setPayoutAmountTomans("");
+      setPayoutNote("");
+      invalidate();
+      toast({ title: "پرداخت ثبت شد", description: "مانده تسویه به‌روز شد." });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "خطا در ثبت پرداخت", description: err.message });
     },
   });
 
@@ -216,8 +238,9 @@ export default function PayrollUserDetail() {
 
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
           <span className="font-medium text-foreground">محاسبه فیش</span> سند حقوق ماه را می‌سازد یا به‌روز می‌کند.{" "}
-          <span className="font-medium text-foreground">تیک پرداخت شده</span> یعنی حقوق به کارمند تسویه شده و فیش قفل
-          می‌شود.
+          <span className="font-medium text-foreground">تیک پرداخت شده</span> یعنی فیش ماه قفل می‌شود.{" "}
+          <span className="font-medium text-foreground">تسویه با کارمند</span> پرداخت نقدی واقعی به کارمند را ثبت می‌کند
+          و مانده بدهکار/بستانکار را نشان می‌دهد.
         </div>
 
         {isLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
@@ -298,6 +321,61 @@ export default function PayrollUserDetail() {
                   <Download className="h-4 w-4" />
                   چاپ فیش
                 </Button>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold">تسویه با کارمند</h2>
+                <Button size="sm" onClick={() => {
+                  setPayoutDate(todayJalaliString());
+                  setPayoutOpen(true);
+                }}>
+                  ثبت پرداخت
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <SummaryCard
+                  label="حقوق تجمعی (سهم از پرداخت‌ها)"
+                  value={formatCentsToToman(ledger.settlement_accrued_cents ?? 0)}
+                />
+                <SummaryCard
+                  label="پرداخت‌های ثبت‌شده به کارمند"
+                  value={formatCentsToToman(ledger.settlement_paid_out_cents ?? 0)}
+                />
+                <SettlementBalanceCard balanceCents={ledger.settlement_balance_cents ?? 0} />
+              </div>
+              <div className="card-elevated overflow-x-auto">
+                <table className="w-full min-w-[480px] text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-3 text-right text-xs text-muted-foreground">تاریخ</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">مبلغ</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">توضیح</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!ledger.settlement_payouts?.length ? (
+                      <tr>
+                        <td colSpan={3} className="p-6 text-center text-muted-foreground">
+                          پرداختی به کارمند ثبت نشده است.
+                        </td>
+                      </tr>
+                    ) : (
+                      ledger.settlement_payouts.map((p) => (
+                        <tr key={p.id} className="border-b last:border-0">
+                          <td className="p-3 text-muted-foreground">
+                            {formatIsoDateShamsi(p.paid_at)}
+                          </td>
+                          <td className="p-3 number-display font-medium">
+                            {formatCentsToToman(p.amount_cents)}
+                          </td>
+                          <td className="p-3 text-muted-foreground">{p.note || "—"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
 
@@ -455,6 +533,64 @@ export default function PayrollUserDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={payoutOpen} onOpenChange={setPayoutOpen}>
+        <DialogContent className="sm:max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>ثبت پرداخت به کارمند</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-right">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">مبلغ (تومان)</label>
+              <Input
+                inputMode="numeric"
+                value={payoutAmountTomans}
+                onChange={(e) => setPayoutAmountTomans(formatGroupedFaIntInput(e.target.value))}
+                placeholder="مثلاً ۵٬۰۰۰٬۰۰۰"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">تاریخ پرداخت</label>
+              <JalaliDatePicker value={payoutDate} onChange={setPayoutDate} clearable={false} />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">توضیح (اختیاری)</label>
+              <Input
+                value={payoutNote}
+                onChange={(e) => setPayoutNote(e.target.value)}
+                placeholder="مثلاً واریز به حساب"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setPayoutOpen(false)}>
+                انصراف
+              </Button>
+              <Button
+                disabled={payoutMutation.isPending}
+                onClick={() => {
+                  const tomans = parseLocalizedInt(payoutAmountTomans);
+                  if (!tomans || tomans <= 0) {
+                    toast({ variant: "destructive", title: "مبلغ نامعتبر است" });
+                    return;
+                  }
+                  const iso = jalaliToGregorianIso(payoutDate.trim());
+                  if (!iso) {
+                    toast({ variant: "destructive", title: "تاریخ نامعتبر است" });
+                    return;
+                  }
+                  payoutMutation.mutate({
+                    amount_cents: tomans * 10,
+                    paid_at: iso,
+                    note: payoutNote.trim() || undefined,
+                  });
+                }}
+              >
+                ثبت پرداخت
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }
@@ -472,6 +608,37 @@ function SummaryCard({
     <div className="rounded-lg border bg-muted/20 p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn("mt-1 text-xl font-bold number-display", accent && "text-primary")}>{value}</p>
+    </div>
+  );
+}
+
+function SettlementBalanceCard({ balanceCents }: { balanceCents: number }) {
+  const isZero = balanceCents === 0;
+  const orgOwes = balanceCents > 0;
+  const label = isZero
+    ? "تسویه کامل"
+    : orgOwes
+      ? "مانده بدهکار سازمان"
+      : "مانده بستانکار سازمان";
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3",
+        isZero && "bg-muted/20",
+        orgOwes && "border-amber-500/40 bg-amber-500/5",
+        !isZero && !orgOwes && "border-emerald-500/40 bg-emerald-500/5",
+      )}
+    >
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-1 text-xl font-bold number-display",
+          orgOwes && "text-amber-700 dark:text-amber-400",
+          !isZero && !orgOwes && "text-emerald-700 dark:text-emerald-400",
+        )}
+      >
+        {formatCentsToToman(Math.abs(balanceCents))}
+      </p>
     </div>
   );
 }

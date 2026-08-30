@@ -1584,6 +1584,11 @@ type UserLedgerDetail struct {
 	Students           []AdvisorOpsStudentRow
 	Salaries           []AdvisorOpsSalaryRow
 	Payments           []AdvisorOpsPaymentRow
+
+	SettlementAccruedCents  int64
+	SettlementPaidOutCents  int64
+	SettlementBalanceCents  int64
+	SettlementPayouts       []StaffPayoutRow
 }
 
 // GetUserLedger returns the Phase 4 employee detail page payload for one user/month.
@@ -1644,6 +1649,15 @@ func (s *PayrollService) GetUserLedger(ctx context.Context, userID uint, year, m
 	if breakdown.StudentsCountScope == models.StudentsCountScopeOrgTotal {
 		out.StudentsTotal = breakdown.StudentsCount
 	}
+
+	settlement, sErr := s.GetStaffSettlement(ctx, userID, scopeUser)
+	if sErr != nil {
+		return UserLedgerDetail{}, sErr
+	}
+	out.SettlementAccruedCents = settlement.AccruedTotalCents
+	out.SettlementPaidOutCents = settlement.PaidOutTotalCents
+	out.SettlementBalanceCents = settlement.BalanceCents
+	out.SettlementPayouts = settlement.Payouts
 
 	return out, nil
 }

@@ -773,6 +773,27 @@ type AdvisorOpsPaymentDTO struct {
 	Description string     `json:"description,omitempty"`
 }
 
+type StaffPayoutDTO struct {
+	ID          uint      `json:"id"`
+	AmountCents int64     `json:"amount_cents"`
+	PaidAt      time.Time `json:"paid_at"`
+	Note        string    `json:"note,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type StaffSettlementDTO struct {
+	AccruedTotalCents int64            `json:"accrued_total_cents"`
+	PaidOutTotalCents int64            `json:"paid_out_total_cents"`
+	BalanceCents      int64            `json:"balance_cents"`
+	Payouts           []StaffPayoutDTO `json:"payouts"`
+}
+
+type createStaffPayoutRequest struct {
+	AmountCents int64  `json:"amount_cents" binding:"required"`
+	PaidAtStr   string `json:"paid_at" binding:"omitempty"`
+	Note        string `json:"note" binding:"omitempty"`
+}
+
 type AdvisorOpsUserDetailDTO struct {
 	UserID               uint                   `json:"user_id"`
 	FirstName            string                 `json:"first_name"`
@@ -1095,6 +1116,10 @@ func (h *PayrollHandler) writePayrollComputeError(c *gin.Context, err error) boo
 		c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است و قابل بازمحاسبه نیست"})
 	case services.ErrPayrollForbidden:
 		c.JSON(http.StatusForbidden, gin.H{"error": "دسترسی مجاز نیست"})
+	case services.ErrStaffPayoutInvalidAmount:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "مبلغ پرداخت باید بزرگ‌تر از صفر باشد"})
+	case services.ErrStaffPayoutInvalidPaidAt:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پرداخت نامعتبر است"})
 	default:
 		return false
 	}
@@ -1293,6 +1318,104 @@ func (h *PayrollHandler) GetUserLedger(c *gin.Context) {
 		"students":                  students,
 		"salaries":                  salaries,
 		"payments":                  payments,
+		"settlement_accrued_cents":  detail.SettlementAccruedCents,
+		"settlement_paid_out_cents": detail.SettlementPaidOutCents,
+		"settlement_balance_cents":  detail.SettlementBalanceCents,
+		"settlement_payouts":        toStaffPayoutDTOs(detail.SettlementPayouts),
+	})
+}
+
+func toStaffPayoutDTOs(rows []services.StaffPayoutRow) []StaffPayoutDTO {
+	out := make([]StaffPayoutDTO, len(rows))
+	for i, r := range rows {
+		out[i] = StaffPayoutDTO{
+			ID:          r.ID,
+			AmountCents: r.AmountCents,
+			PaidAt:      r.PaidAt,
+			Note:        r.Note,
+			CreatedAt:   r.CreatedAt,
+		}
+	}
+	return out
+}
+
+func toStaffSettlementDTO(s *services.StaffSettlementSummary) StaffSettlementDTO {
+	if s == nil {
+		return StaffSettlementDTO{Payouts: []StaffPayoutDTO{}}
+	}
+	return StaffSettlementDTO{
+		AccruedTotalCents: s.AccruedTotalCents,
+		PaidOutTotalCents: s.PaidOutTotalCents,
+		BalanceCents:      s.BalanceCents,
+		Payouts:           toStaffPayoutDTOs(s.Payouts),
+	}
+}
+
+// GetStaffSettlement handles GET /payroll/users/:user_id/settlement
+func (h *PayrollHandler) GetStaffSettlement(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
+		return
+	}
+	summary, err := h.service.GetStaffSettlement(c.Request.Context(), uint(uid), middleware.DataScopeUserID(c))
+	if err != nil {
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بارگذاری تسویه"})
+		return
+	}
+	c.JSON(http.StatusOK, toStaffSettlementDTO(summary))
+}
+
+// CreateStaffPayout handles POST /payroll/users/:user_id/payouts
+func (h *PayrollHandler) CreateStaffPayout(c *gin.Context) {
+	uid, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || uid == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه کاربر نامعتبر است"})
+		return
+	}
+	var req createStaffPayoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBindError(c, err)
+		return
+	}
+	paidAt := time.Now()
+	if strings.TrimSpace(req.PaidAtStr) != "" {
+		t, pErr := parseOptionalDate(req.PaidAtStr)
+		if pErr != nil || t == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پرداخت نامعتبر است"})
+			return
+		}
+		paidAt = *t
+	}
+	var createdBy *uint
+	if userIDVal, ok := c.Get(middleware.ContextUserIDKey); ok {
+		if id, ok := userIDVal.(uint); ok && id > 0 {
+			createdBy = &id
+		}
+	}
+	row, err := h.service.CreateStaffPayout(c.Request.Context(), services.CreateStaffPayoutParams{
+		UserID:      uint(uid),
+		AmountCents: req.AmountCents,
+		PaidAt:      paidAt,
+		Note:        strings.TrimSpace(req.Note),
+		CreatedByID: createdBy,
+	}, middleware.DataScopeUserID(c))
+	if err != nil {
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در ثبت پرداخت"})
+		return
+	}
+	c.JSON(http.StatusCreated, StaffPayoutDTO{
+		ID:          row.ID,
+		AmountCents: row.AmountCents,
+		PaidAt:      row.PaidAt,
+		Note:        row.Note,
+		CreatedAt:   row.CreatedAt,
 	})
 }
 

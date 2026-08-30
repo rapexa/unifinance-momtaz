@@ -155,3 +155,6 @@ backend/unifinance-server
 
 # Local E2E dashboard seed tests (not for remote)
 backend/e2e/
+
+# Local manual settlement test (not for remote)
+backend/scripts/test_staff_settlement.go
