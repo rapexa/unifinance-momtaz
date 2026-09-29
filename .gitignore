@@ -158,3 +158,7 @@ backend/e2e/
 
 # Local manual settlement test (not for remote)
 backend/scripts/test_staff_settlement.go
+
+# License signing key (never commit)
+license-private.key
+*.key
