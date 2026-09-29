@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { SubscriptionCard } from "@/components/license/SubscriptionCard";
+import { OrganizationCard } from "@/components/settings/OrganizationCard";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -203,6 +204,7 @@ const Settings = () => {
     <MainLayout title="مدیریت سال مالی" subtitle="تعریف سال مالی جاری، بستن دوره و دانلود خروجی">
       <div className="space-y-6">
         {profile?.full_access && <SubscriptionCard />}
+        {profile?.full_access && <OrganizationCard />}
         {/* همیشه نمایش داده می‌شود — بدون شرط */}
         <div className="card-elevated border-2 border-primary/25 p-4 sm:p-5">
           <p className="mb-3 text-sm font-bold text-foreground">عملیات سال مالی</p>
