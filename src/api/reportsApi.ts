@@ -1,9 +1,15 @@
+import { currentPeriodKeyYYYYMM } from "@/lib/jalaliDate";
 import {API_BASE, authFetch, getAuthHeaders, apiFail} from "./apiClient";
 
 export interface ReportSummary {
   total_revenue_cents: number;
+  /** حقوق پرداخت‌شده به کارکنان در بازه */
   total_payroll_cents: number;
+  /** سایر هزینه‌ها در بازه */
+  total_expenses_cents?: number;
+  /** مانده بدهی دانش‌آموزان (طلب مرکز) */
   total_debt_cents: number;
+  /** درآمد − حقوق − هزینه‌ها */
   net_profit_cents: number;
 }
 
@@ -187,8 +193,7 @@ export async function getReportStudentDebts(): Promise<StudentDebtDetail[]> {
 
 export async function getDebtsByAdvisor(params?: { month?: string }): Promise<AdvisorDebt[]> {
   const url = new URL(`${API_BASE}/reports/debts`);
-  const now = new Date();
-  const month = params?.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const month = params?.month ?? currentPeriodKeyYYYYMM();
   url.searchParams.set("month", month);
 
   const res = await authFetch(url.toString(), {
@@ -200,4 +205,62 @@ export async function getDebtsByAdvisor(params?: { month?: string }): Promise<Ad
     apiFail(data, "خطا در دریافت بدهی‌ها", res);
   }
   return data as AdvisorDebt[];
+}
+
+export interface PnLFigures {
+  /** درآمد: پرداخت‌های دانش‌آموزان */
+  income_cents: number;
+  /** حقوق پرداختی به کارکنان */
+  salary_cents: number;
+  /** سایر هزینه‌ها (اجاره و ...) */
+  expenses_cents: number;
+  /** حقوق + هزینه‌ها */
+  outflow_cents: number;
+  /** سود = درآمد − حقوق − هزینه‌ها */
+  profit_cents: number;
+}
+
+export interface PnLSummary {
+  period_year: number;
+  period_month: number;
+  /** YYYY-MM-DD شروع سال مالی (برای «تا کنون»)؛ null = از ابتدا */
+  to_date_from: string | null;
+  month: PnLFigures;
+  to_date: PnLFigures;
+  debts: {
+    /** بدهی دانش‌آموزان تا پایان این ماه (شهریه/اقساط سررسیدشده) */
+    student_due_cents: number;
+    /** کل مانده قراردادهای دانش‌آموزان */
+    student_total_cents: number;
+    student_debtors: number;
+    /** بدهی ما به کارکنان */
+    staff_payable_cents: number;
+    /** پرداخت اضافه به کارکنان (طلب ما) */
+    staff_credit_cents: number;
+  };
+}
+
+export interface PnLPoint extends PnLFigures {
+  year: number;
+  month: number;
+}
+
+export async function getPnL(year: number, month: number): Promise<PnLSummary> {
+  const url = new URL(`${API_BASE}/reports/pnl`);
+  url.searchParams.set("year", String(year));
+  url.searchParams.set("month", String(month));
+  const res = await authFetch(url.toString(), { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در دریافت سود و زیان", res);
+  return data as PnLSummary;
+}
+
+export async function getPnLSeries(filter: ReportFilter): Promise<PnLPoint[]> {
+  const url = new URL(`${API_BASE}/reports/pnl/series`);
+  url.searchParams.set("from", filter.from);
+  url.searchParams.set("to", filter.to);
+  const res = await authFetch(url.toString(), { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در دریافت روند سود و زیان", res);
+  return (data?.data ?? []) as PnLPoint[];
 }

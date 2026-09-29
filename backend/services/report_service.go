@@ -30,12 +30,20 @@ type AdvisorDebt struct {
 	DebtCents   int64  `json:"debt_cents"`
 }
 
-// ReportSummary holds high-level metrics for the reports summary cards.
+// ReportSummary holds high-level metrics for the reports summary cards (cash basis).
 type ReportSummary struct {
-	TotalRevenueCents int64 `json:"total_revenue_cents"`
-	TotalPayrollCents int64 `json:"total_payroll_cents"`
-	TotalDebtCents    int64 `json:"total_debt_cents"`
-	NetProfitCents    int64 `json:"net_profit_cents"`
+	TotalRevenueCents  int64 `json:"total_revenue_cents"`
+	TotalPayrollCents  int64 `json:"total_payroll_cents"`  // salary actually paid to staff
+	TotalExpensesCents int64 `json:"total_expenses_cents"` // other expenses (rent, ...)
+	TotalDebtCents     int64 `json:"total_debt_cents"`     // students' remaining debt (receivable)
+	NetProfitCents     int64 `json:"net_profit_cents"`     // revenue − salary − expenses
+}
+
+// periodRange converts [from, to) time bounds produced from period keys back to keys.
+func periodRange(from, to time.Time) (int, int, int, int) {
+	fy, fm := PeriodOf(from)
+	ty, tm := PeriodOf(to.Add(-time.Second))
+	return fy, fm, ty, tm
 }
 
 // PaidPaymentDetail is one PAID payment row for reports (دریافتی‌ها / پرداخت دانش‌آموز).
@@ -102,18 +110,12 @@ func NewReportService(db *gorm.DB, payments *PaymentService) *ReportService {
 	return &ReportService{db: db, payments: payments}
 }
 
-// GetRevenueSeries returns monthly revenue between two inclusive months (YYYY-MM).
+// GetRevenueSeries returns monthly revenue for each Jalali month in [from, to).
 func (s *ReportService) GetRevenueSeries(ctx context.Context, from, to time.Time) ([]RevenuePoint, error) {
-	loc := from.Location()
-	// Normalize to first day.
-	start := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, loc)
-	end := time.Date(to.Year(), to.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
-
+	fy, fm, ty, tm := periodRange(from, to)
 	points := []RevenuePoint{}
-	cursor := start
-	for cursor.Before(end) {
-		y, m, _ := cursor.Date()
-		next := cursor.AddDate(0, 1, 0)
+	for y, m := fy, fm; PeriodIndex(y, m) <= PeriodIndex(ty, tm); y, m = PeriodAdd(y, m, 1) {
+		cursor, next := PeriodBounds(y, m)
 
 		var revenue int64
 		if err := s.db.WithContext(ctx).
@@ -126,31 +128,24 @@ func (s *ReportService) GetRevenueSeries(ctx context.Context, from, to time.Time
 
 		points = append(points, RevenuePoint{
 			Year:         y,
-			Month:        int(m),
+			Month:        m,
 			RevenueCents: revenue,
 		})
-
-		cursor = next
 	}
 
 	return points, nil
 }
 
-// GetPayrollSeries returns monthly payroll between two inclusive months (YYYY-MM).
+// GetPayrollSeries returns monthly payroll (earned salary) for each Jalali month in [from, to).
 func (s *ReportService) GetPayrollSeries(ctx context.Context, from, to time.Time) ([]PayrollPoint, error) {
-	loc := from.Location()
-	start := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, loc)
-	end := time.Date(to.Year(), to.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
-
+	fy, fm, ty, tm := periodRange(from, to)
 	points := []PayrollPoint{}
-	cursor := start
-	for cursor.Before(end) {
-		y, m, _ := cursor.Date()
+	for y, m := fy, fm; PeriodIndex(y, m) <= PeriodIndex(ty, tm); y, m = PeriodAdd(y, m, 1) {
 
 		var payroll int64
 		if err := s.db.WithContext(ctx).
 			Model(&models.PayrollEntry{}).
-			Where("period_year = ? AND period_month = ?", y, int(m)).
+			Where("period_year = ? AND period_month = ?", y, m).
 			Select("COALESCE(SUM(total_salary_cents), 0)").
 			Scan(&payroll).Error; err != nil {
 			return nil, err
@@ -158,11 +153,9 @@ func (s *ReportService) GetPayrollSeries(ctx context.Context, from, to time.Time
 
 		points = append(points, PayrollPoint{
 			Year:         y,
-			Month:        int(m),
+			Month:        m,
 			PayrollCents: payroll,
 		})
-
-		cursor = cursor.AddDate(0, 1, 0)
 	}
 
 	return points, nil
@@ -199,21 +192,16 @@ func (s *ReportService) GetSummary(ctx context.Context, from, to time.Time) (Rep
 		return ReportSummary{}, err
 	}
 
-	var payroll int64
-	startYear, startMonth, _ := from.Date()
-	endYear, endMonth, _ := to.Date()
-
-	// Sum only PAID payroll across months in [from, to).
-	if err := s.db.WithContext(ctx).
-		Model(&models.PayrollEntry{}).
-		Where(
-			"(period_year > ? OR (period_year = ? AND period_month >= ?)) AND (period_year < ? OR (period_year = ? AND period_month <= ?)) AND status = ?",
-			startYear, startYear, int(startMonth),
-			endYear, endYear, int(endMonth),
-			models.PayrollStatusPaid,
-		).
-		Select("COALESCE(SUM(total_salary_cents), 0)").
-		Scan(&payroll).Error; err != nil {
+	// Salary actually paid to staff and other expenses in the range (cash basis).
+	var payroll, expenses int64
+	if err := s.db.WithContext(ctx).Model(&models.StaffPayout{}).
+		Where("paid_at >= ? AND paid_at < ?", from, to).
+		Select("COALESCE(SUM(amount_cents), 0)").Scan(&payroll).Error; err != nil {
+		return ReportSummary{}, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.Expense{}).
+		Where("paid_at >= ? AND paid_at < ?", from, to).
+		Select("COALESCE(SUM(amount_cents), 0)").Scan(&expenses).Error; err != nil {
 		return ReportSummary{}, err
 	}
 
@@ -227,21 +215,22 @@ func (s *ReportService) GetSummary(ctx context.Context, from, to time.Time) (Rep
 		}
 	}
 
-	net := revenue - payroll - debt
+	// Student debt is money owed TO us; it is reported, not subtracted from profit.
+	net := revenue - payroll - expenses
 
 	return ReportSummary{
-		TotalRevenueCents: revenue,
-		TotalPayrollCents: payroll,
-		TotalDebtCents:    debt,
-		NetProfitCents:    net,
+		TotalRevenueCents:  revenue,
+		TotalPayrollCents:  payroll,
+		TotalExpensesCents: expenses,
+		TotalDebtCents:     debt,
+		NetProfitCents:     net,
 	}, nil
 }
 
-// monthRangeKeys returns inclusive-exclusive month indices for SQL: [fromKey, toKey).
+// monthRangeKeys returns period indices for SQL (period_year*12+period_month): [fromKey, toKey).
 func monthRangeKeys(from, to time.Time) (fromKey, toKey int) {
-	fromKey = from.Year()*12 + int(from.Month())
-	toKey = to.Year()*12 + int(to.Month())
-	return fromKey, toKey
+	fy, fm, ty, tm := periodRange(from, to)
+	return PeriodIndex(fy, fm), PeriodIndex(ty, tm) + 1
 }
 
 // GetPaidPaymentsDetail lists all PAID payments in [from, to) by paid_at.

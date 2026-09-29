@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,10 +11,11 @@ import (
 
 // ReportSummaryDTO mirrors services.ReportSummary for Swagger.
 type ReportSummaryDTO struct {
-	TotalRevenueCents int64 `json:"total_revenue_cents"`
-	TotalPayrollCents int64 `json:"total_payroll_cents"`
-	TotalDebtCents    int64 `json:"total_debt_cents"`
-	NetProfitCents    int64 `json:"net_profit_cents"`
+	TotalRevenueCents  int64 `json:"total_revenue_cents"`
+	TotalPayrollCents  int64 `json:"total_payroll_cents"`
+	TotalExpensesCents int64 `json:"total_expenses_cents"`
+	TotalDebtCents     int64 `json:"total_debt_cents"`
+	NetProfitCents     int64 `json:"net_profit_cents"`
 }
 
 // RevenuePointDTO mirrors services.RevenuePoint for Swagger.
@@ -40,10 +42,90 @@ type AdvisorDebtDTO struct {
 // ReportHandler exposes reporting endpoints.
 type ReportHandler struct {
 	service *services.ReportService
+	finance *services.FinanceService
 }
 
-func NewReportHandler(service *services.ReportService) *ReportHandler {
-	return &ReportHandler{service: service}
+func NewReportHandler(service *services.ReportService, finance *services.FinanceService) *ReportHandler {
+	return &ReportHandler{service: service, finance: finance}
+}
+
+// PnLFiguresDTO is one column of the profit & loss.
+type PnLFiguresDTO struct {
+	IncomeCents   int64 `json:"income_cents"`
+	SalaryCents   int64 `json:"salary_cents"`
+	ExpensesCents int64 `json:"expenses_cents"`
+	OutflowCents  int64 `json:"outflow_cents"`
+	ProfitCents   int64 `json:"profit_cents"`
+}
+
+func toPnLFiguresDTO(f services.PnLFigures) PnLFiguresDTO {
+	return PnLFiguresDTO{
+		IncomeCents:   f.IncomeCents,
+		SalaryCents:   f.SalaryCents,
+		ExpensesCents: f.ExpensesCents,
+		OutflowCents:  f.OutflowCents,
+		ProfitCents:   f.ProfitCents,
+	}
+}
+
+// GetPnL handles GET /reports/pnl?year&month — this month vs. to date, plus debts.
+func (h *ReportHandler) GetPnL(c *gin.Context) {
+	year, month, ok := periodFromQuery(c)
+	if !ok {
+		return
+	}
+	pnl, err := h.finance.PnL(c.Request.Context(), year, month)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در محاسبه سود و زیان"})
+		return
+	}
+	var toDateFrom *string
+	if !pnl.ToDateFrom.IsZero() {
+		s := pnl.ToDateFrom.Format("2006-01-02")
+		toDateFrom = &s
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"period_year":  pnl.PeriodYear,
+		"period_month": pnl.PeriodMonth,
+		"to_date_from": toDateFrom,
+		"month":        toPnLFiguresDTO(pnl.Month),
+		"to_date":      toPnLFiguresDTO(pnl.ToDate),
+		"debts": gin.H{
+			"student_due_cents":   pnl.Debts.StudentDueCents,
+			"student_total_cents": pnl.Debts.StudentTotalCents,
+			"student_debtors":     pnl.Debts.StudentDebtors,
+			"staff_payable_cents": pnl.Debts.StaffPayableCents,
+			"staff_credit_cents":  pnl.Debts.StaffCreditCents,
+		},
+	})
+}
+
+// GetPnLSeries handles GET /reports/pnl/series?from=YYYY-MM&to=YYYY-MM (period keys).
+func (h *ReportHandler) GetPnLSeries(c *gin.Context) {
+	from, to, ok := parseMonthRangeOrDefault(c)
+	if !ok {
+		return
+	}
+	fy, fm := services.PeriodOf(from)
+	ty, tm := services.PeriodOf(to.Add(-time.Second))
+	points, err := h.finance.Series(c.Request.Context(), fy, fm, ty, tm)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت روند سود و زیان"})
+		return
+	}
+	out := make([]gin.H, len(points))
+	for i, p := range points {
+		out[i] = gin.H{
+			"year":           p.Year,
+			"month":          p.Month,
+			"income_cents":   p.IncomeCents,
+			"salary_cents":   p.SalaryCents,
+			"expenses_cents": p.ExpensesCents,
+			"outflow_cents":  p.OutflowCents,
+			"profit_cents":   p.ProfitCents,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }
 
 // GetSummary handles GET /reports/summary
@@ -74,10 +156,11 @@ func (h *ReportHandler) GetSummary(c *gin.Context) {
 	}
 
 	dto := ReportSummaryDTO{
-		TotalRevenueCents: summary.TotalRevenueCents,
-		TotalPayrollCents: summary.TotalPayrollCents,
-		TotalDebtCents:    summary.TotalDebtCents,
-		NetProfitCents:    summary.NetProfitCents,
+		TotalRevenueCents:  summary.TotalRevenueCents,
+		TotalPayrollCents:  summary.TotalPayrollCents,
+		TotalExpensesCents: summary.TotalExpensesCents,
+		TotalDebtCents:     summary.TotalDebtCents,
+		NetProfitCents:     summary.NetProfitCents,
 	}
 	c.JSON(http.StatusOK, dto)
 }
@@ -266,33 +349,29 @@ func (h *ReportHandler) GetDebtsByAdvisor(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// parseMonthRangeOrDefault parses from/to in YYYY-MM format, defaults to current month if empty.
+// parseMonthRangeOrDefault parses from/to period keys (YYYY-MM, see pkg/jalali) and returns the
+// exact Jalali bounds [start of "from" month, end of "to" month). Defaults to the current month.
 func parseMonthRangeOrDefault(c *gin.Context) (time.Time, time.Time, bool) {
-	now := time.Now()
-	loc := now.Location()
+	dy, dm := services.DefaultPeriod(time.Now())
+	def := fmt.Sprintf("%04d-%02d", dy, dm)
+	fromStr := c.DefaultQuery("from", def)
+	toStr := c.DefaultQuery("to", def)
 
-	fromStr := c.DefaultQuery("from", now.Format("2006-01"))
-	toStr := c.DefaultQuery("to", now.Format("2006-01"))
-
-	fromMonth, err := time.ParseInLocation("2006-01", fromStr, loc)
+	fromMonth, err := time.Parse("2006-01", fromStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ شروع نامعتبر است"})
 		return time.Time{}, time.Time{}, false
 	}
-	toMonth, err := time.ParseInLocation("2006-01", toStr, loc)
+	toMonth, err := time.Parse("2006-01", toStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان نامعتبر است"})
 		return time.Time{}, time.Time{}, false
 	}
-
 	if toMonth.Before(fromMonth) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پایان باید بعد از شروع باشد"})
 		return time.Time{}, time.Time{}, false
 	}
-
-	// convert months to [fromMonth, toMonthEndExclusive)
-	from := time.Date(fromMonth.Year(), fromMonth.Month(), 1, 0, 0, 0, 0, loc)
-	to := time.Date(toMonth.Year(), toMonth.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
-
+	from, _ := services.PeriodBounds(fromMonth.Year(), int(fromMonth.Month()))
+	_, to := services.PeriodBounds(toMonth.Year(), int(toMonth.Month()))
 	return from, to, true
 }

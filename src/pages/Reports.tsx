@@ -29,7 +29,8 @@ import {
   gregorianYYYYMMToShamsi,
   shamsiYearOptions,
 } from "@/lib/shamsi";
-import { formatIsoDateTimeShamsi } from "@/lib/jalaliDate";
+import { formatIsoDateTimeShamsi, currentPeriodKey, addPeriodKeyMonths } from "@/lib/jalaliDate";
+import { PnLPanel } from "@/components/reports/PnLPanel";
 import {
   AreaChart,
   Area,
@@ -66,16 +67,11 @@ function formatCentsToToman(cents: number): string {
 }
 
 function getDefaultFilter(): ReportFilter {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const toGreg = `${y}-${String(m).padStart(2, "0")}`;
-  const fromDate = new Date(y, m - 1, 1);
-  fromDate.setMonth(fromDate.getMonth() - 2);
-  const fromY = fromDate.getFullYear();
-  const fromM = fromDate.getMonth() + 1;
-  const fromGreg = `${fromY}-${String(fromM).padStart(2, "0")}`;
-  return { from: fromGreg, to: toGreg };
+  // Period keys (see lib/jalaliDate): current Jalali month and the two before it.
+  const to = currentPeriodKey();
+  const from = addPeriodKeyMonths(to.year, to.month, -2);
+  const key = (k: { year: number; month: number }) => `${k.year}-${String(k.month).padStart(2, "0")}`;
+  return { from: key(from), to: key(to) };
 }
 
 const SHAMSI_YEARS = shamsiYearOptions();
@@ -235,6 +231,7 @@ const Reports = () => {
 
   return (
     <MainLayout title="گزارش‌ها" subtitle="گزارش‌های مالی و تحلیلی">
+      <PnLPanel />
       {/* Filters - no Excel button */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex w-full gap-2 sm:w-auto">
@@ -329,7 +326,7 @@ const Reports = () => {
               <TrendingUp className="h-5 w-5 text-success" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">درآمد کل</p>
+              <p className="text-sm text-muted-foreground">درآمد بازه</p>
               <p className="text-xl font-bold number-display text-foreground">
                 {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_revenue_cents ?? 0)}
               </p>
@@ -342,9 +339,11 @@ const Reports = () => {
               <Wallet className="h-5 w-5 text-warning" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">حقوق پرداختی</p>
+              <p className="text-sm text-muted-foreground">حقوق و هزینه‌های بازه</p>
               <p className="text-xl font-bold number-display text-foreground">
-                {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_payroll_cents ?? 0)}
+                {isSummaryLoading
+                  ? "—"
+                  : formatCentsToToman((summary?.total_payroll_cents ?? 0) + (summary?.total_expenses_cents ?? 0))}
               </p>
             </div>
           </div>
@@ -355,7 +354,7 @@ const Reports = () => {
               <AlertCircle className="h-5 w-5 text-destructive" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">بدهی‌ها</p>
+              <p className="text-sm text-muted-foreground">مانده بدهی دانش‌آموزان</p>
               <p className="text-xl font-bold number-display text-destructive">
                 {isSummaryLoading ? "—" : formatCentsToToman(summary?.total_debt_cents ?? 0)}
               </p>
@@ -368,8 +367,14 @@ const Reports = () => {
               <TrendingDown className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">سود خالص</p>
-              <p className="text-xl font-bold number-display text-success">
+              <p className="text-sm text-muted-foreground">سود خالص بازه</p>
+              <p
+                className={
+                  (summary?.net_profit_cents ?? 0) < 0
+                    ? "text-xl font-bold number-display text-destructive"
+                    : "text-xl font-bold number-display text-success"
+                }
+              >
                 {isSummaryLoading ? "—" : formatCentsToToman(summary?.net_profit_cents ?? 0)}
               </p>
             </div>
