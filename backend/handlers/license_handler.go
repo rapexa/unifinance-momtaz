@@ -20,6 +20,7 @@ func NewLicenseHandler(service *services.LicenseService) *LicenseHandler {
 func licenseDTO(st *services.LicenseStatus) gin.H {
 	out := gin.H{
 		"enabled":    st.Enabled,
+		"owner":      st.Owner,
 		"state":      st.State,
 		"read_only":  st.ReadOnly,
 		"students":   st.Students,

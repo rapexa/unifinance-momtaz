@@ -19,6 +19,7 @@ import (
 // License states.
 const (
 	LicenseDisabled = "DISABLED" // no public key compiled in: unlimited
+	LicenseOwner    = "OWNER"    // owner installation (گروه مشاوره ممتاز): free and unlimited
 	LicenseValid    = "VALID"
 	LicenseGrace    = "GRACE"   // expired less than LicenseGraceDays ago: still writable
 	LicenseExpired  = "EXPIRED" // read-only
@@ -39,6 +40,7 @@ var (
 // LicenseStatus is the current subscription state of this installation.
 type LicenseStatus struct {
 	Enabled  bool
+	Owner    bool
 	State    string
 	ReadOnly bool
 	Claims   *license.Claims
@@ -93,6 +95,22 @@ func (s *LicenseService) currentKey(ctx context.Context) string {
 	return ""
 }
 
+// isOwner reports whether this is the owner installation: allowed by the build, and either
+// configured (license.owner) or detected at upgrade time (app_settings license_owner = "1").
+func (s *LicenseService) isOwner(ctx context.Context) bool {
+	if !license.OwnerAllowed() {
+		return false
+	}
+	if s.cfg != nil && s.cfg.License.Owner {
+		return true
+	}
+	var st models.AppSetting
+	if err := s.db.WithContext(ctx).Where("`key` = ?", models.AppSettingLicenseOwner).First(&st).Error; err == nil {
+		return strings.TrimSpace(st.Value) == "1"
+	}
+	return false
+}
+
 // Status returns the (cached, ≤30s old) license status.
 func (s *LicenseService) Status(ctx context.Context) *LicenseStatus {
 	s.mu.Lock()
@@ -118,6 +136,10 @@ func (s *LicenseService) compute(ctx context.Context) *LicenseStatus {
 	_ = s.db.WithContext(ctx).Model(&models.User{}).
 		Where("is_active = ?", true).Count(&st.Users).Error
 	if !st.Enabled {
+		return st
+	}
+	if s.isOwner(ctx) {
+		st.Owner, st.State = true, LicenseOwner
 		return st
 	}
 	key := s.currentKey(ctx)

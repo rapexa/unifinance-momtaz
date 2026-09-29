@@ -49,6 +49,10 @@ type BootstrapConfig struct {
 type LicenseConfig struct {
 	Key     string `mapstructure:"key"`
 	KeyFile string `mapstructure:"key_file"`
+	// Owner marks the owner installation (free, unlimited). Only honored by builds that allow
+	// it (source builds); customer Docker images ignore it. Normally not needed: an existing
+	// database is detected automatically.
+	Owner bool `mapstructure:"owner"`
 }
 
 // SaaSConfig configures the vendor's own instance (sales page, demo requests).
@@ -193,6 +197,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("bootstrap.admin_phone", "")
 	v.SetDefault("license.key", "")
 	v.SetDefault("license.key_file", "")
+	v.SetDefault("license.owner", false)
 	v.SetDefault("saas.vendor", false)
 	v.SetDefault("saas.product_name", "یونی‌فایننس")
 	v.SetDefault("saas.notify_phone", "")

@@ -10,4 +10,9 @@ type AppSetting struct {
 	UpdatedAt time.Time
 }
 
-const AppSettingLicenseKey = "license_key"
+const (
+	AppSettingLicenseKey = "license_key"
+	// AppSettingLicenseOwner is "1" when the database existed before licensing was introduced
+	// (the owner installation), "0" for installations created afterwards. Set once.
+	AppSettingLicenseOwner = "license_owner"
+)

@@ -1,7 +1,7 @@
 # One image = web app + API. One container serves one customer (tenant).
+# Customer images always need a license (AllowOwner=false); the vendor public key is built in.
 #
-#   docker build -t unifinance:latest \
-#     --build-arg LICENSE_PUBLIC_KEY="$(cat deploy/keys/license-public.key)" .
+#   docker build -t unifinance:latest .
 #
 # Base images are build args so servers that cannot reach Docker Hub (e.g. in Iran) can use
 # a mirror:  --build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-alpine  (etc.)
@@ -26,6 +26,7 @@ RUN npx vite build
 # ---- API ----
 FROM ${GO_IMAGE} AS api
 ARG GOPROXY=https://proxy.golang.org,direct
+# Optional: override the built-in vendor public key.
 ARG LICENSE_PUBLIC_KEY=""
 ARG VERSION=dev
 ENV GOPROXY=${GOPROXY} CGO_ENABLED=0 GOTOOLCHAIN=local
@@ -33,10 +34,11 @@ WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend ./
-RUN go build -trimpath \
-      -ldflags "-s -w -X github.com/soheilsshh/unifinance-momtaz/pkg/license.PublicKey=${LICENSE_PUBLIC_KEY}" \
-      -o /out/unifinance ./cmd \
- && go build -trimpath -ldflags "-s -w" -o /out/license ./cmd/license
+RUN PKG=github.com/soheilsshh/unifinance-momtaz/pkg/license \
+ && LDF="-s -w -X $PKG.AllowOwner=false" \
+ && if [ -n "$LICENSE_PUBLIC_KEY" ]; then LDF="$LDF -X $PKG.PublicKey=$LICENSE_PUBLIC_KEY"; fi \
+ && go build -trimpath -ldflags "$LDF" -o /out/unifinance ./cmd \
+ && go build -trimpath -ldflags "$LDF" -o /out/license ./cmd/license
 
 # ---- runtime ----
 FROM ${RUNTIME_IMAGE}

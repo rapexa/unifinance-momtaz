@@ -4,9 +4,12 @@
 //	license issue   -priv ./keys/license-private.key -customer "..." -plan pro \
 //	                -students 300 -users 15 -months 12 [-start 2026-10-01] [-domain x.ir]
 //	license inspect -pub ./keys/license-public.key <key>
+//	license check   -priv ./keys/license-private.key   (does it match this build's public key?)
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
@@ -30,6 +33,8 @@ func main() {
 		issue(os.Args[2:])
 	case "inspect":
 		inspect(os.Args[2:])
+	case "check":
+		check(os.Args[2:])
 	default:
 		usage()
 	}
@@ -39,7 +44,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   license keygen  -dir ./keys
   license issue   -priv keys/license-private.key -customer NAME -plan PLAN -students N -users N -months N [-start YYYY-MM-DD] [-domain DOMAIN]
-  license inspect -pub keys/license-public.key KEY`)
+  license inspect -pub keys/license-public.key KEY
+  license check   -priv keys/license-private.key`)
 	os.Exit(2)
 }
 
@@ -97,6 +103,9 @@ func issue(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	if !matchesBuild(priv) {
+		fail("this private key does not match the public key built into the app — licenses would be rejected")
+	}
 	from := time.Now()
 	if *start != "" {
 		if from, err = time.ParseInLocation("2006-01-02", *start, time.Local); err != nil {
@@ -153,4 +162,31 @@ func inspect(args []string) {
 	fmt.Printf("id:        %s\ncustomer:  %s\nplan:      %s\nstudents:  %d\nusers:     %d\nissued:    %s\nexpires:   %s\ndomains:   %s\n",
 		c.ID, c.Customer, c.Plan, c.MaxStudents, c.MaxUsers,
 		c.IssuedAt.Format(time.RFC3339), c.ExpiresAt.Format(time.RFC3339), strings.Join(c.Domains, ", "))
+}
+
+// matchesBuild reports whether priv belongs to the public key compiled into this build.
+func matchesBuild(priv ed25519.PrivateKey) bool {
+	pub, err := license.CompiledPublicKey()
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(priv.Public().(ed25519.PublicKey), pub)
+}
+
+func check(args []string) {
+	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	privPath := fs.String("priv", "keys/license-private.key", "private key file")
+	_ = fs.Parse(args)
+	raw, err := os.ReadFile(*privPath)
+	if err != nil {
+		fail("read private key: %v", err)
+	}
+	priv, err := license.DecodePrivateKey(string(raw))
+	if err != nil {
+		fail("%v", err)
+	}
+	if !matchesBuild(priv) {
+		fail("private key does NOT match this build's public key")
+	}
+	fmt.Println("ok: private key matches this build")
 }

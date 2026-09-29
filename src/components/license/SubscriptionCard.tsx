@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, KeyRound, Lock, ShieldAlert } from "lucide-react";
+import { BadgeCheck, Crown, KeyRound, Lock, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
@@ -52,6 +52,24 @@ export function SubscriptionCard() {
   });
 
   if (isLoading || !data || !data.enabled) return null;
+  if (data.owner) {
+    return (
+      <div className="card-elevated flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5" dir="rtl">
+        <div className="flex items-center gap-3">
+          <span className="rounded-xl bg-emerald-100 p-2.5 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+            <Crown className="h-5 w-5" />
+          </span>
+          <div>
+            <h3 className="font-bold">اشتراک ویژه مالک</h3>
+            <p className="text-sm text-muted-foreground">همه امکانات برای این مجموعه رایگان، دائمی و بدون محدودیت فعال است.</p>
+          </div>
+        </div>
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+          رایگان · نامحدود
+        </span>
+      </div>
+    );
+  }
   const state = STATE_LABEL[data.state] ?? { text: data.state, cls: "bg-muted" };
   const Icon = data.read_only ? Lock : data.state === "VALID" ? BadgeCheck : ShieldAlert;
 

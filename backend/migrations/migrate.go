@@ -23,6 +23,7 @@ func Run() {
 	// Roles + orphan role_id cleanup must run BEFORE AutoMigrate adds fk_roles_users.
 	prepareUserRoleForeignKey(db)
 	autoMigrate(db)
+	markLicenseOwner(db)
 	backfillRolePayrollMonths(db)
 	backfillPaymentPayrollShares(db)
 	migratePaidPayslipsToStaffPayouts(db)
@@ -350,6 +351,32 @@ func fixUsersWithoutRole(db *gorm.DB) {
 	if err := db.Model(&models.User{}).Where("role_id = ? OR role_id IS NULL", 0).Update("role_id", gm.ID).Error; err != nil {
 		log.Printf("migrations: warning fixUsersWithoutRole: %v", err)
 	}
+}
+
+// markLicenseOwner records, once, whether this database existed before licensing was
+// introduced. It runs before any seeding: an existing installation already has users (the
+// owner, گروه مشاوره ممتاز → free and unlimited); a new customer's database is still empty and
+// needs a license.
+func markLicenseOwner(db *gorm.DB) {
+	var existing int64
+	if err := db.Model(&models.AppSetting{}).Where("`key` = ?", models.AppSettingLicenseOwner).
+		Count(&existing).Error; err != nil || existing > 0 {
+		return
+	}
+	var users int64
+	if err := db.Unscoped().Model(&models.User{}).Count(&users).Error; err != nil {
+		log.Printf("migrations: warning checking license owner: %v", err)
+		return // decide on the next start
+	}
+	value := "0"
+	if users > 0 {
+		value = "1"
+	}
+	if err := db.Create(&models.AppSetting{Key: models.AppSettingLicenseOwner, Value: value}).Error; err != nil {
+		log.Printf("migrations: warning saving license owner flag: %v", err)
+		return
+	}
+	log.Printf("migrations: license owner installation = %s", value)
 }
 
 func seedOrganizationAndAdmin(db *gorm.DB) {

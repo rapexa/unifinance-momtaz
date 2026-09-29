@@ -19,7 +19,9 @@
 #
 # create/license options:
 #   --domain panel.customer.ir  --org "نام مجموعه"  --admin-email a@b.ir  --admin-phone 0912...
-#   --plan basic|pro|enterprise|trial  --students N  --users N  --months N  --days N  --vendor
+#   --plan basic|pro|enterprise  --trial DAYS  --free  --students N  --users N  --months N  --days N  --vendor
+#   Plan limits (unless --students/--users are given): basic 100 students / 5 users,
+#   pro and trial 400 / 15, enterprise, onprem, free and vendor unlimited.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -107,12 +109,16 @@ cmd_setup() {
 }
 
 ensure_keys() {
-  if [[ -f "$KEYS/license-private.key" ]]; then return; fi
-  green "generating the vendor license key pair (keys/) — back up keys/license-private.key!"
-  docker build -q --target api -t unifinance-builder \
-    --build-arg GO_IMAGE="${GO_IMAGE:-golang:1.24-alpine}" --build-arg GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
-    "$REPO" >/dev/null
-  docker run --rm -u "$(id -u):$(id -g)" -v "$KEYS:/keys" --entrypoint /out/license unifinance-builder keygen -dir /keys
+  [[ -f "$KEYS/license-private.key" ]] && return
+  red "keys/license-private.key not found."
+  red "Copy the license-private.key file you received (the vendor signing key) to:"
+  red "  $KEYS/license-private.key   (then: chmod 600 keys/license-private.key)"
+  exit 1
+}
+
+check_keys() {
+  license_cli check -priv /keys/license-private.key >/dev/null \
+    || die "keys/license-private.key does not match the public key built into the app"
 }
 
 cmd_build() {
@@ -121,7 +127,6 @@ cmd_build() {
   ensure_keys
   green "building $IMAGE ..."
   docker build -t "$IMAGE" \
-    --build-arg LICENSE_PUBLIC_KEY="$(tr -d '\n' <"$KEYS/license-public.key")" \
     --build-arg VERSION="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo dev)" \
     --build-arg NODE_IMAGE="${NODE_IMAGE:-node:22-alpine}" \
     --build-arg GO_IMAGE="${GO_IMAGE:-golang:1.24-alpine}" \
@@ -129,11 +134,12 @@ cmd_build() {
     --build-arg NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
     --build-arg GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
     "$REPO"
+  check_keys
 }
 
 # ---------------------------------------------------------------- license options
 parse_opts() {
-  DOMAIN="" ORG="" ADMIN_EMAIL="" ADMIN_PHONE="" PLAN="pro" STUDENTS=0 USERS=0 MONTHS=12 DAYS=0 VENDOR=false PURGE=false
+  DOMAIN="" ORG="" ADMIN_EMAIL="" ADMIN_PHONE="" PLAN="pro" STUDENTS="" USERS="" MONTHS=12 DAYS=0 VENDOR=false PURGE=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --domain) DOMAIN="$2"; shift 2 ;;
@@ -146,11 +152,18 @@ parse_opts() {
       --months) MONTHS="$2"; shift 2 ;;
       --days) DAYS="$2"; shift 2 ;;
       --trial) PLAN="trial"; MONTHS=0; DAYS="$2"; shift 2 ;;
+      --free) PLAN="free"; MONTHS=1200; DAYS=0; shift ;;
       --vendor) VENDOR=true; shift ;;
       --purge) PURGE=true; shift ;;
       *) die "unknown option $1" ;;
     esac
   done
+  # Plan limits (keep in sync with src/config/saas.ts); explicit --students/--users win.
+  case "$PLAN" in
+    basic) : "${STUDENTS:=100}" "${USERS:=5}" ;;
+    pro | trial) : "${STUDENTS:=400}" "${USERS:=15}" ;;
+    *) : "${STUDENTS:=0}" "${USERS:=0}" ;;
+  esac
 }
 
 issue_license() { # slug
@@ -197,6 +210,7 @@ wait_healthy() { # slug
 cmd_create() {
   local slug="${1:-}"; [[ -n "$slug" ]] || die "usage: ./uf.sh create <slug> [options]"
   shift; valid_slug "$slug"; parse_opts "$@"; load_env
+  ensure_keys
   local d; d="$(tenant_dir "$slug")"
   [[ -e "$d" ]] && die "tenant '$slug' already exists"
   [[ -n "$ADMIN_EMAIL" ]] || die "--admin-email is required"
@@ -277,6 +291,7 @@ cmd_list() {
 cmd_license() {
   local slug="${1:-}"; [[ -n "$slug" ]] || die "usage: ./uf.sh license <slug> [--plan --students --users --months --days]"
   shift; require_tenant "$slug"; parse_opts "$@"; load_env
+  ensure_keys
   local d; d="$(tenant_dir "$slug")"
   DOMAIN="$(env_get "$d/meta" DOMAIN)"; ORG="$(env_get "$d/meta" ORG)"
   local key db
@@ -395,6 +410,7 @@ cmd_install_cron() {
 cmd_onprem_bundle() {
   local name="${1:-}"; [[ -n "$name" ]] || die "usage: ./uf.sh onprem-bundle <name> [--org --plan --students --users --months]"
   shift; parse_opts "$@"; load_env
+  ensure_keys
   ORG="${ORG:-$name}"; PLAN="${PLAN:-onprem}"
   local out="$HERE/dist/onprem-$name" key
   rm -rf "$out"; mkdir -p "$out"

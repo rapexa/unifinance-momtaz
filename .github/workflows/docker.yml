@@ -2,8 +2,8 @@
 # - Pushed to GitHub Container Registry: ghcr.io/<owner>/<repo>:latest and :<sha>
 # - Also attached as a downloadable artifact (for servers that cannot reach ghcr.io:
 #   download, then `gunzip -c unifinance-image.tar.gz | docker load`).
-# Repository secret LICENSE_PUBLIC_KEY = contents of deploy/saas/keys/license-public.key
-# (without it the image is built without licensing, i.e. unlimited).
+# The vendor license public key is built in (backend/pkg/license/vendor_key.go); every image
+# requires a license, so customers can only use it with a plan.
 name: Docker image
 
 on:
@@ -39,7 +39,6 @@ jobs:
             ${{ steps.meta.outputs.image }}:${{ github.sha }}
             unifinance:latest
           build-args: |
-            LICENSE_PUBLIC_KEY=${{ secrets.LICENSE_PUBLIC_KEY }}
             VERSION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

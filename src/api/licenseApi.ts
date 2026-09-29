@@ -1,10 +1,12 @@
 import { API_BASE, authFetch, getAuthHeaders, apiFail } from "./apiClient";
 
-/** DISABLED = نسخه بدون لایسنس (نامحدود) */
-export type LicenseState = "DISABLED" | "VALID" | "GRACE" | "EXPIRED" | "MISSING" | "INVALID";
+/** DISABLED = نسخه بدون لایسنس (نامحدود) · OWNER = نسخه مالک (رایگان و نامحدود) */
+export type LicenseState = "DISABLED" | "OWNER" | "VALID" | "GRACE" | "EXPIRED" | "MISSING" | "INVALID";
 
 export interface LicenseStatusApi {
   enabled: boolean;
+  /** نسخه مالک: همه امکانات رایگان و بدون محدودیت */
+  owner?: boolean;
   state: LicenseState;
   read_only: boolean;
   students: number;
@@ -42,6 +44,7 @@ export async function updateLicense(key: string): Promise<LicenseStatusApi> {
 
 export const PLAN_LABELS: Record<string, string> = {
   trial: "آزمایشی",
+  free: "رایگان",
   basic: "پایه",
   pro: "حرفه‌ای",
   enterprise: "سازمانی",

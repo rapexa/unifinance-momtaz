@@ -10,6 +10,17 @@
 
 هر مشتری **کانتینر، پایگاه داده، دامنه، مدیر و لایسنس جداگانه** دارد؛ اطلاعات مشتری‌ها هیچ‌وقت با هم قاطی نمی‌شود.
 
+### چه کسی رایگان است و چه کسی پلن لازم دارد؟
+
+- **گروه مشاوره ممتاز (نصب فعلی): رایگان، دائمی و بدون محدودیت.** هنگام اولین اجرای این نسخه، برنامه می‌بیند که پایگاه داده از قبل کاربر دارد و آن را «نصب مالک» علامت می‌زند. در تنظیمات «اشتراک ویژه مالک — رایگان · نامحدود» نمایش داده می‌شود. هیچ کاری لازم نیست.
+- **هر نصب دیگری پلن لازم دارد:** هر پایگاه داده تازه (مشتری جدید) بدون لایسنس فقط‌خواندنی است. ایمیج Docker (سرور SaaS و نصب روی سرور مشتری) هیچ‌وقت «مالک» نمی‌شود، حتی اگر کسی پایگاه داده یا تنظیماتش را دست‌کاری کند.
+- کلید عمومی لایسنس داخل برنامه است (`backend/pkg/license/vendor_key.go`). **کلید خصوصی** (`license-private.key`) فقط نزد شماست و با آن برای مشتری‌ها لایسنس صادر می‌کنید. اگر گم شود، باید جفت‌کلید جدید بسازید و کلید عمومی داخل برنامه را عوض کنید؛ از آن چند نسخه پشتیبان امن نگه دارید.
+- اگر روزی به هر دلیل روی سرور ممتاز بنر «لایسنس ثبت نشده» دیدید: در `backend/config.yaml` این دو خط را اضافه کنید و API را ری‌استارت کنید:
+  ```yaml
+  license:
+    owner: true
+  ```
+
 ---
 
 ## ۱) به‌روزرسانی سرور فعلی ممتاز
@@ -42,11 +53,13 @@ SERVICE=نام-سرویس-systemd WEB_ROOT=/مسیر/فرانت ./deploy/momtaz/
 git clone <repo> /opt/unifinance && cd /opt/unifinance/deploy/saas
 ./uf.sh setup          # بار اول: فایل .env را می‌سازد
 nano .env              # BASE_DOMAIN و ACME_EMAIL را تنظیم کنید (و mirrorها در صورت نیاز)
-./uf.sh setup          # کلید لایسنس، ساخت ایمیج، راه‌اندازی MariaDB و Caddy
+mkdir -p keys && nano keys/license-private.key   # محتوای فایل license-private.key که دارید را اینجا بچسبانید
+chmod 600 keys/license-private.key
+./uf.sh setup          # ساخت ایمیج، بررسی کلید، راه‌اندازی MariaDB و Caddy
 ./uf.sh install-cron   # پشتیبان‌گیری شبانه
 ```
 
-> **مهم:** فایل `keys/license-private.key` کلید امضای همه لایسنس‌هاست. از آن نسخه پشتیبان امن (خارج از سرور) نگه دارید و هرگز در گیت قرار ندهید.
+> **مهم:** `keys/license-private.key` کلید امضای همه لایسنس‌هاست. آن را هرگز در گیت قرار ندهید و نسخه پشتیبان امن خارج از سرور نگه دارید.
 
 ### سایت فروش خودتان
 
@@ -59,12 +72,24 @@ nano .env              # BASE_DOMAIN و ACME_EMAIL را تنظیم کنید (و 
 - برای پیامک هر درخواست جدید: در `tenants/sales/tenant.env` مقدار `UNIFINANCE_SAAS_NOTIFY_PHONE` و اطلاعات ملی‌پیامک (`UNIFINANCE_MELIPAYAMAK_*` با `FROM`) را بگذارید و `./uf.sh restart sales`.
 - قیمت‌ها، محدودیت پلن‌ها، سؤالات متداول و راه‌های تماس در `src/config/saas.ts` است؛ بعد از ویرایش `./uf.sh update sales`.
 
+### پلن‌ها
+
+| پلن | `--plan` | سقف پیش‌فرض |
+|---|---|---|
+| پایه | `basic` | ۱۰۰ دانش‌آموز فعال، ۵ کاربر |
+| حرفه‌ای | `pro` | ۴۰۰ دانش‌آموز، ۱۵ کاربر |
+| سازمانی | `enterprise` | نامحدود |
+| آزمایشی | `--trial 14` | مثل حرفه‌ای، ۱۴ روز |
+| رایگان دائمی (هدیه) | `--free` | نامحدود، بدون انقضا |
+
+با `--students` و `--users` می‌توانید سقف را تغییر دهید و با `--months` مدت را. قیمت‌ها و متن پلن‌ها در صفحه فروش از `src/config/saas.ts` می‌آید؛ اگر سقف‌ها را عوض کردید، هر دو جا را یکی کنید.
+
 ### ساخت مشتری جدید
 
 ```bash
 # زیردامنه رایگان: ayandeh.unifinance.ir — یک سال پلن حرفه‌ای
 ./uf.sh create ayandeh --org "مؤسسه مشاوره آینده" --admin-email admin@ayandeh.ir \
-  --plan pro --students 400 --users 15 --months 12
+  --plan pro --months 12
 
 # دوره آزمایشی ۱۴ روزه روی دامنه خود مشتری
 ./uf.sh create saba --domain panel.saba.ir --org "آموزشگاه صبا" --admin-email boss@saba.ir --trial 14
@@ -80,7 +105,7 @@ nano .env              # BASE_DOMAIN و ACME_EMAIL را تنظیم کنید (و 
 | کار | دستور |
 |---|---|
 | فهرست مشتری‌ها و تاریخ انقضا | `./uf.sh list` |
-| تمدید / ارتقا | `./uf.sh license ayandeh --plan pro --students 400 --users 15 --months 12` |
+| تمدید / ارتقا | `./uf.sh license ayandeh --plan pro --months 12` |
 | تعلیق (عدم پرداخت) | `./uf.sh suspend ayandeh` (اطلاعات حفظ می‌شود) |
 | فعال‌سازی مجدد | `./uf.sh resume ayandeh` |
 | پشتیبان | `./uf.sh backup --all` یا `./uf.sh backup ayandeh` |
@@ -124,7 +149,7 @@ sudo ./install.sh --domain panel.ayandeh.ir --org "مؤسسه مشاوره آی�
   سپس `sudo systemctl restart docker`. (هر mirror دیگری که Docker Hub را proxy کند هم کار می‌کند.)
 - یا نام کامل تصاویر را در `.env` به یک mirror تغییر دهید؛ قالب آن مثل `mirror.gcr.io/library/mariadb:11` است (`MARIADB_IMAGE`، `CADDY_IMAGE`، `NODE_IMAGE`، `GO_IMAGE`، `RUNTIME_IMAGE`).
 - برای npm و Go هم در صورت نیاز `NPM_REGISTRY` و `GOPROXY` را به mirror تغییر دهید.
-- راه دیگر: ایمیج را GitHub Actions می‌سازد (`.github/workflows/docker.yml`)؛ فایل `unifinance-image.tar.gz` را از بخش Artifacts دانلود و با `gunzip -c unifinance-image.tar.gz | docker load` روی سرور بارگذاری کنید (برای این کار secret با نام `LICENSE_PUBLIC_KEY` = محتوای `keys/license-public.key` را در گیت‌هاب تعریف کنید؛ سپس در `.env` مقدار `IMAGE=unifinance:latest` بماند و `SKIP_BUILD=1 ./uf.sh update --all` بزنید).
+- راه دیگر: ایمیج را GitHub Actions می‌سازد (`.github/workflows/docker.yml`)؛ فایل `unifinance-image.tar.gz` را از بخش Artifacts دانلود و با `gunzip -c unifinance-image.tar.gz | docker load` روی سرور بارگذاری کنید؛ سپس در `.env` مقدار `IMAGE=unifinance:latest` بماند و `SKIP_BUILD=1 ./uf.sh update --all` بزنید.
 
 ---
 

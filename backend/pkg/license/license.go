@@ -1,13 +1,10 @@
 // Package license signs and verifies customer license keys.
 //
 // A key is "UF1.<payload>.<signature>" where payload is base64url JSON Claims and the
-// signature is Ed25519 over the payload. The vendor keeps the private key; the public key is
-// compiled into the binary:
+// signature is Ed25519 over the payload. The vendor keeps the private key; the matching public
+// key is compiled in (vendor_key.go, overridable with -ldflags -X ...PublicKey=<base64>).
 //
-//	go build -ldflags "-X github.com/soheilsshh/unifinance-momtaz/pkg/license.PublicKey=<base64>"
-//
-// When no public key is compiled in, licensing is disabled and the app is unlimited
-// (e.g. a build from source for a single organization).
+// Every installation needs a license, except the owner installation (see AllowOwner).
 package license
 
 import (
@@ -19,9 +16,6 @@ import (
 	"strings"
 	"time"
 )
-
-// PublicKey is the vendor's Ed25519 public key (standard base64), set at build time.
-var PublicKey = ""
 
 const prefix = "UF1."
 
@@ -48,6 +42,9 @@ type Claims struct {
 
 // Enabled reports whether a public key was compiled in.
 func Enabled() bool { return strings.TrimSpace(PublicKey) != "" }
+
+// OwnerAllowed reports whether this build may run as the owner installation.
+func OwnerAllowed() bool { return strings.TrimSpace(strings.ToLower(AllowOwner)) == "true" }
 
 // CompiledPublicKey decodes PublicKey.
 func CompiledPublicKey() (ed25519.PublicKey, error) {
