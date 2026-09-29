@@ -39,6 +39,9 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BankAccountsPanel } from "@/components/payments/BankAccountsPanel";
+import { BankAccountSelect } from "@/components/payments/BankAccountSelect";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
 import { formatIsoDateShamsi, jalaliToGregorianIso, isoToJalaliString, todayJalaliString } from "@/lib/jalaliDate";
 import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
@@ -185,6 +188,9 @@ function EditPaymentForm({
   const [description, setDescription] = useState(payment.description ?? "");
   const [dueDate, setDueDate] = useState(isoDateOnly(payment.due_date));
   const [paidAt, setPaidAt] = useState(isoDateOnly(payment.paid_at));
+  const [bankAccountId, setBankAccountId] = useState(
+    payment.bank_account_id ? String(payment.bank_account_id) : "",
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,6 +217,7 @@ function EditPaymentForm({
       description: description.trim() || undefined,
       due_date: dueDateGregorian,
       paid_at: paidAtGregorian,
+      bank_account_id: bankAccountId ? Number(bankAccountId) : 0,
     };
     onSave(payload);
   };
@@ -246,6 +253,7 @@ function EditPaymentForm({
           </SelectContent>
         </Select>
       </div>
+      <BankAccountSelect value={bankAccountId} onChange={setBankAccountId} label="واریز به حساب" />
       <div className="grid gap-2">
         <label className="text-sm font-medium">وضعیت</label>
         <Select value={status} onValueChange={setStatus}>
@@ -288,6 +296,9 @@ function EditPaymentForm({
 }
 
 const Payments = () => {
+  const { profile } = useCurrentUser();
+  // Scoped users (e.g. advisors) may view accounts but only admins manage them.
+  const isAdmin = profile?.full_access === true;
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -318,6 +329,7 @@ const Payments = () => {
   const [createDescription, setCreateDescription] = useState("");
   const [createDueDate, setCreateDueDate] = useState("");
   const [createPaidAt, setCreatePaidAt] = useState(() => todayJalaliString());
+  const [createBankAccountId, setCreateBankAccountId] = useState("");
   const [createError, setCreateError] = useState("");
   const [studentSearchInput, setStudentSearchInput] = useState("");
   const [debouncedStudentSearch, setDebouncedStudentSearch] = useState("");
@@ -551,6 +563,7 @@ const Payments = () => {
 
     const amountCents = amountTomans * 10; // تومان به ریال
     const payload: CreatePaymentPayload = {
+      student_id: studentId,
       amount_cents: amountCents,
       method: createMethod,
       status: createStatus,
@@ -558,8 +571,8 @@ const Payments = () => {
       description: createDescription.trim() || undefined,
       due_date: dueDateGregorian,
       paid_at: paidAtGregorian,
+      bank_account_id: createBankAccountId ? Number(createBankAccountId) : undefined,
     };
-    payload.student_id = studentId;
     createMutation.mutate(payload);
   }, [
     createPayerType,
@@ -572,6 +585,7 @@ const Payments = () => {
     createDescription,
     createDueDate,
     createPaidAt,
+    createBankAccountId,
     createMutation,
   ]);
 
@@ -707,6 +721,9 @@ const Payments = () => {
           </Button>
         </div>
       </div>
+
+      {/* Bank accounts */}
+      <BankAccountsPanel canEdit={isAdmin} />
 
       {/* Tabs & Table */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1062,6 +1079,7 @@ const Payments = () => {
               <p><span className="text-muted-foreground">وضعیت:</span> {statusLabels[detailPayment.status] ?? detailPayment.status}</p>
               <p><span className="text-muted-foreground">نوع:</span> {paymentTypeLabels[detailPayment.payment_type] ?? detailPayment.payment_type}</p>
               <p><span className="text-muted-foreground">روش:</span> {methodLabels[detailPayment.method] ?? detailPayment.method}</p>
+              <p><span className="text-muted-foreground">واریز به حساب:</span> {detailPayment.bank_account_title || "—"}</p>
               <p><span className="text-muted-foreground">سررسید:</span> {formatDate(detailPayment.due_date)}</p>
               <p><span className="text-muted-foreground">تاریخ پرداخت:</span> {formatDate(detailPayment.paid_at)}</p>
               <p><span className="text-muted-foreground">شرح:</span> {detailPayment.description || "—"}</p>
@@ -1272,6 +1290,7 @@ const Payments = () => {
                 </SelectContent>
               </Select>
             </div>
+            <BankAccountSelect value={createBankAccountId} onChange={setCreateBankAccountId} label="واریز به حساب" />
             <div className="grid gap-2">
               <label className="text-sm font-medium">نوع پرداخت</label>
               <Select value={createPaymentType} onValueChange={(v) => setCreatePaymentType(v as "SINGLE_SESSION" | "MONTHLY" | "COURSE")}>

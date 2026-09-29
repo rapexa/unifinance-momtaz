@@ -78,6 +78,7 @@ func autoMigrate(db *gorm.DB) {
 	if err := db.AutoMigrate(
 		&models.Role{},
 		&models.RolePermission{},
+		&models.BankAccount{},
 		&models.Organization{},
 		&models.User{},
 		&models.UserPermission{},

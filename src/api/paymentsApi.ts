@@ -26,6 +26,8 @@ export interface PaymentApi {
   created_at: string;
   description?: string;
   reference_code?: string;
+  bank_account_id?: number | null;
+  bank_account_title?: string;
 }
 
 export interface PaymentsSummary {
@@ -106,6 +108,8 @@ export interface CreatePaymentPayload {
   due_date?: string; // YYYY-MM-DD or ISO
   paid_at?: string;
   currency?: string;
+  /** حسابی که پول به آن واریز شده */
+  bank_account_id?: number;
 }
 
 export async function getPayment(id: number): Promise<PaymentApi> {
@@ -164,6 +168,8 @@ export interface UpdatePaymentPayload {
   due_date?: string | null;
   paid_at?: string | null;
   enrollment_id?: number | null;
+  /** 0 = حذف حساب */
+  bank_account_id?: number;
 }
 
 export async function updatePayment(
@@ -180,6 +186,7 @@ export async function updatePayment(
   if (payload.due_date !== undefined) body.due_date = toApiDate(payload.due_date) ?? null;
   if (payload.paid_at !== undefined) body.paid_at = toApiDate(payload.paid_at) ?? null;
   if (payload.enrollment_id !== undefined) body.enrollment_id = payload.enrollment_id ?? null;
+  if (payload.bank_account_id !== undefined) body.bank_account_id = payload.bank_account_id;
 
   const res = await authFetch(`${API_BASE}/payments/${id}`, {
     method: "PUT",

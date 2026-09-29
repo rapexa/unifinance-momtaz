@@ -515,6 +515,7 @@ type CreateStaffPayoutParams struct {
 	CreatedByID    *uint
 	PayrollEntryID *uint
 	Source         string
+	BankAccountID  *uint
 }
 
 // CreateStaffPayout records a cash payment from the organization to a staff member.
@@ -548,6 +549,9 @@ func (s *PayrollService) CreateStaffPayout(ctx context.Context, p CreateStaffPay
 		CreatedByID:    p.CreatedByID,
 		PayrollEntryID: p.PayrollEntryID,
 		Source:         source,
+	}
+	if p.BankAccountID != nil && *p.BankAccountID > 0 {
+		row.BankAccountID = p.BankAccountID
 	}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return nil, err

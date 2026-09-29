@@ -67,6 +67,7 @@ func main() {
 	melipayamakService := services.NewMelipayamakService(cfg.Melipayamak.Username, cfg.Melipayamak.APIKey)
 	reminderService := services.NewReminderService(db, melipayamakService)
 	fiscalYearService := services.NewFiscalYearService(db)
+	bankAccountService := services.NewBankAccountService(db)
 	zarinpalService := services.NewZarinpalService(cfg.Zarinpal.MerchantID, cfg.Zarinpal.Sandbox, cfg.Zarinpal.CallbackURL)
 
 	// Handlers (Controllers)
@@ -83,6 +84,7 @@ func main() {
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
 	reminderHandler := handlers.NewReminderHandler(reminderService)
 	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
+	bankAccountHandler := handlers.NewBankAccountHandler(bankAccountService)
 	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
 	// Gin engine (custom recovery logs panics in Persian-friendly JSON)
@@ -235,6 +237,16 @@ func main() {
 		payments.PUT("/:id", paymentHandler.Update)
 		payments.DELETE("/:id", paymentHandler.Delete)
 		payments.POST("/:id/link", paymentHandler.GenerateLink)
+	}
+
+	// Bank accounts (حساب‌های بانکی) — shown on payments and student payment pages
+	bankAccounts := protected.Group("/bank-accounts")
+	bankAccounts.Use(middleware.PermissionMiddleware(permService, models.PermPayments))
+	{
+		bankAccounts.GET("", bankAccountHandler.List)
+		bankAccounts.POST("", bankAccountHandler.Create)
+		bankAccounts.PUT("/:id", bankAccountHandler.Update)
+		bankAccounts.DELETE("/:id", bankAccountHandler.Delete)
 	}
 
 	// Dashboard: only for users with DASHBOARD permission (admin by default)

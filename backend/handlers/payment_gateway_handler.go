@@ -44,6 +44,8 @@ type publicPaymentDTO struct {
 	Description  string  `json:"description"`
 	Status       string  `json:"status"`
 	DueDate      *string `json:"due_date"`
+	// BankAccounts are the organization's accounts for card-to-card / bank transfer.
+	BankAccounts []PublicBankAccountDTO `json:"bank_accounts"`
 }
 
 // GetPublicPayment handles GET /public/payments/:id
@@ -81,6 +83,12 @@ func (h *PaymentGatewayHandler) GetPublicPayment(c *gin.Context) {
 		s := payment.DueDate.Format("2006-01-02")
 		dto.DueDate = &s
 	}
+
+	var accounts []models.BankAccount
+	_ = h.db.WithContext(c.Request.Context()).
+		Where("is_active = ? AND show_to_students = ?", true, true).
+		Order("sort_order ASC, id ASC").Find(&accounts).Error
+	dto.BankAccounts = toPublicBankAccountDTOs(accounts)
 
 	c.JSON(http.StatusOK, dto)
 }

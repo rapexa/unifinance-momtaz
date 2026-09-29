@@ -553,7 +553,7 @@ export async function getStaffSettlement(userId: number): Promise<StaffSettlemen
 
 export async function createStaffPayout(
   userId: number,
-  payload: { amount_cents: number; paid_at?: string; note?: string },
+  payload: { amount_cents: number; paid_at?: string; note?: string; bank_account_id?: number },
 ): Promise<StaffPayoutApi> {
   const res = await authFetch(`${API_BASE}/payroll/users/${userId}/payouts`, {
     method: "POST",

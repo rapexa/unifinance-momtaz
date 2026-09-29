@@ -76,6 +76,7 @@ import {
 import { BalanceBadge } from "@/components/payroll/BalanceBadge";
 import { balanceTone } from "@/lib/payrollBalance";
 import { ExpensesOverview } from "@/components/payroll/ExpensesOverview";
+import { BankAccountSelect } from "@/components/payments/BankAccountSelect";
 import { formatPayrollPeriod } from "@/lib/payrollDisplay";
 
 const roleLabels: Record<string, string> = {
@@ -272,6 +273,7 @@ const Payroll = () => {
   const [payoutTomans, setPayoutTomans] = useState("");
   const [payoutDate, setPayoutDate] = useState(todayJalaliString());
   const [payoutNote, setPayoutNote] = useState("");
+  const [payoutAccountId, setPayoutAccountId] = useState("");
 
   const openPayout = (entry: PayrollEntryApi) => {
     const due = Math.max(0, entry.closing_cents ?? entry.total_salary_cents);
@@ -456,8 +458,19 @@ const Payroll = () => {
   });
 
   const payoutMutation = useMutation({
-    mutationFn: (p: { user_id: number; amount_cents: number; paid_at: string; note?: string }) =>
-      createStaffPayout(p.user_id, { amount_cents: p.amount_cents, paid_at: p.paid_at, note: p.note }),
+    mutationFn: (p: {
+      user_id: number;
+      amount_cents: number;
+      paid_at: string;
+      note?: string;
+      bank_account_id?: number;
+    }) =>
+      createStaffPayout(p.user_id, {
+        amount_cents: p.amount_cents,
+        paid_at: p.paid_at,
+        note: p.note,
+        bank_account_id: p.bank_account_id,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
@@ -1157,6 +1170,7 @@ const Payroll = () => {
                 <label className="text-sm font-medium">توضیح (اختیاری)</label>
                 <Input value={payoutNote} onChange={(e) => setPayoutNote(e.target.value)} placeholder="مثلاً واریز به حساب" />
               </div>
+              <BankAccountSelect value={payoutAccountId} onChange={setPayoutAccountId} label="پرداخت از حساب" />
               <DialogFooter className="gap-2 sm:gap-0">
                 <Button type="button" variant="outline" onClick={() => setPayoutEntry(null)}>
                   انصراف
@@ -1180,6 +1194,7 @@ const Payroll = () => {
                       amount_cents: tomans * 10,
                       paid_at: iso,
                       note: payoutNote.trim() || undefined,
+                      bank_account_id: payoutAccountId ? Number(payoutAccountId) : undefined,
                     });
                   }}
                 >

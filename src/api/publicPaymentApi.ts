@@ -1,4 +1,5 @@
 import {API_BASE, apiFail} from "./apiClient";
+import type { PublicBankAccount } from "./bankAccountsApi";
 
 export interface PublicPayment {
   id: number;
@@ -8,6 +9,7 @@ export interface PublicPayment {
   description: string;
   status: "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
   due_date: string | null;
+  bank_accounts?: PublicBankAccount[];
 }
 
 export async function getPublicPayment(id: number | string): Promise<PublicPayment> {

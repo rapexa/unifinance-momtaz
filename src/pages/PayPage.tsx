@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, User, Phone, FileText, Calendar, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
+import { CreditCard, User, Phone, FileText, Calendar, AlertCircle, Loader2, CheckCircle2, Landmark, Copy } from "lucide-react";
+import { formatCardNumber } from "@/api/bankAccountsApi";
 import { getPublicPayment, initiatePayment } from "@/api/publicPaymentApi";
 import { formatIsoDateShamsi } from "@/lib/jalaliDate";
 
@@ -161,6 +162,56 @@ const PayPage = () => {
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm">
                   <CheckCircle2 size={16} className="flex-shrink-0" />
                   این پرداخت قبلاً با موفقیت انجام شده است.
+                </div>
+              )}
+
+              {/* Card-to-card / bank transfer */}
+              {canPay && (payment.bank_accounts?.length ?? 0) > 0 && (
+                <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                    <Landmark size={16} className="text-blue-600" />
+                    پرداخت کارت به کارت / واریز به حساب
+                  </div>
+                  {payment.bank_accounts!.map((a, idx) => (
+                    <div key={idx} className="rounded-lg bg-slate-50 p-3 text-sm space-y-1.5">
+                      <p className="font-medium text-slate-700">
+                        {a.title}
+                        {a.bank_name && a.bank_name !== a.title ? ` — ${a.bank_name}` : ""}
+                      </p>
+                      {a.owner_name && <p className="text-xs text-slate-500">به نام {a.owner_name}</p>}
+                      {a.card_number && (
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard?.writeText(a.card_number!)}
+                          className="flex w-full items-center justify-between rounded-md bg-white px-2 py-1.5 hover:bg-blue-50"
+                          title="کپی شماره کارت"
+                        >
+                          <span className="text-xs text-slate-400">شماره کارت</span>
+                          <span className="flex items-center gap-1 font-mono tracking-wider text-slate-800" dir="ltr">
+                            {formatCardNumber(a.card_number)}
+                            <Copy size={12} className="text-slate-400" />
+                          </span>
+                        </button>
+                      )}
+                      {a.iban && (
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard?.writeText(a.iban!)}
+                          className="flex w-full items-center justify-between rounded-md bg-white px-2 py-1.5 hover:bg-blue-50"
+                          title="کپی شماره شبا"
+                        >
+                          <span className="text-xs text-slate-400">شبا</span>
+                          <span className="flex items-center gap-1 font-mono text-xs text-slate-800" dir="ltr">
+                            {a.iban}
+                            <Copy size={12} className="text-slate-400" />
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-slate-400">
+                    پس از واریز، رسید را برای مرکز ارسال کنید تا پرداخت شما ثبت شود.
+                  </p>
                 </div>
               )}
 

@@ -64,6 +64,8 @@ type PaymentDTO struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	Description          string     `json:"description,omitempty"`
 	ReferenceCode        string     `json:"reference_code,omitempty"`
+	BankAccountID        *uint      `json:"bank_account_id,omitempty"`
+	BankAccountTitle     string     `json:"bank_account_title,omitempty"`
 }
 
 func toPaymentDTO(p *models.Payment) PaymentDTO {
@@ -83,6 +85,10 @@ func toPaymentDTO(p *models.Payment) PaymentDTO {
 		Description:       p.Description,
 		ReferenceCode:     p.ReferenceCode,
 		PayerType:         "STUDENT",
+		BankAccountID:     p.BankAccountID,
+	}
+	if p.BankAccount != nil {
+		dto.BankAccountTitle = p.BankAccount.Title
 	}
 
 	if p.IsLegacySchoolContractPayment() {
@@ -146,6 +152,7 @@ type createPaymentRequest struct {
 	EnrollmentID     *uint  `json:"enrollment_id" binding:"omitempty"`
 	DueDateStr       string `json:"due_date" binding:"omitempty"`
 	Currency         string `json:"currency" binding:"omitempty"`
+	BankAccountID    *uint  `json:"bank_account_id" binding:"omitempty"`
 }
 
 type updatePaymentRequest struct {
@@ -158,6 +165,8 @@ type updatePaymentRequest struct {
 	Type          *string `json:"payment_type" binding:"omitempty,oneof=SINGLE_SESSION MONTHLY COURSE"`
 	EnrollmentID  *uint   `json:"enrollment_id" binding:"omitempty"`
 	DueDateStr    *string `json:"due_date" binding:"omitempty"`
+	// BankAccountID: 0 clears the deposit account.
+	BankAccountID *uint `json:"bank_account_id" binding:"omitempty"`
 }
 
 // Summary handles GET /payments/summary
@@ -395,6 +404,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 		EnrollmentID:     req.EnrollmentID,
 		DueDate:          dueDate,
 		Currency:         req.Currency,
+		BankAccountID:    req.BankAccountID,
 	}
 
 	p, err := h.service.Create(c.Request.Context(), params)
@@ -489,6 +499,7 @@ func (h *PaymentHandler) Update(c *gin.Context) {
 		Type:          req.Type,
 		EnrollmentID:  req.EnrollmentID,
 		DueDate:       dueDate,
+		BankAccountID: req.BankAccountID,
 	}
 
 	p, err := h.service.Update(c.Request.Context(), uint(id), params)

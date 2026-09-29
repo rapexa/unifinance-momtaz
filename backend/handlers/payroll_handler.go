@@ -886,9 +886,10 @@ type StaffSettlementDTO struct {
 }
 
 type createStaffPayoutRequest struct {
-	AmountCents int64  `json:"amount_cents" binding:"required"`
-	PaidAtStr   string `json:"paid_at" binding:"omitempty"`
-	Note        string `json:"note" binding:"omitempty"`
+	AmountCents   int64  `json:"amount_cents" binding:"required"`
+	PaidAtStr     string `json:"paid_at" binding:"omitempty"`
+	Note          string `json:"note" binding:"omitempty"`
+	BankAccountID *uint  `json:"bank_account_id" binding:"omitempty"`
 }
 
 type AdvisorOpsUserDetailDTO struct {
@@ -1508,8 +1509,9 @@ func (h *PayrollHandler) CreateStaffPayout(c *gin.Context) {
 		UserID:      uint(uid),
 		AmountCents: req.AmountCents,
 		PaidAt:      paidAt,
-		Note:        strings.TrimSpace(req.Note),
-		CreatedByID: createdBy,
+		Note:          strings.TrimSpace(req.Note),
+		CreatedByID:   createdBy,
+		BankAccountID: req.BankAccountID,
 	}, middleware.DataScopeUserID(c))
 	if err != nil {
 		if h.writePayrollComputeError(c, err) {

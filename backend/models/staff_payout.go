@@ -28,4 +28,8 @@ type StaffPayout struct {
 	// PayrollEntryID links payouts created from a payslip's "paid" action.
 	PayrollEntryID *uint  `gorm:"index"`
 	Source         string `gorm:"size:32;not null;default:'MANUAL'"`
+
+	// BankAccountID is the account the payout was paid from (optional).
+	BankAccountID *uint        `gorm:"index"`
+	BankAccount   *BankAccount `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }

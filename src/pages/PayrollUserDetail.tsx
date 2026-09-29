@@ -33,6 +33,7 @@ import {
   addPeriodKeyMonths,
 } from "@/lib/jalaliDate";
 import { BalanceBadge } from "@/components/payroll/BalanceBadge";
+import { BankAccountSelect } from "@/components/payments/BankAccountSelect";
 import {
   getPayrollUserLedger,
   recalculatePayrollUser,
@@ -61,6 +62,7 @@ export default function PayrollUserDetail() {
   const [payoutAmountTomans, setPayoutAmountTomans] = useState("");
   const [payoutDate, setPayoutDate] = useState(todayJalaliString());
   const [payoutNote, setPayoutNote] = useState("");
+  const [payoutAccountId, setPayoutAccountId] = useState("");
 
   const {
     data: ledger,
@@ -109,7 +111,7 @@ export default function PayrollUserDetail() {
   });
 
   const payoutMutation = useMutation({
-    mutationFn: (payload: { amount_cents: number; paid_at: string; note?: string }) =>
+    mutationFn: (payload: { amount_cents: number; paid_at: string; note?: string; bank_account_id?: number }) =>
       createStaffPayout(userId, payload),
     onSuccess: () => {
       setPayoutOpen(false);
@@ -592,6 +594,7 @@ export default function PayrollUserDetail() {
                 placeholder="مثلاً واریز به حساب"
               />
             </div>
+            <BankAccountSelect value={payoutAccountId} onChange={setPayoutAccountId} label="پرداخت از حساب" />
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setPayoutOpen(false)}>
                 انصراف
@@ -613,6 +616,7 @@ export default function PayrollUserDetail() {
                     amount_cents: tomans * 10,
                     paid_at: iso,
                     note: payoutNote.trim() || undefined,
+                    bank_account_id: payoutAccountId ? Number(payoutAccountId) : undefined,
                   });
                 }}
               >

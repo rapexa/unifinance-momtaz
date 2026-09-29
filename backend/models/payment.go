@@ -62,6 +62,10 @@ type Payment struct {
 	DueDate *time.Time `gorm:"index"`
 	PaidAt  *time.Time `gorm:"index"`
 
+	// BankAccountID is the account the money was deposited to (optional).
+	BankAccountID *uint        `gorm:"index"`
+	BankAccount   *BankAccount `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+
 	// AdvisorShareCents is set when status = PAID from the student's advisor commission rules.
 	AdvisorShareCents int64 `gorm:"not null;default:0;index"`
 

@@ -48,6 +48,8 @@ type ProfileDTO struct {
 	Bio              string   `json:"bio,omitempty"`
 	TwoFactorEnabled bool     `json:"two_factor_enabled"`
 	Permissions      []string `json:"permissions,omitempty"`
+	// FullAccess: unscoped admin (sees and manages all data).
+	FullAccess bool `json:"full_access"`
 }
 
 func profileDTOFromUser(user *models.User) ProfileDTO {
@@ -226,6 +228,7 @@ func (h *SettingsHandler) GetProfile(c *gin.Context) {
 	}
 
 	dto := profileDTOFromUser(user)
+	dto.FullAccess = user.Role != nil && user.Role.FullAccess
 	if h.permSvc != nil {
 		full := user.Role != nil && user.Role.FullAccess
 		perms, _ := h.permSvc.GetForUser(c.Request.Context(), user.ID, full)

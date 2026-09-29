@@ -57,6 +57,7 @@ func (r *GormPaymentRepository) FindByID(ctx context.Context, id uint) (*models.
 		Preload("SchoolContract").
 		Preload("Enrollment").
 		Preload("Enrollment.Plan").
+		Preload("BankAccount").
 		First(&p, id).Error; err != nil {
 		return nil, err
 	}

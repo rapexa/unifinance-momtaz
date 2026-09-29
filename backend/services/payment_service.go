@@ -318,6 +318,7 @@ type CreatePaymentParams struct {
 	DueDate          *time.Time
 	Currency         string
 	Type             string
+	BankAccountID    *uint
 }
 
 type UpdatePaymentParams struct {
@@ -330,6 +331,8 @@ type UpdatePaymentParams struct {
 	EnrollmentID  *uint
 	DueDate       *time.Time
 	Type          *string
+	// BankAccountID: nil = unchanged, 0 = clear, >0 = set.
+	BankAccountID *uint
 }
 
 func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*models.Payment, error) {
@@ -366,6 +369,9 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 		Type:          paymentType,
 		DueDate:       p.DueDate,
 		ReferenceCode: p.ReferenceCode,
+	}
+	if p.BankAccountID != nil && *p.BankAccountID > 0 {
+		payment.BankAccountID = p.BankAccountID
 	}
 	var st models.Student
 	if err := s.db.WithContext(ctx).Select("id", "registration_channel", "school_contract_id").First(&st, *p.StudentID).Error; err != nil {
@@ -460,6 +466,15 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	}
 	if p.Type != nil {
 		payment.Type = models.PaymentType(strings.ToUpper(*p.Type))
+	}
+	if p.BankAccountID != nil {
+		if *p.BankAccountID == 0 {
+			payment.BankAccountID = nil
+		} else {
+			id := *p.BankAccountID
+			payment.BankAccountID = &id
+		}
+		payment.BankAccount = nil
 	}
 	if p.PaidAt != nil {
 		payment.PaidAt = p.PaidAt

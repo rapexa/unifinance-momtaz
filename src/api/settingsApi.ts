@@ -60,6 +60,8 @@ export interface Profile {
   bio: string;
   two_factor_enabled: boolean;
   permissions?: string[];
+  /** مدیر با دسترسی کامل (بدون محدودیت داده) */
+  full_access?: boolean;
 }
 
 /** Permission codes returned by API (RBAC). */
