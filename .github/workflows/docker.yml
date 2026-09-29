@@ -1,4 +1,4 @@
-# Builds the SaaS/on-premise image on every push to main and on version tags.
+# Builds the SaaS/on-premise image.
 # - Pushed to GitHub Container Registry: ghcr.io/<owner>/<repo>:latest and :<sha>
 # - Also attached as a downloadable artifact (for servers that cannot reach ghcr.io:
 #   download, then `gunzip -c unifinance-image.tar.gz | docker load`).
@@ -6,9 +6,10 @@
 # requires a license, so customers can only use it with a plan.
 name: Docker image
 
+# Runs by hand (Actions → Docker image → Run workflow) or on version tags, so ordinary pushes
+# do not need GitHub Packages permissions.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
