@@ -430,6 +430,9 @@ func main() {
 			} else if n > 0 {
 				log.Printf("promoted %d pending payment(s) to OVERDUE (past due_date)", n)
 			}
+			if !services.InSMSSendingHours(time.Now()) {
+				return
+			}
 			if _, err := reminderService.RunNow(ctx); err != nil {
 				log.Printf("reminder scheduler run failed: %v", err)
 			}

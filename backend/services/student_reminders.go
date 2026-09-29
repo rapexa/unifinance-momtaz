@@ -588,6 +588,17 @@ func (s *ReminderService) alreadySent(ctx context.Context, studentID uint, key s
 	return n > 0, nil
 }
 
+// tehran is Iran Standard Time (no daylight saving since 2022); fixed so the static binary
+// does not depend on the server's tzdata.
+var tehran = time.FixedZone("Asia/Tehran", 3*3600+30*60)
+
+// InSMSSendingHours reports whether automatic SMS may go out now: 09:00–20:00 Tehran time,
+// so parents are not messaged at night. The day windows in RunNow tolerate the skipped hours.
+func InSMSSendingHours(now time.Time) bool {
+	h := now.In(tehran).Hour()
+	return h >= 9 && h < 20
+}
+
 // RunNow sends automatic student reminders for enabled templates. A reminder fires on its day
 // (or one day late if the server was down) and at most once per student, template and due date.
 func (s *ReminderService) RunNow(ctx context.Context) (int, error) {
