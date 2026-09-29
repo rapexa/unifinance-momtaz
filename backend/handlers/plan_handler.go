@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -248,7 +249,7 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 		case services.ErrPlanNotFound:
 			planError(c, http.StatusNotFound, "پلن یافت نشد")
 		case services.ErrPlanInUse:
-			planError(c, http.StatusConflict, "cannot deactivate plan with active enrollments")
+			planError(c, http.StatusConflict, "این پلن ثبت‌نام فعال دارد و قابل غیرفعال‌سازی نیست")
 		default:
 			planError(c, http.StatusInternalServerError, "غیرفعال‌سازی پلن با خطا مواجه شد")
 		}
@@ -259,6 +260,29 @@ func (h *PlanHandler) Deactivate(c *gin.Context) {
 		"message": "Plan deactivated",
 		"code":    http.StatusOK,
 	})
+}
+
+// HardDelete handles DELETE /plans/:id/permanent — removes the plan completely
+// when no ACTIVE student is on it (enrollment history of former students goes with it).
+func (h *PlanHandler) HardDelete(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		planError(c, http.StatusBadRequest, "شناسه نامعتبر است")
+		return
+	}
+	n, err := h.service.HardDelete(c.Request.Context(), uint(id))
+	if err != nil {
+		switch err {
+		case services.ErrPlanNotFound:
+			planError(c, http.StatusNotFound, "پلن یافت نشد")
+		case services.ErrPlanHasStudents:
+			planError(c, http.StatusConflict, fmt.Sprintf("%d دانش‌آموز فعال روی این پلن هستند؛ ابتدا پلن آن‌ها را تغییر دهید", n))
+		default:
+			planError(c, http.StatusInternalServerError, "حذف کامل پلن با خطا مواجه شد")
+		}
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // Summary handles GET /plans/summary

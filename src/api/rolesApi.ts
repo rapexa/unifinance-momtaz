@@ -81,3 +81,28 @@ export async function deleteRole(id: number): Promise<void> {
   const data = await res.json().catch(() => null);
   if (!res.ok) apiFail(data, "حذف نقش با خطا مواجه شد", res);
 }
+
+export interface RoleDeleteCheckApi {
+  users_count: number;
+  students_count: number;
+  is_system: boolean;
+  can_delete: boolean;
+}
+
+export async function getRoleDeleteCheck(id: number): Promise<RoleDeleteCheckApi> {
+  const res = await authFetch(`${API_BASE}/roles/${id}/delete-check`, { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "بررسی نقش با خطا مواجه شد", res);
+  return data as RoleDeleteCheckApi;
+}
+
+/** Permanently removes a role without students; its users move to reassignRoleId. */
+export async function deleteRolePermanently(id: number, reassignRoleId?: number): Promise<void> {
+  const url = new URL(`${API_BASE}/roles/${id}/permanent`);
+  if (reassignRoleId) url.searchParams.set("reassign_role_id", String(reassignRoleId));
+  const res = await authFetch(url.toString(), { method: "DELETE", headers: getAuthHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    apiFail(data, "حذف کامل نقش با خطا مواجه شد", res);
+  }
+}

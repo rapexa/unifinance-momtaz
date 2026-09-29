@@ -16,6 +16,7 @@ var (
 	ErrPlanInUse         = errors.New("plan has active enrollments")
 	ErrInvalidPlanStatus = errors.New("invalid plan status")
 	ErrInvalidPlanType   = errors.New("invalid plan type")
+	ErrPlanHasStudents   = errors.New("plan has active students")
 )
 
 // PlanService encapsulates business logic for plans.
@@ -136,6 +137,31 @@ func (s *PlanService) Deactivate(ctx context.Context, id uint) error {
 		return err
 	}
 	return nil
+}
+
+// HardDelete permanently removes a plan that no ACTIVE student is currently on.
+// Enrollment history of former students is removed with it; payments are kept.
+func (s *PlanService) HardDelete(ctx context.Context, id uint) (int64, error) {
+	if _, err := s.repo.FindByID(ctx, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrPlanNotFound
+		}
+		return 0, err
+	}
+	n, err := s.repo.CountActiveStudentsOnPlan(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		return n, ErrPlanHasStudents
+	}
+	if err := s.repo.HardDelete(ctx, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrPlanNotFound
+		}
+		return 0, err
+	}
+	return 0, nil
 }
 
 // Summary returns aggregated stats for the plans page.

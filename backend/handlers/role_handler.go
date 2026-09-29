@@ -222,6 +222,70 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
+// DeleteCheck handles GET /roles/:id/delete-check
+func (h *RoleHandler) DeleteCheck(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+	check, err := h.service.DeleteCheck(c.Request.Context(), uint(id))
+	if err != nil {
+		if errorsIsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "نقش یافت نشد"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بررسی نقش"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"users_count":    check.UsersCount,
+		"students_count": check.StudentsCount,
+		"is_system":      check.IsSystem,
+		"can_delete":     !check.IsSystem && check.StudentsCount == 0,
+	})
+}
+
+// HardDelete handles DELETE /roles/:id/permanent?reassign_role_id=
+// Removes a role with no linked students; its users move to the replacement role.
+func (h *RoleHandler) HardDelete(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه نامعتبر است"})
+		return
+	}
+	var reassign *uint
+	if raw := c.Query("reassign_role_id"); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || v == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "نقش جایگزین نامعتبر است"})
+			return
+		}
+		r := uint(v)
+		reassign = &r
+	}
+	if err := h.service.HardDelete(c.Request.Context(), uint(id), reassign); err != nil {
+		switch err {
+		case services.ErrSystemRoleDelete:
+			c.JSON(http.StatusForbidden, gin.H{"error": "نقش سیستمی قابل حذف نیست"})
+		case services.ErrRoleHasStudents:
+			c.JSON(http.StatusConflict, gin.H{"error": "این نقش دانش‌آموز منتسب دارد؛ ابتدا دانش‌آموزان را به کاربر/نقش دیگری منتقل کنید"})
+		case services.ErrRoleNeedsReassign:
+			c.JSON(http.StatusConflict, gin.H{"error": "این نقش کاربر دارد؛ نقش جایگزین را برای کاربران انتخاب کنید"})
+		case services.ErrRoleInvalidReassign:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "نقش جایگزین نامعتبر است"})
+		default:
+			if errorsIsNotFound(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "نقش یافت نشد"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در حذف کامل نقش"})
+		}
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func errorsIsNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }

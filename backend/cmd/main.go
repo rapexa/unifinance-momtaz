@@ -206,6 +206,8 @@ func main() {
 		roles.GET("/:id", roleHandler.Get)
 		roles.PUT("/:id", roleHandler.Update)
 		roles.DELETE("/:id", roleHandler.Delete)
+		roles.GET("/:id/delete-check", roleHandler.DeleteCheck)
+		roles.DELETE("/:id/permanent", roleHandler.HardDelete)
 	}
 
 	// Plans
@@ -218,6 +220,7 @@ func main() {
 		plans.POST("", planHandler.Create)
 		plans.PUT("/:id", planHandler.Update)
 		plans.DELETE("/:id", planHandler.Deactivate)
+		plans.DELETE("/:id/permanent", planHandler.HardDelete)
 	}
 
 	// Payments

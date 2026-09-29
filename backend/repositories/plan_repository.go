@@ -17,6 +17,10 @@ type PlanRepository interface {
 	Update(ctx context.Context, plan *models.Plan, features []string) error
 	Deactivate(ctx context.Context, id uint) error
 	CountEnrollments(ctx context.Context, id uint) (int64, error)
+	// CountActiveStudentsOnPlan counts ACTIVE students whose current plan is this plan.
+	CountActiveStudentsOnPlan(ctx context.Context, id uint) (int64, error)
+	// HardDelete permanently removes the plan, its features and enrollment history.
+	HardDelete(ctx context.Context, id uint) error
 	UpdateActiveEnrollmentPricesForPlan(ctx context.Context, planID uint, priceCents int64) error
 	Stats(ctx context.Context) (totalPlans, activePlans, activeEnrollments, monthlyRevenueCents int64, err error)
 }
@@ -152,11 +156,44 @@ func (r *GormPlanRepository) CountEnrollments(ctx context.Context, id uint) (int
 	var count int64
 	if err := r.db.WithContext(ctx).
 		Model(&models.Enrollment{}).
-		Where("plan_id = ?", id).
+		Where("plan_id = ? AND status = ?", id, models.EnrollmentStatusActive).
 		Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *GormPlanRepository) CountActiveStudentsOnPlan(ctx context.Context, id uint) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&models.Student{}).
+		Where("current_plan_id = ? AND status = ?", id, models.StudentStatusActive).
+		Count(&n).Error
+	return n, err
+}
+
+func (r *GormPlanRepository) HardDelete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p models.Plan
+		if err := tx.Unscoped().First(&p, id).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Model(&models.Student{}).Where("current_plan_id = ?", id).
+			Update("current_plan_id", nil).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Model(&models.Payment{}).
+			Where("enrollment_id IN (?)", tx.Unscoped().Model(&models.Enrollment{}).Select("id").Where("plan_id = ?", id)).
+			Update("enrollment_id", nil).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("plan_id = ?", id).Delete(&models.Enrollment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("plan_id = ?", id).Delete(&models.PlanFeature{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&models.Plan{}, id).Error
+	})
 }
 
 // UpdateActiveEnrollmentPricesForPlan sets price_cents on all ACTIVE enrollments for the plan (after discount rules change).

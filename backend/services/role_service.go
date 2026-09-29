@@ -17,7 +17,17 @@ var (
 	ErrSystemRoleDelete    = errors.New("cannot delete system role")
 	ErrInvalidCompensation = errors.New("invalid compensation fields for selected kind")
 	ErrInvalidRoleCode     = errors.New("invalid role code; use 1-64 lowercase letters, numbers and underscores")
+	ErrRoleHasStudents     = errors.New("role has linked students")
+	ErrRoleNeedsReassign   = errors.New("role has users; choose a replacement role")
+	ErrRoleInvalidReassign = errors.New("invalid replacement role")
 )
+
+// RoleDeleteCheck describes whether a role can be removed permanently.
+type RoleDeleteCheck struct {
+	UsersCount    int64
+	StudentsCount int64
+	IsSystem      bool
+}
 
 var roleCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
@@ -221,6 +231,54 @@ func (s *RoleService) Delete(ctx context.Context, id uint) error {
 		return ErrRoleInUse
 	}
 	return s.repo.Delete(ctx, id)
+}
+
+// DeleteCheck reports users/students linked to a role (for the delete dialog).
+func (s *RoleService) DeleteCheck(ctx context.Context, id uint) (*RoleDeleteCheck, error) {
+	role, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	users, err := s.repo.CountUsers(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	students, err := s.repo.CountLinkedStudents(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &RoleDeleteCheck{UsersCount: users, StudentsCount: students, IsSystem: role.IsSystem}, nil
+}
+
+// HardDelete permanently removes a role that has no linked students. Users on the role
+// (if any) are moved to reassignTo, which is required in that case.
+func (s *RoleService) HardDelete(ctx context.Context, id uint, reassignTo *uint) error {
+	check, err := s.DeleteCheck(ctx, id)
+	if err != nil {
+		return err
+	}
+	if check.IsSystem {
+		return ErrSystemRoleDelete
+	}
+	if check.StudentsCount > 0 {
+		return ErrRoleHasStudents
+	}
+	if reassignTo != nil {
+		if *reassignTo == id {
+			return ErrRoleInvalidReassign
+		}
+		if _, err := s.repo.GetByID(ctx, *reassignTo); err != nil {
+			return ErrRoleInvalidReassign
+		}
+	}
+	var unscopedUsers int64
+	if err := s.repo.CountUsersUnscoped(ctx, id, &unscopedUsers); err != nil {
+		return err
+	}
+	if unscopedUsers > 0 && reassignTo == nil {
+		return ErrRoleNeedsReassign
+	}
+	return s.repo.HardDelete(ctx, id, reassignTo)
 }
 
 func (s *RoleService) List(ctx context.Context) ([]models.Role, error) {

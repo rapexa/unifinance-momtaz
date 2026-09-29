@@ -19,11 +19,14 @@ import {
   Users,
   Check,
   Trash2,
+  PowerOff,
 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   createPlan,
   deactivatePlan,
+  deletePlanPermanently,
   getPlansSummary,
   listPlans,
   PlanApi,
@@ -101,6 +104,23 @@ const Plans = () => {
       queryClient.invalidateQueries({ queryKey: ["plans"] });
       queryClient.invalidateQueries({ queryKey: ["plans-summary"] });
       queryClient.invalidateQueries({ queryKey: ["plans-active"] });
+      toast({ title: "پلن غیرفعال شد" });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "خطا", description: err.message });
+    },
+  });
+
+  const hardDeleteMutation = useMutation({
+    mutationFn: (id: number) => deletePlanPermanently(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["plans"] });
+      queryClient.invalidateQueries({ queryKey: ["plans-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["plans-active"] });
+      toast({ title: "پلن به‌طور کامل حذف شد" });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "حذف کامل انجام نشد", description: err.message });
     },
   });
 
@@ -257,13 +277,35 @@ const Plans = () => {
                   <Button variant="ghost" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" onClick={() => openEdit(plan)}>
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
+                  {plan.is_active && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 text-muted-foreground sm:h-8 sm:w-8"
+                      title="غیرفعال کردن"
+                      disabled={deactivateMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm("آیا از غیرفعال کردن این پلن مطمئن هستید؟")) {
+                          deactivateMutation.mutate(plan.id);
+                        }
+                      }}
+                    >
+                      <PowerOff className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-10 w-10 text-destructive sm:h-8 sm:w-8"
+                    title="حذف کامل"
+                    disabled={hardDeleteMutation.isPending}
                     onClick={() => {
-                      if (window.confirm("آیا از غیرفعال کردن این پلن مطمئن هستید؟")) {
-                        deactivateMutation.mutate(plan.id);
+                      if (
+                        window.confirm(
+                          `پلن «${plan.name}» به‌طور کامل حذف شود؟ این کار برگشت‌پذیر نیست. (پلنی که دانش‌آموز فعال دارد حذف نمی‌شود.)`,
+                        )
+                      ) {
+                        hardDeleteMutation.mutate(plan.id);
                       }
                     }}
                   >

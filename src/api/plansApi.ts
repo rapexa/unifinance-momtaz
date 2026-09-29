@@ -153,3 +153,15 @@ export async function deactivatePlan(id: number): Promise<void> {
     apiFail(data, "غیرفعال کردن پلن با خطا مواجه شد", res);
   }
 }
+
+/** Permanently removes a plan (allowed when no active student is on it). */
+export async function deletePlanPermanently(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/plans/${id}/permanent`, {
+    method: "DELETE",
+    headers: { ...getAuthHeaders() },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    apiFail(data, "حذف کامل پلن با خطا مواجه شد", res);
+  }
+}

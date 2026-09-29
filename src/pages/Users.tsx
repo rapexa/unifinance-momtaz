@@ -46,11 +46,11 @@ import {
 import {
   listRoles,
   createRole,
-  deleteRole,
   type RoleApi,
   type CompensationKind,
   type CreateRolePayload,
 } from "@/api/rolesApi";
+import { DeleteRoleDialog } from "@/components/users/DeleteRoleDialog";
 import { PERMISSIONS, type PermissionCode } from "@/api/settingsApi";
 import {
   AlertDialog,
@@ -349,15 +349,6 @@ const Users = () => {
       queryClient.invalidateQueries({ queryKey: ["user", "edit", id] });
       queryClient.invalidateQueries({ queryKey: ["advisors"] });
       setEditUserId(null);
-    },
-  });
-
-  const deleteRoleMutation = useMutation({
-    mutationFn: (id: number) => deleteRole(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-      queryClient.invalidateQueries({ queryKey: ["users-summary"] });
-      setDeleteRoleTarget(null);
     },
   });
 
@@ -1201,35 +1192,8 @@ const Users = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete role confirm */}
-      <AlertDialog open={deleteRoleTarget != null} onOpenChange={(open) => !open && setDeleteRoleTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>حذف نقش</AlertDialogTitle>
-            <AlertDialogDescription>
-              آیا از حذف نقش «{deleteRoleTarget?.name}» اطمینان دارید؟ این نقش فقط در صورتی حذف می‌شود که هیچ کاربری به آن تعلق نداشته باشد.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteRoleMutation.isError && (
-            <p className="text-xs text-destructive px-1">
-              {(deleteRoleMutation.error as Error)?.message || "حذف نقش با خطا مواجه شد"}
-            </p>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => deleteRoleMutation.reset()}>انصراف</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(e) => {
-                e.preventDefault();
-                if (deleteRoleTarget) deleteRoleMutation.mutate(deleteRoleTarget.id);
-              }}
-              disabled={deleteRoleMutation.isPending}
-            >
-              {deleteRoleMutation.isPending ? "در حال حذف..." : "حذف نقش"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Delete role (permanent) */}
+      <DeleteRoleDialog role={deleteRoleTarget} roles={roles} onClose={() => setDeleteRoleTarget(null)} />
 
       {/* Delete (deactivate) confirm */}
       <AlertDialog
