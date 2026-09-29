@@ -98,6 +98,7 @@ func main() {
 	bankAccountHandler := handlers.NewBankAccountHandler(bankAccountService)
 	expenseHandler := handlers.NewExpenseHandler(expenseService)
 	licenseHandler := handlers.NewLicenseHandler(licenseService)
+	leadHandler := handlers.NewLeadHandler(services.NewLeadService(db, melipayamakService, cfg.SaaS.NotifyPhone), cfg)
 	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
 	// Gin engine (custom recovery logs panics in Persian-friendly JSON)
@@ -145,6 +146,10 @@ func main() {
 		publicPayments.POST("/:id/pay", paymentGatewayHandler.InitiatePayment)
 	}
 
+	// Public sales page: site info and demo requests (the latter only in vendor mode).
+	api.GET("/public/site", leadHandler.SiteInfo)
+	api.POST("/public/leads", leadHandler.Submit)
+
 	// Public auth routes
 	authGroup := api.Group("/auth")
 	{
@@ -164,6 +169,11 @@ func main() {
 
 	protected.GET("/license", licenseHandler.Get)
 	protected.PUT("/license", licenseHandler.Update)
+
+	// Vendor's demo-request inbox (saas.vendor only).
+	protected.GET("/leads", leadHandler.List)
+	protected.PATCH("/leads/:id", leadHandler.Update)
+	protected.DELETE("/leads/:id", leadHandler.Delete)
 
 	// current user endpoint
 	protected.GET("/users/me", func(c *gin.Context) {

@@ -17,6 +17,9 @@ import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import PayPage from "./pages/PayPage";
 import PaymentResult from "./pages/PaymentResult";
+import Home from "./pages/Home";
+import Landing from "./pages/Landing";
+import Leads from "./pages/Leads";
 
 const queryClient = new QueryClient();
 
@@ -27,7 +30,8 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/sale" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Index />} />
           <Route path="/users" element={<Users />} />
@@ -39,6 +43,7 @@ const App = () => (
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/leads" element={<Leads />} />
           {/* Public payment pages – no auth required */}
           <Route path="/pay/:id" element={<PayPage />} />
           <Route path="/paymentResult/:id" element={<PaymentResult />} />

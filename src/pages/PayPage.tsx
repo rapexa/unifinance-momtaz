@@ -5,6 +5,7 @@ import { CreditCard, User, Phone, FileText, Calendar, AlertCircle, Loader2, Chec
 import { formatCardNumber } from "@/api/bankAccountsApi";
 import { getPublicPayment, initiatePayment } from "@/api/publicPaymentApi";
 import { formatIsoDateShamsi } from "@/lib/jalaliDate";
+import { useSiteInfo } from "@/hooks/useSiteInfo";
 
 function formatToman(rials: number): string {
   const tomans = Math.round(rials / 10);
@@ -19,6 +20,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const PayPage = () => {
+  const { data: site } = useSiteInfo();
   const { id } = useParams<{ id: string }>();
   const [isPaying, setIsPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -56,7 +58,7 @@ const PayPage = () => {
           <CreditCard size={32} />
         </div>
         <h1 className="text-2xl font-bold text-slate-800">پرداخت آنلاین</h1>
-        <p className="text-slate-500 text-sm mt-1">مجموعه مشاوره ممتاز</p>
+        {site?.organization_name && <p className="text-slate-500 text-sm mt-1">{site.organization_name}</p>}
       </div>
 
       {/* Card */}

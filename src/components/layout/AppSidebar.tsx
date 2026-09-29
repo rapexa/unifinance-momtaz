@@ -13,8 +13,7 @@ import {
   ChevronRight,
   Menu,
   Building2,
-  LogOut,
-} from "lucide-react";
+  LogOut, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useSiteInfo } from "@/hooks/useSiteInfo";
 import { PERMISSIONS, getUploadsBase, type PermissionCode } from "@/api/settingsApi";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -45,6 +45,8 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   permission: PermissionCode;
+  /** Only on the vendor site, for full-access admins. */
+  vendorOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -57,6 +59,7 @@ const navItems: NavItem[] = [
   { title: "یادآوری‌ها", href: "/reminders", icon: Bell, permission: PERMISSIONS.REMINDERS },
   { title: "گزارش‌ها", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS },
   { title: "مدیریت سال مالی", href: "/settings", icon: Settings, permission: PERMISSIONS.SETTINGS },
+  { title: "درخواست‌های دمو", href: "/leads", icon: Inbox, permission: PERMISSIONS.SETTINGS, vendorOnly: true },
 ];
 
 function hasPermission(permissions: string[] | undefined, permission: PermissionCode): boolean {
@@ -70,6 +73,7 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, isLoading, isError, logout } = useCurrentUser();
+  const { data: site } = useSiteInfo();
 
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "کاربر"
@@ -126,7 +130,7 @@ export function AppSidebar() {
             {!desktopCollapsed && (
               <div className="animate-fade-in">
                 <h1 className="text-sm font-bold text-sidebar-foreground">سیستم حسابداری</h1>
-                <p className="text-xs text-sidebar-muted">گروه مشاوره</p>
+                <p className="max-w-[10rem] truncate text-xs text-sidebar-muted">{site?.organization_name || "گروه مشاوره"}</p>
               </div>
             )}
           </div>
@@ -147,6 +151,7 @@ export function AppSidebar() {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems
             .filter((item) => hasPermission(profile?.permissions, item.permission))
+            .filter((item) => !item.vendorOnly || (site?.vendor === true && profile?.full_access === true))
             .map((item) => {
             const isActive = location.pathname === item.href;
             return (

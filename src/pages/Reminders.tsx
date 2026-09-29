@@ -89,7 +89,7 @@ const SAMPLE_VARS: Record<string, string> = {
   "{مبلغ}": "۲٬۵۰۰٬۰۰۰",
   "{تاریخ}": "۱۴۰۵/۰۷/۲۰",
   "{روز}": "۳",
-  "{مرکز}": "گروه مشاوره ممتاز",
+  "{مرکز}": "نام مجموعه شما",
 };
 
 function renderSample(body: string): string {

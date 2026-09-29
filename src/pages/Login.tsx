@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Lock, Mail } from "lucide-react";
 import { login as loginApi } from "@/api/authApi";
 import { todayJalaliYear } from "@/lib/jalaliDate";
+import { useSiteInfo } from "@/hooks/useSiteInfo";
 
 const Login = () => {
+  const { data: site } = useSiteInfo();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -121,7 +123,8 @@ const Login = () => {
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          © {todayJalaliYear().toLocaleString("fa-IR")} یونی‌فاینانس ممتاز – داشبورد مدیریتی
+          © {todayJalaliYear().toLocaleString("fa-IR")} {site?.product_name || "یونی‌فایننس"}
+          {site?.organization_name ? ` – ${site.organization_name}` : " – داشبورد مدیریتی"}
         </p>
       </div>
     </div>
