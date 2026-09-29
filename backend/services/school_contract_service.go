@@ -32,17 +32,37 @@ type CreateSchoolContractParams struct {
 	UnitPriceCents int64
 	Notes          string
 	StartDate      *time.Time
+	EndDate        *time.Time
+	PaymentType    string
+	Term           string
 	Status         string
 }
 
-type UpdateSchoolContractParams struct {
-	SchoolName       string
-	StudentCount     int
-	TotalAmountCents int64
-	UnitPriceCents   int64
-	Notes            string
-	StartDate        *time.Time
-	Status           string
+type UpdateSchoolContractParams = CreateSchoolContractParams
+
+// normalizeSchoolPayment validates payment type / term / period.
+func normalizeSchoolPayment(p *CreateSchoolContractParams) error {
+	pt := strings.ToUpper(strings.TrimSpace(p.PaymentType))
+	if pt == "" {
+		pt = models.SchoolPaymentAnnual
+	}
+	switch pt {
+	case models.SchoolPaymentMonthly, models.SchoolPaymentAnnual:
+		p.Term = ""
+	case models.SchoolPaymentTerm:
+		term := strings.ToUpper(strings.TrimSpace(p.Term))
+		if term != models.SchoolTermSummer && term != models.SchoolTermAcademic {
+			return errors.New("برای پرداخت دوره‌ای، دوره (تابستان یا مهر تا خرداد) را انتخاب کنید")
+		}
+		p.Term = term
+	default:
+		return errors.New("نوع پرداخت قرارداد نامعتبر است")
+	}
+	p.PaymentType = pt
+	if p.StartDate != nil && p.EndDate != nil && p.EndDate.Before(*p.StartDate) {
+		return errors.New("تاریخ پایان قرارداد باید بعد از تاریخ شروع باشد")
+	}
+	return nil
 }
 
 // resolveContractTotal prefers explicit total; falls back to count×unit for legacy clients.
@@ -76,6 +96,9 @@ func (s *SchoolContractService) Create(ctx context.Context, p CreateSchoolContra
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeSchoolPayment(&p); err != nil {
+		return nil, err
+	}
 	status := models.SchoolContractStatusActive
 	if st := strings.ToUpper(strings.TrimSpace(p.Status)); st != "" {
 		status = models.SchoolContractStatus(st)
@@ -87,6 +110,9 @@ func (s *SchoolContractService) Create(ctx context.Context, p CreateSchoolContra
 		TotalAmountCents: total,
 		Notes:            strings.TrimSpace(p.Notes),
 		StartDate:        p.StartDate,
+		EndDate:          p.EndDate,
+		PaymentType:      p.PaymentType,
+		Term:             p.Term,
 		Status:           status,
 	}
 	c.Normalize()
@@ -108,12 +134,18 @@ func (s *SchoolContractService) Update(ctx context.Context, id uint, p UpdateSch
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeSchoolPayment(&p); err != nil {
+		return nil, err
+	}
 	c.SchoolName = strings.TrimSpace(p.SchoolName)
 	c.StudentCount = p.StudentCount
 	c.UnitPriceCents = unit
 	c.TotalAmountCents = total
 	c.Notes = strings.TrimSpace(p.Notes)
 	c.StartDate = p.StartDate
+	c.EndDate = p.EndDate
+	c.PaymentType = p.PaymentType
+	c.Term = p.Term
 	if st := strings.ToUpper(strings.TrimSpace(p.Status)); st != "" {
 		c.Status = models.SchoolContractStatus(st)
 	}

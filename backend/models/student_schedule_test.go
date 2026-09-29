@@ -71,3 +71,16 @@ func TestBillingPosition_SingleSession(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestSchoolContract_InstallmentsFromPeriod(t *testing.T) {
+	start := jd(1405, 7, 1)
+	end := jd(1406, 3, 31) // Mehr .. Khordad = 9 months
+	c := &SchoolContract{TotalAmountCents: 90_000_000, StartDate: &start, EndDate: &end, PaymentType: SchoolPaymentMonthly}
+	if c.DurationMonths() != 9 || c.InstallmentCents() != 10_000_000 {
+		t.Fatalf("months=%d installment=%d", c.DurationMonths(), c.InstallmentCents())
+	}
+	c.PaymentType = SchoolPaymentTerm
+	if c.InstallmentCents() != 90_000_000 {
+		t.Fatalf("term installment=%d", c.InstallmentCents())
+	}
+}

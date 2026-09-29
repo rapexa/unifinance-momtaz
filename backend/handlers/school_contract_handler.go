@@ -40,7 +40,13 @@ type SchoolContractDTO struct {
 	Status                     string     `json:"status"`
 	Notes                      string     `json:"notes,omitempty"`
 	StartDate                  *time.Time `json:"start_date,omitempty"`
-	CreatedAt                  time.Time  `json:"created_at"`
+	EndDate                    *time.Time `json:"end_date,omitempty"`
+	// PaymentType: MONTHLY | TERM | ANNUAL; Term: SUMMER | ACADEMIC (TERM only).
+	PaymentType      string    `json:"payment_type"`
+	Term             string    `json:"term,omitempty"`
+	DurationMonths   int       `json:"duration_months"`
+	InstallmentCents int64     `json:"installment_cents"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func toSchoolContractDTO(
@@ -67,8 +73,20 @@ func toSchoolContractDTO(
 		Status:                     string(c.Status),
 		Notes:                      c.Notes,
 		StartDate:                  c.StartDate,
+		EndDate:                    c.EndDate,
+		PaymentType:                paymentTypeOrDefault(c.PaymentType),
+		Term:                       c.Term,
+		DurationMonths:             c.DurationMonths(),
+		InstallmentCents:           c.InstallmentCents(),
 		CreatedAt:                  c.CreatedAt,
 	}
+}
+
+func paymentTypeOrDefault(pt string) string {
+	if pt == "" {
+		return models.SchoolPaymentAnnual
+	}
+	return pt
 }
 
 // schoolContractBody accepts total_amount_cents (preferred) or legacy unit_price_cents.
@@ -79,6 +97,9 @@ type schoolContractBody struct {
 	UnitPriceCents   int64  `json:"unit_price_cents" binding:"omitempty,gte=0"`
 	Notes            string `json:"notes" binding:"omitempty,max=1000"`
 	StartDateStr     string `json:"start_date" binding:"omitempty"`
+	EndDateStr       string `json:"end_date" binding:"omitempty"`
+	PaymentType      string `json:"payment_type" binding:"omitempty,oneof=MONTHLY TERM ANNUAL"`
+	Term             string `json:"term" binding:"omitempty,oneof=SUMMER ACADEMIC"`
 	Status           string `json:"status" binding:"omitempty,oneof=ACTIVE INACTIVE SETTLED"`
 }
 
@@ -185,6 +206,11 @@ func (h *SchoolContractHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	end, err := parseOptionalDate(body.EndDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	created, err := h.service.Create(c.Request.Context(), services.CreateSchoolContractParams{
 		SchoolName:       body.SchoolName,
 		StudentCount:     body.StudentCount,
@@ -192,6 +218,9 @@ func (h *SchoolContractHandler) Create(c *gin.Context) {
 		UnitPriceCents:   body.UnitPriceCents,
 		Notes:            body.Notes,
 		StartDate:        start,
+		EndDate:          end,
+		PaymentType:      body.PaymentType,
+		Term:             body.Term,
 		Status:           body.Status,
 	})
 	if err != nil {
@@ -217,6 +246,11 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	end, err := parseOptionalDate(body.EndDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	updated, err := h.service.Update(c.Request.Context(), uint(id), services.UpdateSchoolContractParams{
 		SchoolName:       body.SchoolName,
 		StudentCount:     body.StudentCount,
@@ -224,6 +258,9 @@ func (h *SchoolContractHandler) Update(c *gin.Context) {
 		UnitPriceCents:   body.UnitPriceCents,
 		Notes:            body.Notes,
 		StartDate:        start,
+		EndDate:          end,
+		PaymentType:      body.PaymentType,
+		Term:             body.Term,
 		Status:           body.Status,
 	})
 	if err != nil {

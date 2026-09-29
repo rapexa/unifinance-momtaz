@@ -64,6 +64,7 @@ import {
   type SchoolContractApi,
 } from "@/api/schoolContractsApi";
 import { SchoolContractsSection } from "@/components/students/SchoolContractsSection";
+import { SchoolContractForm } from "@/components/students/SchoolContractForm";
 import { listAdvisors, listAllUsers, UserApi } from "@/api/usersApi";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -857,10 +858,6 @@ const Students = () => {
   const [registrationChannel, setRegistrationChannel] = useState<RegistrationChannel>("PRIVATE");
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("IN_PERSON");
   const [createSchoolContractId, setCreateSchoolContractId] = useState("");
-  const [contractSchoolName, setContractSchoolName] = useState("");
-  const [contractStudentCount, setContractStudentCount] = useState("");
-  const [contractTotalAmount, setContractTotalAmount] = useState("");
-  const [contractNotes, setContractNotes] = useState("");
   const [createError, setCreateError] = useState("");
   const [createSchoolError, setCreateSchoolError] = useState("");
 
@@ -882,16 +879,10 @@ const Students = () => {
 
   useEffect(() => {
     if (isCreateSchoolOpen) {
-      setContractSchoolName("");
-      setContractStudentCount("");
-      setContractTotalAmount("");
-      setContractNotes("");
       setCreateSchoolError("");
     }
   }, [isCreateSchoolOpen]);
 
-  const contractCountNum = parseLocalizedInt(contractStudentCount);
-  const contractTotalTomans = parseLocalizedInt(contractTotalAmount);
 
   const { data: activeSchoolContracts = [] } = useQuery({
     queryKey: ["school-contracts", "all-active"],
@@ -937,10 +928,6 @@ const Students = () => {
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       setIsCreateSchoolOpen(false);
       setListTab("schools");
-      setContractSchoolName("");
-      setContractStudentCount("");
-      setContractTotalAmount("");
-      setContractNotes("");
       setCreateSchoolError("");
     },
     onError: (e: Error) => setCreateSchoolError(e.message),
@@ -1570,7 +1557,7 @@ const Students = () => {
           ))}
         </div>
       ) : null)}
-      {!isLoading && !isError && students.length > 0 && viewMode === "list" && (
+      {listTab === "private" && !isLoading && !isError && students.length > 0 && viewMode === "list" && (
         <div className="card-elevated overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -2363,87 +2350,21 @@ const Students = () => {
 
       {/* Create school dialog */}
       <Dialog open={isCreateSchoolOpen} onOpenChange={setIsCreateSchoolOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>افزودن مدرسه</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مدرسه</label>
-              <Input
-                value={contractSchoolName}
-                onChange={(e) => setContractSchoolName(e.target.value)}
-                placeholder="مثلاً شهید بهشتی"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">تعداد دانش‌آموز</label>
-                <Input
-                  inputMode="numeric"
-                  dir="ltr"
-                  value={contractStudentCount}
-                  onChange={(e) => setContractStudentCount(formatGroupedFaIntInput(e.target.value))}
-                  placeholder="مثلاً ۱۰"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  مبلغ کل قرارداد (تومان)
-                </label>
-                <Input
-                  inputMode="numeric"
-                  dir="ltr"
-                  value={contractTotalAmount}
-                  onChange={(e) => setContractTotalAmount(formatGroupedFaIntInput(e.target.value))}
-                  placeholder="مثلاً ۱۰۰,۰۰۰,۰۰۰"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">توضیحات</label>
-              <Input
-                value={contractNotes}
-                onChange={(e) => setContractNotes(e.target.value)}
-                placeholder="اختیاری"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsCreateSchoolOpen(false)}
-              disabled={createSchoolMutation.isPending}
-            >
-              انصراف
-            </Button>
-            <Button
-              disabled={
-                createSchoolMutation.isPending ||
-                !contractSchoolName.trim() ||
-                contractCountNum <= 0 ||
-                contractTotalTomans <= 0
-              }
-              onClick={() => {
-                setCreateSchoolError("");
-                createSchoolMutation.mutate({
-                  school_name: contractSchoolName.trim(),
-                  student_count: contractCountNum,
-                  total_amount_cents: contractTotalTomans * 10,
-                  notes: contractNotes.trim() || undefined,
-                });
-              }}
-            >
-              {createSchoolMutation.isPending ? "در حال ثبت..." : "ثبت مدرسه"}
-            </Button>
-          </DialogFooter>
-          {(createSchoolMutation.isError || createSchoolError) && (
-            <p className="pt-2 text-xs text-destructive">
-              {createSchoolError ||
-                (createSchoolMutation.error as Error)?.message ||
-                "ثبت مدرسه با خطا مواجه شد"}
-            </p>
-          )}
+          <SchoolContractForm
+            key={isCreateSchoolOpen ? "open" : "closed"}
+            submitLabel="ثبت مدرسه"
+            isPending={createSchoolMutation.isPending}
+            error={createSchoolError}
+            onSubmit={(payload) => {
+              setCreateSchoolError("");
+              createSchoolMutation.mutate(payload);
+            }}
+            onCancel={() => setIsCreateSchoolOpen(false)}
+          />
         </DialogContent>
       </Dialog>
     </MainLayout>

@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -11,14 +10,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { formatGroupedFaIntInput, parseLocalizedInt } from "@/lib/numberInput";
-import {
   deleteSchoolContract,
   listSchoolContracts,
   updateSchoolContract,
@@ -26,6 +17,9 @@ import {
   type UpdateSchoolContractPayload,
 } from "@/api/schoolContractsApi";
 import { listStudents, type StudentApi } from "@/api/studentsApi";
+import { SchoolContractForm } from "@/components/students/SchoolContractForm";
+import { schoolContractPeriodLabel } from "@/lib/schoolContracts";
+import { SCHOOL_PAYMENT_TYPE_LABELS } from "@/api/schoolContractsApi";
 
 function EditSchoolContractForm({
   contract,
@@ -35,21 +29,9 @@ function EditSchoolContractForm({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [schoolName, setSchoolName] = useState(contract.school_name);
-  const [studentCount, setStudentCount] = useState(String(contract.student_count));
-  const [totalAmount, setTotalAmount] = useState(
-    formatGroupedFaIntInput(String(Math.round((contract.total_amount_cents || 0) / 10))),
-  );
-  const [notes, setNotes] = useState(contract.notes || "");
-  const [status, setStatus] = useState(contract.status || "ACTIVE");
   const [error, setError] = useState("");
-
-  const count = parseLocalizedInt(studentCount);
-  const totalTomans = parseLocalizedInt(totalAmount);
-
   const mutation = useMutation({
-    mutationFn: (payload: UpdateSchoolContractPayload) =>
-      updateSchoolContract(contract.id, payload),
+    mutationFn: (payload: UpdateSchoolContractPayload) => updateSchoolContract(contract.id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["school-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
@@ -57,73 +39,16 @@ function EditSchoolContractForm({
     },
     onError: (e: Error) => setError(e.message),
   });
-
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">نام مدرسه</label>
-        <Input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} />
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">تعداد دانش‌آموز</label>
-          <Input
-            inputMode="numeric"
-            dir="ltr"
-            value={studentCount}
-            onChange={(e) => setStudentCount(formatGroupedFaIntInput(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            مبلغ کل قرارداد (تومان)
-          </label>
-          <Input
-            inputMode="numeric"
-            dir="ltr"
-            value={totalAmount}
-            onChange={(e) => setTotalAmount(formatGroupedFaIntInput(e.target.value))}
-          />
-        </div>
-      </div>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">وضعیت</label>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ACTIVE">فعال</SelectItem>
-            <SelectItem value="INACTIVE">غیرفعال</SelectItem>
-            <SelectItem value="SETTLED">تسویه</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">توضیحات</label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
-          انصراف
-        </Button>
-        <Button
-          disabled={mutation.isPending || !schoolName.trim() || count <= 0 || totalTomans <= 0}
-          onClick={() =>
-            mutation.mutate({
-              school_name: schoolName.trim(),
-              student_count: count,
-              total_amount_cents: totalTomans * 10,
-              notes: notes.trim() || undefined,
-              status,
-            })
-          }
-        >
-          {mutation.isPending ? "در حال ذخیره..." : "ذخیره"}
-        </Button>
-      </DialogFooter>
-    </div>
+    <SchoolContractForm
+      initial={contract}
+      showStatus
+      submitLabel="ذخیره"
+      isPending={mutation.isPending}
+      error={error}
+      onSubmit={(payload) => mutation.mutate(payload)}
+      onCancel={onClose}
+    />
   );
 }
 
@@ -190,21 +115,21 @@ function SchoolStudentsPanel({
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                   در حال بارگذاری...
                 </td>
               </tr>
             )}
             {isError && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-destructive">
+                <td colSpan={7} className="px-3 py-8 text-center text-destructive">
                   {(error as Error)?.message || "خطا در دریافت دانش‌آموزان"}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && students.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                   هنوز دانش‌آموزی برای این مدرسه ثبت نشده است.
                 </td>
               </tr>
@@ -299,6 +224,9 @@ export function SchoolContractsSection({
             <tr>
               <th className="px-3 py-2 text-right font-medium">مدرسه</th>
               <th className="px-3 py-2 text-right font-medium">ثبت‌شده / توافق</th>
+              <th className="px-3 py-2 text-right font-medium">مبلغ هر نفر</th>
+              <th className="px-3 py-2 text-right font-medium">مبلغ کل</th>
+              <th className="px-3 py-2 text-right font-medium">نوع پرداخت / مدت</th>
               <th className="px-3 py-2 text-right font-medium">وضعیت</th>
               <th className="px-3 py-2 text-right font-medium">عملیات</th>
             </tr>
@@ -306,21 +234,21 @@ export function SchoolContractsSection({
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                   در حال بارگذاری...
                 </td>
               </tr>
             )}
             {isError && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-destructive">
+                <td colSpan={7} className="px-3 py-8 text-center text-destructive">
                   {(error as Error)?.message || "خطا در دریافت مدارس"}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && rows.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                   {emptyHint}
                 </td>
               </tr>
@@ -336,6 +264,15 @@ export function SchoolContractsSection({
                   <td className="px-3 py-2 font-medium">{c.school_name}</td>
                   <td className="px-3 py-2 number-display">
                     {registered.toLocaleString("fa-IR")} / {c.student_count.toLocaleString("fa-IR")}
+                  </td>
+                  <td className="px-3 py-2 number-display">
+                    {c.unit_price_cents ? Math.round(c.unit_price_cents / 10).toLocaleString("fa-IR") : "—"}
+                  </td>
+                  <td className="px-3 py-2 number-display">
+                    {Math.round((c.total_amount_cents || 0) / 10).toLocaleString("fa-IR")}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {SCHOOL_PAYMENT_TYPE_LABELS[c.payment_type ?? "ANNUAL"]} · {schoolContractPeriodLabel(c)}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {c.status === "ACTIVE" ? "فعال" : c.status === "SETTLED" ? "تسویه" : "غیرفعال"}
@@ -382,7 +319,7 @@ export function SchoolContractsSection({
       )}
 
       <Dialog open={!!editContract} onOpenChange={(o) => !o && setEditContract(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>ویرایش مدرسه</DialogTitle>
           </DialogHeader>

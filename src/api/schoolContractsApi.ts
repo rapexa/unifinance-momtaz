@@ -6,7 +6,7 @@ export interface SchoolContractApi {
   student_count: number;
   /** تعداد دانش‌آموزان ثبت‌شده زیر این قرارداد */
   registered_student_count?: number;
-  /** @deprecated دیگر منبع حقیقت نیست؛ ترجیح با total_amount_cents */
+  /** مبلغ هر دانش‌آموز */
   unit_price_cents?: number;
   total_amount_cents: number;
   /** جمع پرداخت‌های PAID دانش‌آموزان همین مدرسه */
@@ -25,8 +25,30 @@ export interface SchoolContractApi {
   status: string;
   notes?: string;
   start_date?: string | null;
+  end_date?: string | null;
+  /** MONTHLY ماهانه | TERM دوره‌ای | ANNUAL سالانه */
+  payment_type?: SchoolPaymentType;
+  /** برای دوره‌ای: SUMMER تابستان | ACADEMIC مهر تا خرداد */
+  term?: SchoolTerm | "";
+  duration_months?: number;
+  /** مبلغ هر قسط (ماهانه = کل ÷ ماه‌ها) */
+  installment_cents?: number;
   created_at: string;
 }
+
+export type SchoolPaymentType = "MONTHLY" | "TERM" | "ANNUAL";
+export type SchoolTerm = "SUMMER" | "ACADEMIC";
+
+export const SCHOOL_PAYMENT_TYPE_LABELS: Record<SchoolPaymentType, string> = {
+  MONTHLY: "ماهانه",
+  TERM: "دوره‌ای",
+  ANNUAL: "سالانه",
+};
+
+export const SCHOOL_TERM_LABELS: Record<SchoolTerm, string> = {
+  SUMMER: "دوره تابستان (تیر تا شهریور)",
+  ACADEMIC: "دوره تحصیلی (مهر تا خرداد)",
+};
 
 export interface PaginatedSchoolContractsResponse {
   data: SchoolContractApi[];
@@ -51,8 +73,13 @@ export interface CreateSchoolContractPayload {
   student_count: number;
   /** مبلغ کل قرارداد (واحد داخلی API؛ تومان × ۱۰) */
   total_amount_cents: number;
+  /** مبلغ هر دانش‌آموز */
+  unit_price_cents?: number;
   notes?: string;
   start_date?: string;
+  end_date?: string;
+  payment_type?: SchoolPaymentType;
+  term?: SchoolTerm;
   status?: string;
 }
 
