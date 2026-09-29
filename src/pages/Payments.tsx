@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -308,6 +309,16 @@ const Payments = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Dashboard quick action «ثبت دریافت» links here with ?new=1.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setIsCreateOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("new");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [isLinkOpen, setIsLinkOpen] = useState(false);
   const [linkPaymentId, setLinkPaymentId] = useState<number | null>(null);
   const [linkResult, setLinkResult] = useState<{

@@ -8,6 +8,7 @@ import { RecentPaymentsTable } from "@/components/dashboard/RecentPaymentsTable"
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { DebtAlerts } from "@/components/dashboard/DebtAlerts";
 import { QuickActions } from "@/components/dashboard/QuickActions";
+import { FinanceDashboard } from "@/components/dashboard/FinanceDashboard";
 import { getDashboardSummary, getRevenueTrend } from "@/api/dashboardApi";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PERMISSIONS } from "@/api/settingsApi";
@@ -42,20 +43,33 @@ const Dashboard = () => {
     }
   }, [profile, navigate]);
 
+  // Admins (full access) get the finance dashboard; scoped users keep the simple one.
+  const isAdmin = profile?.full_access === true;
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: () => getDashboardSummary({ recent_limit: 5, alerts_limit: 5 }),
+    enabled: !!profile && !isAdmin,
   });
 
   const { data: trendData = [], isLoading: trendLoading } = useQuery({
     queryKey: ["dashboard-revenue-trend"],
     queryFn: () => getRevenueTrend({ months: 6 }),
+    enabled: !!profile && !isAdmin,
   });
 
   const kpis = summary?.kpis;
   const totalDebtCents =
     kpis?.student_debt_cents ??
     (kpis?.pending_debt_cents ?? 0) + (kpis?.overdue_debt_cents ?? 0);
+
+  if (isAdmin) {
+    return (
+      <MainLayout title="داشبورد" subtitle="خلاصه وضعیت مالی سیستم">
+        <FinanceDashboard />
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="داشبورد" subtitle="خلاصه وضعیت مالی سیستم">

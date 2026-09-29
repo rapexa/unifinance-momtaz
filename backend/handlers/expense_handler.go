@@ -29,6 +29,9 @@ type CostCenterDTO struct {
 	IsSystem    bool   `json:"is_system"`
 	IsActive    bool   `json:"is_active"`
 	SortOrder   int    `json:"sort_order"`
+	// RecurringAmountCents / DueDay: optional monthly amount due on a Jalali day (e.g. rent).
+	RecurringAmountCents int64 `json:"recurring_amount_cents"`
+	DueDay               int   `json:"due_day"`
 }
 
 type CostCenterTotalDTO struct {
@@ -56,6 +59,7 @@ func toCostCenterDTO(c models.CostCenter) CostCenterDTO {
 	return CostCenterDTO{
 		ID: c.ID, Name: c.Name, Kind: c.Kind, Description: c.Description,
 		IsSystem: c.IsSystem, IsActive: c.IsActive, SortOrder: c.SortOrder,
+		RecurringAmountCents: c.RecurringAmountCents, DueDay: c.DueDay,
 	}
 }
 
@@ -162,10 +166,12 @@ func (h *ExpenseHandler) Lines(c *gin.Context) {
 }
 
 type costCenterRequest struct {
-	Name        string `json:"name" binding:"required,max=120"`
-	Description string `json:"description" binding:"max=500"`
-	IsActive    *bool  `json:"is_active"`
-	SortOrder   int    `json:"sort_order"`
+	Name                 string `json:"name" binding:"required,max=120"`
+	Description          string `json:"description" binding:"max=500"`
+	IsActive             *bool  `json:"is_active"`
+	SortOrder            int    `json:"sort_order"`
+	RecurringAmountCents int64  `json:"recurring_amount_cents" binding:"gte=0"`
+	DueDay               int    `json:"due_day" binding:"gte=0,lte=31"`
 }
 
 func (r costCenterRequest) input() services.CostCenterInput {
@@ -173,7 +179,10 @@ func (r costCenterRequest) input() services.CostCenterInput {
 	if r.IsActive != nil {
 		active = *r.IsActive
 	}
-	return services.CostCenterInput{Name: r.Name, Description: r.Description, IsActive: active, SortOrder: r.SortOrder}
+	return services.CostCenterInput{
+		Name: r.Name, Description: r.Description, IsActive: active, SortOrder: r.SortOrder,
+		RecurringAmountCents: r.RecurringAmountCents, DueDay: r.DueDay,
+	}
 }
 
 // ListCostCenters handles GET /cost-centers

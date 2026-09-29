@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -826,6 +827,16 @@ const Students = () => {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreateSchoolOpen, setIsCreateSchoolOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Dashboard quick action «ثبت دانش‌آموز» links here with ?new=1.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setIsCreateOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("new");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [isExporting, setIsExporting] = useState(false);
   const [detailsStudentId, setDetailsStudentId] = useState<number | null>(null);
   const [editStudentId, setEditStudentId] = useState<number | null>(null);

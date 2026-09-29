@@ -9,6 +9,10 @@ export interface CostCenterApi {
   is_system: boolean;
   is_active: boolean;
   sort_order: number;
+  /** مبلغ ثابت ماهانه (مثلاً اجاره) برای نمایش در سررسیدهای پیش رو؛ ۰ یعنی ندارد */
+  recurring_amount_cents?: number;
+  /** روز سررسید در ماه شمسی (۱ تا ۳۱) */
+  due_day?: number;
 }
 
 export interface CostCenterTotalApi extends CostCenterApi {
@@ -112,12 +116,16 @@ export async function listCostCenters(): Promise<CostCenterApi[]> {
   return data?.data ?? [];
 }
 
-export async function createCostCenter(payload: {
+export interface CostCenterPayload {
   name: string;
   description?: string;
   is_active?: boolean;
   sort_order?: number;
-}): Promise<CostCenterApi> {
+  recurring_amount_cents?: number;
+  due_day?: number;
+}
+
+export async function createCostCenter(payload: CostCenterPayload): Promise<CostCenterApi> {
   const res = await authFetch(`${API_BASE}/cost-centers`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -128,7 +136,7 @@ export async function createCostCenter(payload: {
 
 export async function updateCostCenter(
   id: number,
-  payload: { name: string; description?: string; is_active?: boolean; sort_order?: number },
+  payload: CostCenterPayload,
 ): Promise<CostCenterApi> {
   const res = await authFetch(`${API_BASE}/cost-centers/${id}`, {
     method: "PUT",

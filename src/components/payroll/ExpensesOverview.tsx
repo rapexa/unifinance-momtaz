@@ -265,7 +265,7 @@ function CenterCard({ center, onClick }: { center: CostCenterTotalApi; onClick: 
   );
 }
 
-function RecordExpenseDialog({
+export function RecordExpenseDialog({
   open,
   onOpenChange,
   onSaved,
@@ -393,7 +393,14 @@ function CostCentersDialog({
   });
   const updateMut = useMutation({
     mutationFn: (c: CostCenterApi) =>
-      updateCostCenter(c.id, { name: c.name, description: c.description, is_active: c.is_active, sort_order: c.sort_order }),
+      updateCostCenter(c.id, {
+        name: c.name,
+        description: c.description,
+        is_active: c.is_active,
+        sort_order: c.sort_order,
+        recurring_amount_cents: c.recurring_amount_cents ?? 0,
+        due_day: c.due_day ?? 0,
+      }),
     onSuccess: onChanged,
     onError,
   });
@@ -411,7 +418,8 @@ function CostCentersDialog({
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
           هر نوع هزینه (اجاره دفتر، قبوض، تبلیغات، …) را به‌عنوان مرکز هزینه تعریف کنید تا مبلغ ماه و «تا کنون» آن
-          بالای صفحه حقوق نمایش داده شود. «حقوق و دستمزد» خودکار از پرداخت‌های ثبت‌شده به کارکنان پر می‌شود.
+          بالای صفحه حقوق نمایش داده شود. «حقوق و دستمزد» خودکار از پرداخت‌های ثبت‌شده به کارکنان پر می‌شود. برای
+          هزینه‌های ثابت (مثل اجاره) مبلغ ماهانه و روز سررسید را وارد کنید تا در «سررسیدهای پیش رو» داشبورد بیاید.
         </p>
         <div className="space-y-2">
           {centers.map((c) => (
@@ -446,26 +454,64 @@ function CostCenterRow({
   onDelete: () => void;
 }) {
   const [name, setName] = useState(center.name);
+  const [recurring, setRecurring] = useState(
+    center.recurring_amount_cents ? formatGroupedFaIntInput(String(Math.floor(center.recurring_amount_cents / 10))) : "",
+  );
+  const [dueDay, setDueDay] = useState(center.due_day ? String(center.due_day) : "");
+  const isSalary = center.kind === "SALARY";
+
+  const saveRecurring = () => {
+    const cents = (parseLocalizedInt(recurring) || 0) * 10;
+    const day = Math.min(31, Math.max(0, parseLocalizedInt(dueDay) || 0));
+    if (cents === (center.recurring_amount_cents ?? 0) && day === (center.due_day ?? 0)) return;
+    onSave({ ...center, name: name.trim() || center.name, recurring_amount_cents: cents, due_day: day });
+  };
+
   return (
-    <div className="flex items-center gap-2 rounded-lg border p-2">
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => name.trim() && name !== center.name && onSave({ ...center, name: name.trim() })}
-        className="h-8"
-      />
-      {center.is_system ? (
-        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">سیستمی</span>
-      ) : (
-        <>
-          <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            فعال
-            <Switch checked={center.is_active} onCheckedChange={(v) => onSave({ ...center, name, is_active: v })} />
-          </label>
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive" onClick={onDelete} title="حذف">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </>
+    <div className="space-y-2 rounded-lg border p-2">
+      <div className="flex items-center gap-2">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name.trim() && name !== center.name && onSave({ ...center, name: name.trim() })}
+          className="h-8"
+        />
+        {center.is_system ? (
+          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">سیستمی</span>
+        ) : (
+          <>
+            <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              فعال
+              <Switch checked={center.is_active} onCheckedChange={(v) => onSave({ ...center, name, is_active: v })} />
+            </label>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive" onClick={onDelete} title="حذف">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+      </div>
+      {!isSalary && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>مبلغ ثابت ماهانه</span>
+          <Input
+            inputMode="numeric"
+            value={recurring}
+            onChange={(e) => setRecurring(formatGroupedFaIntInput(e.target.value))}
+            onBlur={saveRecurring}
+            placeholder="اختیاری"
+            className="h-7 w-32"
+          />
+          <span>تومان — سررسید روز</span>
+          <Input
+            inputMode="numeric"
+            value={dueDay}
+            onChange={(e) => setDueDay(e.target.value.replace(/[^0-9۰-۹]/g, "").slice(0, 2))}
+            onBlur={saveRecurring}
+            placeholder="۱"
+            className="h-7 w-14"
+          />
+          <span>هر ماه</span>
+        </div>
       )}
     </div>
   );

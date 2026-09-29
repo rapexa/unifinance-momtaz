@@ -236,10 +236,22 @@ func (s *ExpenseService) ListCostCenters(ctx context.Context) ([]models.CostCent
 
 // CostCenterInput is the editable part of a cost center.
 type CostCenterInput struct {
-	Name        string
-	Description string
-	IsActive    bool
-	SortOrder   int
+	Name                 string
+	Description          string
+	IsActive             bool
+	SortOrder            int
+	RecurringAmountCents int64
+	DueDay               int
+}
+
+func clampDueDay(d int) int {
+	if d < 0 {
+		return 0
+	}
+	if d > 31 {
+		return 31
+	}
+	return d
 }
 
 func (s *ExpenseService) CreateCostCenter(ctx context.Context, in CostCenterInput) (*models.CostCenter, error) {
@@ -247,7 +259,11 @@ func (s *ExpenseService) CreateCostCenter(ctx context.Context, in CostCenterInpu
 	if name == "" {
 		return nil, ErrCostCenterNameRequired
 	}
-	c := models.CostCenter{Name: name, Kind: models.CostCenterKindGeneral, Description: strings.TrimSpace(in.Description), IsActive: true, SortOrder: in.SortOrder}
+	c := models.CostCenter{
+		Name: name, Kind: models.CostCenterKindGeneral, Description: strings.TrimSpace(in.Description),
+		IsActive: true, SortOrder: in.SortOrder,
+		RecurringAmountCents: max64(in.RecurringAmountCents, 0), DueDay: clampDueDay(in.DueDay),
+	}
 	if err := s.db.WithContext(ctx).Create(&c).Error; err != nil {
 		return nil, err
 	}
@@ -275,6 +291,10 @@ func (s *ExpenseService) UpdateCostCenter(ctx context.Context, id uint, in CostC
 	c.Name = name
 	c.Description = strings.TrimSpace(in.Description)
 	c.SortOrder = in.SortOrder
+	if c.Kind != models.CostCenterKindSalary {
+		c.RecurringAmountCents = max64(in.RecurringAmountCents, 0)
+		c.DueDay = clampDueDay(in.DueDay)
+	}
 	if !c.IsSystem {
 		c.IsActive = in.IsActive
 	}
@@ -388,4 +408,11 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, id uint) error {
 		return ErrExpenseNotFound
 	}
 	return nil
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

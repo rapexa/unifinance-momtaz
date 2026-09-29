@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/pkg/jalali"
 	"gorm.io/gorm"
 )
 
@@ -93,14 +94,28 @@ func (s *ReminderService) SetPaydayDay(ctx context.Context, day int) (int, error
 	return day, nil
 }
 
-// daysUntilPaydayInMonth returns how many days from `now` until payday this month.
-// Negative means payday already passed this month.
+// daysUntilPaydayInMonth returns how many days from `now` until payday (a Jalali day of month)
+// in the current Jalali month. Negative means payday already passed this month.
 func daysUntilPaydayInMonth(now time.Time, paydayDay int) int {
 	paydayDay = clampPaydayDay(paydayDay)
-	y, m, d := now.Date()
-	payday := time.Date(y, m, paydayDay, 0, 0, 0, 0, now.Location())
-	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	return int(payday.Sub(today).Hours() / 24)
+	j := jalali.FromGregorian(now.Year(), int(now.Month()), now.Day())
+	payday := jalali.DateOf(j.Year, j.Month, paydayDay, now.Location())
+	return daysBetween(now, payday)
+}
+
+// nextPayday returns the next payday (today included) as a local date.
+func nextPayday(now time.Time, paydayDay int) time.Time {
+	paydayDay = clampPaydayDay(paydayDay)
+	j := jalali.FromGregorian(now.Year(), int(now.Month()), now.Day())
+	payday := jalali.DateOf(j.Year, j.Month, paydayDay, now.Location())
+	if payday.Before(dayStart(now)) {
+		ny, nm := j.Year, j.Month+1
+		if nm > 12 {
+			ny, nm = ny+1, 1
+		}
+		payday = jalali.DateOf(ny, nm, paydayDay, now.Location())
+	}
+	return payday
 }
 
 func nearPaydayWindow(daysUntil int) bool {

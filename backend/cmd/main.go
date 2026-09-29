@@ -81,7 +81,8 @@ func main() {
 	roleHandler := handlers.NewRoleHandler(roleService, paymentService)
 	planHandler := handlers.NewPlanHandler(planService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
-	dashboardHandler := handlers.NewDashboardHandler(dashboardService, paymentService)
+	overviewService := services.NewOverviewService(db, financeService, reminderService, payrollService)
+	dashboardHandler := handlers.NewDashboardHandler(dashboardService, paymentService, overviewService)
 	payrollHandler := handlers.NewPayrollHandler(payrollService)
 	reportHandler := handlers.NewReportHandler(reportService, financeService)
 	settingsHandler := handlers.NewSettingsHandler(settingsService, permService)
@@ -280,6 +281,7 @@ func main() {
 		dashboard.GET("/recent-payments", dashboardHandler.GetRecentPayments)
 		dashboard.GET("/debt-alerts", dashboardHandler.GetDebtAlerts)
 		dashboard.GET("/revenue-trend", dashboardHandler.GetRevenueTrend)
+		dashboard.GET("/overview", dashboardHandler.GetOverview)
 	}
 
 	// Payroll

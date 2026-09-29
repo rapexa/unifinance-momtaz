@@ -6,6 +6,7 @@ import (
 
 	"github.com/soheilsshh/unifinance-momtaz/access"
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/pkg/jalali"
 	"gorm.io/gorm"
 )
 
@@ -87,8 +88,9 @@ func (r *GormPaymentRepository) Summary(ctx context.Context, scopeUser *uint) (*
 	loc := now.Location()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	todayEnd := todayStart.Add(24 * time.Hour)
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
-	monthEnd := monthStart.AddDate(0, 1, 0)
+	// "This month" is the current Jalali month.
+	ky, km := jalali.KeyForTime(now)
+	monthStart, monthEnd := jalali.MonthBounds(ky, km, loc)
 
 	var todayReceived, pending, overdue, monthReceived int64
 

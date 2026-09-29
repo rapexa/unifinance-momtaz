@@ -14,10 +14,93 @@ import (
 type DashboardHandler struct {
 	service  *services.DashboardService
 	payments *services.PaymentService
+	overview *services.OverviewService
 }
 
-func NewDashboardHandler(service *services.DashboardService, payments *services.PaymentService) *DashboardHandler {
-	return &DashboardHandler{service: service, payments: payments}
+func NewDashboardHandler(service *services.DashboardService, payments *services.PaymentService, overview *services.OverviewService) *DashboardHandler {
+	return &DashboardHandler{service: service, payments: payments, overview: overview}
+}
+
+func toKPIDTO(k services.OverviewKPI) gin.H {
+	spark := k.Spark
+	if spark == nil {
+		spark = []int64{}
+	}
+	out := gin.H{"value_cents": k.Value, "spark_cents": spark}
+	if k.HasPrev {
+		out["previous_cents"] = k.Previous
+	}
+	return out
+}
+
+// GetOverview handles GET /dashboard/overview?year&month — the finance dashboard (admins only):
+// cash, income, expenses, profit, receivables, cash flow, upcoming dues and recent transactions.
+func (h *DashboardHandler) GetOverview(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+	year, month, ok := periodFromQuery(c)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	_, _ = h.payments.PromotePendingPastDueToOverdue(ctx)
+	o, err := h.overview.Build(ctx, year, month, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت داشبورد مالی"})
+		return
+	}
+
+	series := make([]gin.H, len(o.Series))
+	for i, p := range o.Series {
+		series[i] = gin.H{
+			"year": p.Year, "month": p.Month,
+			"income_cents": p.IncomeCents, "outflow_cents": p.OutflowCents, "profit_cents": p.ProfitCents,
+		}
+	}
+	upcoming := make([]gin.H, len(o.Upcoming))
+	for i, u := range o.Upcoming {
+		upcoming[i] = gin.H{
+			"kind": u.Kind, "title": u.Title, "subtitle": u.Subtitle, "due_date": u.DueDate,
+			"days_left": u.DaysLeft, "amount_cents": u.AmountCents, "student_id": u.StudentID,
+		}
+	}
+	recent := make([]gin.H, len(o.Recent))
+	for i, t := range o.Recent {
+		recent[i] = gin.H{
+			"kind": t.Kind, "id": t.ID, "date": t.Date, "title": t.Title, "category": t.Category,
+			"counterparty": t.Counterparty, "amount_cents": t.AmountCents, "status": t.Status,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"period_year":  o.PeriodYear,
+		"period_month": o.PeriodMonth,
+		"kpis": gin.H{
+			"cash":     toKPIDTO(o.Cash),
+			"income":   toKPIDTO(o.Income),
+			"expenses": toKPIDTO(o.Expenses),
+			"profit":   toKPIDTO(o.Profit),
+			"overdue":  toKPIDTO(o.Overdue),
+		},
+		"action": gin.H{
+			"overdue_count": o.OverdueCount, "overdue_cents": o.Overdue.Value,
+			"pending_count": o.PendingCount, "pending_cents": o.PendingCents,
+			"payroll_count": o.PayrollCount, "payroll_cents": o.PayrollCents,
+		},
+		"cash_flow": gin.H{
+			"in_cents": o.CashInCents, "out_cents": o.CashOutCents, "net_cents": o.CashInCents - o.CashOutCents,
+			"prev_in_cents": o.PrevCashIn, "prev_out_cents": o.PrevCashOut, "prev_net_cents": o.PrevCashIn - o.PrevCashOut,
+		},
+		"aging": gin.H{
+			"overdue_cents": o.Overdue.Value,
+			"d1_30_cents":   o.Aging[0], "d31_60_cents": o.Aging[1], "d60_plus_cents": o.Aging[2],
+		},
+		"students": gin.H{"active": o.ActiveStudent, "registrations": o.Registrations},
+		"series":   series,
+		"upcoming": upcoming,
+		"recent":   recent,
+	})
 }
 
 // --- Swagger DTOs for dashboard responses ---

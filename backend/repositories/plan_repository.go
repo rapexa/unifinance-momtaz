@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/pkg/jalali"
 	"gorm.io/gorm"
 )
 
@@ -225,10 +226,8 @@ func (r *GormPlanRepository) Stats(ctx context.Context) (totalPlans, activePlans
 	}
 
 	now := time.Now()
-	year, month, _ := now.Date()
-	loc := now.Location()
-	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
-	firstOfNextMonth := firstOfMonth.AddDate(0, 1, 0)
+	ky, km := jalali.KeyForTime(now)
+	firstOfMonth, firstOfNextMonth := jalali.MonthBounds(ky, km, now.Location())
 
 	if err = db.Model(&models.Payment{}).
 		Where("status = ? AND paid_at >= ? AND paid_at < ?", models.PaymentStatusPaid, firstOfMonth, firstOfNextMonth).

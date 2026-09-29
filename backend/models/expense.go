@@ -21,6 +21,10 @@ type CostCenter struct {
 	IsSystem    bool   `gorm:"not null;default:false"`
 	IsActive    bool   `gorm:"not null;default:true"`
 	SortOrder   int    `gorm:"not null;default:0"`
+	// Optional recurring monthly amount (e.g. rent) due on a Jalali day of month; shown in
+	// the dashboard's upcoming dues until this month's expenses cover it.
+	RecurringAmountCents int64 `gorm:"not null;default:0"`
+	DueDay               int   `gorm:"not null;default:0"`
 }
 
 // Expense is money paid out by the organization under a cost center.

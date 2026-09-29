@@ -49,16 +49,20 @@ func TestNearPaydayWindow(t *testing.T) {
 }
 
 func TestDaysUntilPaydayInMonth(t *testing.T) {
-	// Fixed: 2026-08-22 → payday 25 → 3 days
-	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.Local)
+	// Payday is a Jalali day: 1405/06/22 (2026-09-13) → payday 25 → 3 days.
+	now := time.Date(2026, 9, 13, 10, 0, 0, 0, time.Local)
 	if d := daysUntilPaydayInMonth(now, 25); d != 3 {
 		t.Fatalf("days=%d want 3", d)
 	}
-	if d := daysUntilPaydayInMonth(time.Date(2026, 8, 25, 10, 0, 0, 0, time.Local), 25); d != 0 {
+	if d := daysUntilPaydayInMonth(time.Date(2026, 9, 16, 10, 0, 0, 0, time.Local), 25); d != 0 {
 		t.Fatalf("on payday days=%d want 0", d)
 	}
-	if d := daysUntilPaydayInMonth(time.Date(2026, 8, 26, 10, 0, 0, 0, time.Local), 25); d >= 0 {
+	if d := daysUntilPaydayInMonth(time.Date(2026, 9, 17, 10, 0, 0, 0, time.Local), 25); d >= 0 {
 		t.Fatalf("after payday should be negative, got %d", d)
+	}
+	// After this month's payday the next one is 25 Mehr (2026-10-17).
+	if p := nextPayday(time.Date(2026, 9, 29, 10, 0, 0, 0, time.Local), 25); p.Format("2006-01-02") != "2026-10-17" {
+		t.Fatalf("next payday %s", p.Format("2006-01-02"))
 	}
 }
 

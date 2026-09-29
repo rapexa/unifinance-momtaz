@@ -69,9 +69,8 @@ func (s *DashboardService) studentsQueryScoped(ctx context.Context, scopeUser *u
 
 // GetKPIs returns high-level KPI metrics for the current month.
 func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time, scopeUser *uint) (DashboardKPIs, error) {
-	loc := now.Location()
-	year, month, _ := now.Date()
-	firstOfMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+	year, month := PeriodOf(now)
+	firstOfMonth, endOfMonth := PeriodBounds(year, month)
 
 	var (
 		totalRevenue           int64
@@ -86,7 +85,7 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time, scopeUser
 
 	// Total revenue for current month (paid payments).
 	if err := pq().
-		Where("payments.status = ? AND payments.paid_at >= ?", models.PaymentStatusPaid, firstOfMonth).
+		Where("payments.status = ? AND payments.paid_at >= ? AND payments.paid_at < ?", models.PaymentStatusPaid, firstOfMonth, endOfMonth).
 		Select("COALESCE(SUM(payments.amount_cents), 0)").
 		Scan(&totalRevenue).Error; err != nil {
 		return DashboardKPIs{}, err
@@ -119,19 +118,19 @@ func (s *DashboardService) GetKPIs(ctx context.Context, now time.Time, scopeUser
 
 	// Student registrations in current month.
 	if err := sq().
-		Where("students.created_at >= ?", firstOfMonth).
+		Where("students.created_at >= ? AND students.created_at < ?", firstOfMonth, endOfMonth).
 		Count(&registrationsThisMonth).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
 
-	// Monthly payroll paid (only PAID status) for current period.
-	payrollQ := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).
-		Where("period_year = ? AND period_month = ? AND status = ?", year, int(month), models.PayrollStatusPaid)
+	// Salary actually paid out this month (staff payouts).
+	payrollQ := s.db.WithContext(ctx).Model(&models.StaffPayout{}).
+		Where("paid_at >= ? AND paid_at < ?", firstOfMonth, endOfMonth)
 	if scopeUser != nil {
 		payrollQ = payrollQ.Where("user_id = ?", *scopeUser)
 	}
 	if err := payrollQ.
-		Select("COALESCE(SUM(total_salary_cents), 0)").
+		Select("COALESCE(SUM(amount_cents), 0)").
 		Scan(&monthlyPayroll).Error; err != nil {
 		return DashboardKPIs{}, err
 	}
@@ -214,17 +213,14 @@ func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now 
 		months = 6
 	}
 
-	loc := now.Location()
-	year, month, _ := now.Date()
+	year, month := PeriodOf(now)
 
 	points := make([]MonthlyRevenuePoint, 0, months)
 
 	for i := months - 1; i >= 0; i-- {
-		// Walk backwards month by month.
-		t := time.Date(year, month, 1, 0, 0, 0, 0, loc).AddDate(0, -i, 0)
-		y, m, _ := t.Date()
-		start := time.Date(y, m, 1, 0, 0, 0, 0, loc)
-		end := start.AddDate(0, 1, 0)
+		// Walk backwards Jalali month by Jalali month.
+		y, m := PeriodAdd(year, month, -i)
+		start, end := PeriodBounds(y, m)
 
 		var revenue int64
 		rq := s.paymentsQueryScoped(ctx, scopeUser).
@@ -237,7 +233,7 @@ func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now 
 		var payroll int64
 		payrollQ := s.db.WithContext(ctx).
 			Model(&models.PayrollEntry{}).
-			Where("period_year = ? AND period_month = ?", y, int(m))
+			Where("period_year = ? AND period_month = ?", y, m)
 		if scopeUser != nil {
 			payrollQ = payrollQ.Where("user_id = ?", *scopeUser)
 		}
@@ -249,7 +245,7 @@ func (s *DashboardService) GetRevenueTrend(ctx context.Context, months int, now 
 
 		points = append(points, MonthlyRevenuePoint{
 			Year:         y,
-			Month:        int(m),
+			Month:        m,
 			RevenueCents: revenue,
 			PayrollCents: payroll,
 		})
