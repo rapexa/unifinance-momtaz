@@ -1,0 +1,49 @@
+# Deploy after every push to main (or by hand from the Actions tab).
+# Each job runs only when its secrets exist (Settings → Secrets and variables → Actions):
+#   Momtaz server (source build): MOMTAZ_SSH_HOST, MOMTAZ_SSH_USER, MOMTAZ_SSH_KEY,
+#                                 MOMTAZ_APP_DIR, optional MOMTAZ_SERVICE, MOMTAZ_WEB_ROOT
+#   SaaS server (Docker):         SAAS_SSH_HOST, SAAS_SSH_USER, SAAS_SSH_KEY, SAAS_APP_DIR
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  momtaz:
+    runs-on: ubuntu-latest
+    env:
+      CONFIGURED: ${{ secrets.MOMTAZ_SSH_HOST != '' }}
+    steps:
+      - if: env.CONFIGURED != 'true'
+        run: echo "MOMTAZ_* secrets not set — skipping"
+      - if: env.CONFIGURED == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.MOMTAZ_SSH_HOST }}
+          username: ${{ secrets.MOMTAZ_SSH_USER }}
+          key: ${{ secrets.MOMTAZ_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            cd "${{ secrets.MOMTAZ_APP_DIR }}"
+            SERVICE="${{ secrets.MOMTAZ_SERVICE }}" WEB_ROOT="${{ secrets.MOMTAZ_WEB_ROOT }}" ./deploy/momtaz/update.sh
+
+  saas:
+    runs-on: ubuntu-latest
+    env:
+      CONFIGURED: ${{ secrets.SAAS_SSH_HOST != '' }}
+    steps:
+      - if: env.CONFIGURED != 'true'
+        run: echo "SAAS_* secrets not set — skipping"
+      - if: env.CONFIGURED == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SAAS_SSH_HOST }}
+          username: ${{ secrets.SAAS_SSH_USER }}
+          key: ${{ secrets.SAAS_SSH_KEY }}
+          command_timeout: 60m
+          script: |
+            cd "${{ secrets.SAAS_APP_DIR }}"
+            git pull --ff-only
+            ./deploy/saas/uf.sh update --all

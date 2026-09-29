@@ -1,0 +1,6 @@
+.env
+keys/
+tenants/
+backups/
+dist/
+sites/*.caddy

@@ -1,0 +1,15 @@
+.git
+**/node_modules
+dist
+**/.env
+**/.env.*
+backend/config.yaml
+backend/uploads
+uploads
+deploy/keys
+deploy/saas/tenants
+deploy/saas/backups
+deploy/saas/.env
+deploy/onprem/.env
+**/.DS_Store
+*.log

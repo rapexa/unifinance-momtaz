@@ -1,0 +1,7 @@
+# Each customer gets a file in sites/ (written by ./uf.sh). Caddy obtains and renews
+# HTTPS certificates automatically once the domain's DNS points to this server.
+{
+	email {$ACME_EMAIL}
+}
+
+import sites/*.caddy

@@ -1,0 +1,73 @@
+# UniFinance on the customer's own server: app + database + HTTPS (Caddy).
+# Configure with .env (./install.sh creates it).
+name: unifinance-onprem
+
+services:
+  db:
+    image: ${MARIADB_IMAGE:-mariadb:11}
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?run ./install.sh}
+      MARIADB_DATABASE: unifinance
+      MARIADB_USER: unifinance
+      MARIADB_PASSWORD: ${DB_PASSWORD:?run ./install.sh}
+      TZ: Asia/Tehran
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: ${IMAGE:-unifinance:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      UNIFINANCE_DB_HOST: db
+      UNIFINANCE_DB_PORT: "3306"
+      UNIFINANCE_DB_USER: unifinance
+      UNIFINANCE_DB_PASS: ${DB_PASSWORD}
+      UNIFINANCE_DB_NAME: unifinance
+      UNIFINANCE_JWT_SECRET: ${JWT_SECRET:?run ./install.sh}
+      UNIFINANCE_FRONTEND_URL: ${SITE_URL}
+      UNIFINANCE_CORS_ALLOW_ORIGINS: ${SITE_URL}
+      UNIFINANCE_ZARINPAL_CALLBACK_URL: ${SITE_URL}/payment/callback
+      UNIFINANCE_ZARINPAL_MERCHANT_ID: ${ZARINPAL_MERCHANT_ID:-}
+      UNIFINANCE_ZARINPAL_SANDBOX: "false"
+      UNIFINANCE_MELIPAYAMAK_USERNAME: ${MELIPAYAMAK_USERNAME:-}
+      UNIFINANCE_MELIPAYAMAK_API_KEY: ${MELIPAYAMAK_API_KEY:-}
+      UNIFINANCE_MELIPAYAMAK_FROM: ${MELIPAYAMAK_FROM:-}
+      UNIFINANCE_BOOTSTRAP_ORG_NAME: ${ORG_NAME:-}
+      UNIFINANCE_BOOTSTRAP_ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      UNIFINANCE_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      UNIFINANCE_LICENSE_KEY_FILE: /run/unifinance/license.key
+    volumes:
+      - uploads:/app/uploads
+      - ./license.key:/run/unifinance/license.key:ro
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?run ./install.sh}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  uploads:
+  caddy-data:
+  caddy-config:
