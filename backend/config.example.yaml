@@ -40,5 +40,8 @@ zarinpal:
 frontend_url: "https://mali-momtazisho.ir"
 
 melipayamak:
+  # from: sender line number (e.g. "50004001..."). Set it to send the editable reminder
+  # texts; leave empty to keep using the fixed patterns registered in the panel.
+  from: ""
   username: "9122245852"
   api_key: "2f8d3c35-160b-4d3c-9d29-b0a1b4d53b2a"

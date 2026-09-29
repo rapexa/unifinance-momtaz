@@ -134,3 +134,77 @@ func (st *Student) BillingPosition(enrollCents int64, asOf time.Time) StudentBil
 	}
 	return pos
 }
+
+// Installment is one expected payment of a student's billing schedule.
+type Installment struct {
+	Index       int       // 1-based
+	DueDate     time.Time // local midnight
+	AmountCents int64
+}
+
+// Installments lists the student's schedule from registration with due dates before `until`.
+// Monthly fees and annual installments fall on the registration day of each Jalali month
+// (clamped to the month length); the first one is due on the registration date.
+func (st *Student) Installments(enrollCents int64, until time.Time) []Installment {
+	if st == nil || enrollCents <= 0 {
+		return nil
+	}
+	start := st.BillingStart()
+	if start.IsZero() {
+		return nil
+	}
+	loc := start.Location()
+	sj := jalali.FromGregorian(start.Year(), int(start.Month()), start.Day())
+	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc)
+	last := st.billingUntil(until)
+	dueOn := func(y, m int) time.Time {
+		jy, jm := jalali.JalaliFromKey(y, m)
+		if jy == sj.Year && jm == sj.Month {
+			return startDay
+		}
+		return jalali.DateOf(jy, jm, sj.Day, loc)
+	}
+
+	var out []Installment
+	switch st.EnrollmentBillingMode {
+	case EnrollmentBillingSingleSession:
+		if startDay.Before(until) {
+			out = append(out, Installment{Index: 1, DueDate: startDay, AmountCents: enrollCents})
+		}
+	case EnrollmentBillingSchoolEnrollment:
+		total := st.AdvisorAccrualMonthsCount()
+		if total < 1 {
+			total = 1
+		}
+		per := enrollCents / int64(total)
+		mask := st.advisorAccrualMonthMask()
+		y, m := jalali.KeyForTime(start)
+		for i, guard := 0, 0; i < total && guard < 120; guard++ {
+			_, jm := jalali.JalaliFromKey(y, m)
+			if mask == 0 || isJalaliMonthInMask(mask, jm) {
+				i++
+				due := dueOn(y, m)
+				if !due.Before(until) {
+					break
+				}
+				amt := per
+				if i == total {
+					amt = enrollCents - per*int64(total-1)
+				}
+				out = append(out, Installment{Index: i, DueDate: due, AmountCents: amt})
+			}
+			y, m = jalali.AddMonths(y, m, 1)
+		}
+	default: // MONTHLY
+		y, m := jalali.KeyForTime(start)
+		for i := 1; i <= 240; i++ {
+			due := dueOn(y, m)
+			if !due.Before(until) || due.After(last) {
+				break
+			}
+			out = append(out, Installment{Index: i, DueDate: due, AmountCents: enrollCents})
+			y, m = jalali.AddMonths(y, m, 1)
+		}
+	}
+	return out
+}

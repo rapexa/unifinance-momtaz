@@ -88,3 +88,17 @@ func TestMonthBoundsAndKeyForTime(t *testing.T) {
 		t.Fatalf("FormatKey = %s", FormatKey(2026, 9))
 	}
 }
+
+func TestMonthLengthAndDateOf(t *testing.T) {
+	if MonthLength(1405, 1) != 31 || MonthLength(1405, 7) != 30 {
+		t.Fatal("month lengths")
+	}
+	// 1403 is a leap year (Esfand has 30 days), 1404 is not.
+	if MonthLength(1403, 12) != 30 || MonthLength(1404, 12) != 29 {
+		t.Fatalf("esfand 1403=%d 1404=%d", MonthLength(1403, 12), MonthLength(1404, 12))
+	}
+	d := DateOf(1405, 7, 31, time.UTC) // clamped to 30 Mehr
+	if FormatDate(d) != "1405/07/30" {
+		t.Fatalf("DateOf clamp = %s", FormatDate(d))
+	}
+}

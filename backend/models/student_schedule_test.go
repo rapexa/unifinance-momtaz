@@ -84,3 +84,41 @@ func TestSchoolContract_InstallmentsFromPeriod(t *testing.T) {
 		t.Fatalf("term installment=%d", c.InstallmentCents())
 	}
 }
+
+func TestInstallments_MonthlyOnRegistrationDay(t *testing.T) {
+	join := jd(1405, 5, 20)
+	st := &Student{EnrollmentBillingMode: EnrollmentBillingMonthly, JoinDate: &join, Status: StudentStatusActive}
+	got := st.Installments(1_000, jd(1405, 7, 25))
+	if len(got) != 3 {
+		t.Fatalf("installments=%d", len(got))
+	}
+	want := []string{"1405/05/20", "1405/06/20", "1405/07/20"}
+	for i, inst := range got {
+		if jalali.FormatDate(inst.DueDate) != want[i] {
+			t.Fatalf("#%d due %s want %s", i, jalali.FormatDate(inst.DueDate), want[i])
+		}
+	}
+	// Registration on the 31st: Mehr only has 30 days.
+	join31 := jd(1405, 6, 31)
+	st.JoinDate = &join31
+	got = st.Installments(1_000, jd(1405, 8, 1))
+	if len(got) != 2 || jalali.FormatDate(got[1].DueDate) != "1405/07/30" {
+		t.Fatalf("clamped %+v", got)
+	}
+}
+
+func TestInstallments_AnnualOverMaskWithRemainder(t *testing.T) {
+	mask := 0
+	for _, m := range []int{7, 8, 9} {
+		mask |= 1 << (m - 1)
+	}
+	join := jd(1405, 7, 10)
+	st := &Student{EnrollmentBillingMode: EnrollmentBillingSchoolEnrollment, AdvisorAccrualMonthMask: &mask, JoinDate: &join, Status: StudentStatusActive}
+	got := st.Installments(100, jd(1406, 1, 1))
+	if len(got) != 3 || got[0].AmountCents != 33 || got[2].AmountCents != 34 {
+		t.Fatalf("%+v", got)
+	}
+	if jalali.FormatDate(got[1].DueDate) != "1405/08/10" {
+		t.Fatalf("second due %s", jalali.FormatDate(got[1].DueDate))
+	}
+}

@@ -58,6 +58,9 @@ type ZarinpalConfig struct {
 type MelipayamakConfig struct {
 	Username string `mapstructure:"username"`
 	APIKey   string `mapstructure:"api_key"`
+	// From is the sender line number. When set, reminders are sent as free text from the
+	// editable templates; otherwise the fixed panel patterns (bodyId) are used.
+	From string `mapstructure:"from"`
 }
 
 var (
@@ -138,6 +141,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("melipayamak.username", "")
 	v.SetDefault("melipayamak.api_key", "")
+	v.SetDefault("melipayamak.from", "")
 }
 
 func normalize(c *Config) {

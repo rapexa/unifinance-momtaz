@@ -102,6 +102,7 @@ func autoMigrate(db *gorm.DB) {
 		&models.SchemaMarker{},
 		&models.CostCenter{},
 		&models.Expense{},
+		&models.MessageTemplate{},
 	); err != nil {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}

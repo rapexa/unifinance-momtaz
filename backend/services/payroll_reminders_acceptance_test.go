@@ -7,24 +7,35 @@ import (
 	"github.com/soheilsshh/unifinance-momtaz/models"
 )
 
-func TestHardCodedRules_IncludeSevenDayAndOnceOverdue(t *testing.T) {
+func TestDefaultTemplates_IncludeSevenDayAndOnceOverdue(t *testing.T) {
 	var has7, has3, has1, hasOverdue bool
-	for _, r := range HardCodedRules {
-		if r.Type == models.ReminderTypeBeforeDue && r.DaysOffset == 7 {
+	for _, r := range DefaultMessageTemplates {
+		if r.Kind == models.ReminderTypeBeforeDue && r.DaysOffset == 7 {
 			has7 = true
 		}
-		if r.Type == models.ReminderTypeBeforeDue && r.DaysOffset == 3 {
+		if r.Kind == models.ReminderTypeBeforeDue && r.DaysOffset == 3 {
 			has3 = true
 		}
-		if r.Type == models.ReminderTypeBeforeDue && r.DaysOffset == 1 {
+		if r.Kind == models.ReminderTypeBeforeDue && r.DaysOffset == 1 {
 			has1 = true
 		}
-		if r.Type == models.ReminderTypeOverdue && r.DaysOffset == 2 {
+		if r.Kind == models.ReminderTypeOverdue && r.DaysOffset == 2 {
 			hasOverdue = true
 		}
 	}
 	if !has7 || !has3 || !has1 || !hasOverdue {
 		t.Fatalf("rules incomplete: 7=%v 3=%v 1=%v overdue=%v", has7, has3, has1, hasOverdue)
+	}
+}
+
+func TestRenderTemplate(t *testing.T) {
+	due := time.Date(2026, 10, 12, 0, 0, 0, 0, time.Local) // 1405/07/20
+	got := RenderTemplate("{نام} عزیز، {مبلغ} تومان در {تاریخ} — {روز} روز. {مرکز}", MessageVars{
+		Name: "علی محمدی", AmountCents: 25_000_000, DueDate: &due, Days: 3, Org: "ممتاز",
+	})
+	want := "علی محمدی عزیز، ۲٬۵۰۰٬۰۰۰ تومان در ۱۴۰۵/۰۷/۲۰ — ۳ روز. ممتاز"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
 	}
 }
 

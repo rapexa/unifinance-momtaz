@@ -90,6 +90,36 @@ func ToGregorian(jy, jm, jd int) (int, int, int) {
 	return gy, gm, gd
 }
 
+// MonthLength returns the number of days in a Jalali month.
+func MonthLength(jy, jm int) int {
+	if jm <= 6 {
+		return 31
+	}
+	if jm <= 11 {
+		return 30
+	}
+	y, m, d := ToGregorian(jy, 12, 30)
+	if back := FromGregorian(y, m, d); back.Month == 12 && back.Day == 30 {
+		return 30
+	}
+	return 29
+}
+
+// Date returns local midnight of a Jalali date; the day is clamped to the month length.
+func DateOf(jy, jm, jd int, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.Local
+	}
+	if n := MonthLength(jy, jm); jd > n {
+		jd = n
+	}
+	if jd < 1 {
+		jd = 1
+	}
+	y, m, d := ToGregorian(jy, jm, jd)
+	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, loc)
+}
+
 // MonthFromGregorian returns the Jalali month (1–12) for a Gregorian year/month (day=1).
 func MonthFromGregorian(gy, gm int) int {
 	return FromGregorian(gy, gm, 1).Month

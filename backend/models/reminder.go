@@ -62,7 +62,33 @@ type PaymentReminder struct {
 	Channel ReminderChannel `gorm:"type:varchar(32);not null;index"`
 
 	SentAt *time.Time `gorm:"index"`
+
+	// DueDate is the installment/invoice due date the reminder was about (dedupe key).
+	DueDate *time.Time `gorm:"index"`
+	// TemplateKey is the message template used (e.g. BEFORE_DUE_7, MANUAL).
+	TemplateKey string `gorm:"size:32;index"`
+	// Message is the exact text sent (empty for panel patterns).
+	Message string `gorm:"type:text"`
+	// Recipients is a comma-separated list of phone numbers the SMS went to.
+	Recipients string `gorm:"size:255"`
+	Error      string `gorm:"size:500"`
 }
+
+// MessageTemplate is an editable SMS text (Reminders > متن پیامک‌ها).
+// Placeholders: {نام} {مبلغ} {تاریخ} {روز} {مرکز}
+type MessageTemplate struct {
+	gorm.Model
+	Key        string       `gorm:"size:32;not null;uniqueIndex"`
+	Title      string       `gorm:"size:120;not null"`
+	Kind       ReminderType `gorm:"type:varchar(32);not null"` // BEFORE_DUE | OVERDUE | MANUAL
+	DaysOffset int          `gorm:"not null;default:0"`
+	Body       string       `gorm:"type:text;not null"`
+	Enabled    bool         `gorm:"not null;default:true"`
+	SortOrder  int          `gorm:"not null;default:0"`
+}
+
+// ReminderTypeManual marks SMS sent by hand from the debtors list.
+const ReminderTypeManual ReminderType = "MANUAL"
 
 // PayrollReminder logs in-app (and optional SMS) reminders for unpaid employee payslips.
 type PayrollReminder struct {

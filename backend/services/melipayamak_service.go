@@ -1,11 +1,13 @@
 package services
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,6 +15,9 @@ import (
 )
 
 const melipayamakEndpoint = "http://api.payamak-panel.com/post/send.asmx"
+
+// melipayamakRestSend sends a free-text SMS from a dedicated line (REST API).
+const melipayamakRestSend = "https://rest.payamak-panel.com/api/SendSMS/SendSMS"
 
 // Pattern body IDs registered in the Melipayamak panel.
 // PatternBefore7Days / PatternPayrollPending are 0 until registered in the panel;
@@ -50,6 +55,7 @@ func BodyIDForRule(r *models.ReminderRule) int {
 type MelipayamakService struct {
 	username string
 	apiKey   string
+	from     string
 	client   *http.Client
 }
 
@@ -59,6 +65,54 @@ func NewMelipayamakService(username, apiKey string) *MelipayamakService {
 		apiKey:   apiKey,
 		client:   &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+// WithSender sets the sender line used for free-text messages.
+func (m *MelipayamakService) WithSender(from string) *MelipayamakService {
+	m.from = strings.TrimSpace(from)
+	return m
+}
+
+// CanSendText reports whether free-text SMS (editable templates) can be sent.
+func (m *MelipayamakService) CanSendText() bool {
+	return m != nil && m.IsConfigured() && m.from != ""
+}
+
+// SendText sends a free-text SMS to one number from the configured sender line.
+func (m *MelipayamakService) SendText(to, text string) error {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return nil
+	}
+	if !m.CanSendText() {
+		return fmt.Errorf("melipayamak: sender line (from) or credentials not configured")
+	}
+	form := url.Values{}
+	form.Set("username", m.username)
+	form.Set("password", m.apiKey)
+	form.Set("to", to)
+	form.Set("from", m.from)
+	form.Set("text", text)
+	form.Set("isFlash", "false")
+	resp, err := m.client.PostForm(melipayamakRestSend, form)
+	if err != nil {
+		return fmt.Errorf("melipayamak: http request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var out struct {
+		Value        string `json:"Value"`
+		RetStatus    int    `json:"RetStatus"`
+		StrRetStatus string `json:"StrRetStatus"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("melipayamak: parse response: %w (raw: %s)", err, string(body))
+	}
+	log.Printf("melipayamak: SendText to=%s status=%d %s value=%s", to, out.RetStatus, out.StrRetStatus, out.Value)
+	if out.RetStatus != 1 {
+		return fmt.Errorf("melipayamak: send failed (%d %s)", out.RetStatus, out.StrRetStatus)
+	}
+	return nil
 }
 
 // IsConfigured returns true when credentials are set (prevents no-op calls).

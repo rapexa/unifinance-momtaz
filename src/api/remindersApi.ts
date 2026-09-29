@@ -11,11 +11,124 @@ export interface ReminderLogApi {
   id: number;
   student_id: number;
   student: string;
-  type: "BEFORE_DUE" | "DUE_DAY" | "OVERDUE" | "PAYROLL_PENDING";
+  type: "BEFORE_DUE" | "DUE_DAY" | "OVERDUE" | "PAYROLL_PENDING" | "MANUAL";
   days_offset: number;
   amount_cents: number;
   last_sent: string | null;
   status: "SENT" | "PENDING" | "FAILED";
+  template_key?: string;
+  message?: string;
+  recipients?: string;
+  error?: string;
+  due_date?: string | null;
+}
+
+export interface MessageTemplateApi {
+  key: string;
+  title: string;
+  /** BEFORE_DUE | OVERDUE | MANUAL */
+  type: string;
+  days_offset: number;
+  body: string;
+  enabled: boolean;
+}
+
+export interface TemplatesResponse {
+  data: MessageTemplateApi[];
+  /** true = متن دلخواه ارسال می‌شود (شماره خط تنظیم شده) */
+  custom_text: boolean;
+  sms_configured: boolean;
+  placeholders: string[];
+}
+
+export interface DebtorApi {
+  student_id: number;
+  name: string;
+  phone?: string;
+  father_phone?: string;
+  mother_phone?: string;
+  advisor_name?: string;
+  /** SCHEDULE = از شهریه/اقساط ثبت‌نام | INVOICE = قبوض ثبت‌شده با سررسید */
+  source: "SCHEDULE" | "INVOICE";
+  overdue_cents: number;
+  oldest_due_date?: string | null;
+  days_overdue: number;
+  next_due_date?: string | null;
+  next_due_cents: number;
+  days_until_due: number;
+  total_remaining_cents: number;
+  /** معوق ۱–۳۰، ۳۱–۶۰، بیش از ۶۰ روز */
+  aging_cents: [number, number, number];
+  last_reminder_at?: string | null;
+  last_reminder?: string;
+  last_reminder_status?: "SENT" | "FAILED" | "PENDING";
+}
+
+export async function listDebtors(days = 30): Promise<DebtorApi[]> {
+  const url = new URL(`${API_BASE}/reminders/debtors`);
+  url.searchParams.set("days", String(days));
+  const res = await authFetch(url.toString(), { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در دریافت بدهکاران", res);
+  return (data?.data ?? []) as DebtorApi[];
+}
+
+export async function listMessageTemplates(): Promise<TemplatesResponse> {
+  const res = await authFetch(`${API_BASE}/reminders/templates`, { headers: getAuthHeaders() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در دریافت متن پیامک‌ها", res);
+  return {
+    data: (data?.data ?? []) as MessageTemplateApi[],
+    custom_text: !!data?.custom_text,
+    sms_configured: !!data?.sms_configured,
+    placeholders: data?.placeholders ?? [],
+  };
+}
+
+export async function updateMessageTemplate(
+  key: string,
+  payload: { body: string; enabled?: boolean },
+): Promise<MessageTemplateApi> {
+  const res = await authFetch(`${API_BASE}/reminders/templates/${key}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در ذخیره متن پیامک", res);
+  return data as MessageTemplateApi;
+}
+
+export async function previewReminder(payload: {
+  student_id: number;
+  template_key?: string;
+  text?: string;
+}): Promise<string> {
+  const res = await authFetch(`${API_BASE}/reminders/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در پیش‌نمایش پیامک", res);
+  return data?.message ?? "";
+}
+
+export interface SendReminderResult {
+  sent: number;
+  failed: number;
+  results: { student_id: number; name: string; status: string; error?: string; message?: string }[];
+}
+
+export async function sendReminders(payload: { student_ids: number[]; text?: string }): Promise<SendReminderResult> {
+  const res = await authFetch(`${API_BASE}/reminders/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) apiFail(data, "خطا در ارسال پیامک", res);
+  return data as SendReminderResult;
 }
 
 export interface PayrollDueApi {
