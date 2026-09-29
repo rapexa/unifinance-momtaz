@@ -63,6 +63,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
 		return nil, ErrInvalidCredentials
 	}
+	// Best effort: the users list shows the last login date.
+	now := time.Now()
+	if err := s.userRepo.TouchLastLogin(ctx, user.ID, now); err == nil {
+		user.LastLoginAt = &now
+	}
 
 	access, err := utils.GenerateAccessToken(user, s.cfg)
 	if err != nil {

@@ -22,16 +22,29 @@ import {
   Plus,
   Search,
   Shield,
+  ShieldCheck,
   UserCheck,
-  Filter,
+  UserCog,
+  Users2,
+  User,
+  Headset,
+  Briefcase,
+  GraduationCap,
+  FileText,
+  Send,
+  Zap,
   Download,
   Pencil,
   Trash2,
   Eye,
+  ChevronLeft,
+  ChevronRight,
+  type LucideIcon,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { formatGroupedFaIntInput, parseLocalizedFloat, parseLocalizedInt } from "@/lib/numberInput";
-import { formatIsoDateShamsi } from "@/lib/jalaliDate";
+import { formatIsoDateShamsi, formatIsoDateTimeShamsi, toPersianDigits } from "@/lib/jalaliDate";
 import {
   createUser,
   getUsersSummary,
@@ -83,6 +96,8 @@ interface UserRow {
   roleCode: string;
   status: "active" | "inactive";
   createdAt: string;
+  phone: string;
+  lastLogin: string;
   assignedStudentsCount: number;
 }
 
@@ -101,6 +116,54 @@ function roleBadgeClass(code: string): string {
   return ROLE_BADGE_STYLES[h % ROLE_BADGE_STYLES.length];
 }
 
+/** Tones for role cards/icons (cycled by role order). */
+const ROLE_TONES = [
+  "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400",
+  "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
+  "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
+  "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-400",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
+  "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-400",
+];
+
+function roleIcon(r: Pick<RoleApi, "code" | "name" | "full_access" | "compensation_kind">): LucideIcon {
+  const code = (r.code || "").toLowerCase();
+  const name = r.name || "";
+  if (r.full_access || r.compensation_kind === "NET_REVENUE" || code === "general_manager") return ShieldCheck;
+  if (code === "advisor" || (name.includes("مشاور") && !name.includes("مدیر"))) return GraduationCap;
+  if (code.includes("secretary") || name.includes("منشی")) return Headset;
+  if (name.includes("مدیر") || code.includes("manager")) return Briefcase;
+  return User;
+}
+
+function roleCompensationSummary(r: RoleApi): string {
+  if (r.compensation_kind === "NET_REVENUE" || r.full_access) return "مدیرکل: درآمد خالص";
+  const months = r.payroll_months_count ?? (r.compensation_kind === "VARIABLE" ? 10 : 12);
+  if (r.compensation_kind === "FIXED") {
+    const fixed = r.fixed_cents ? Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR") : "۰";
+    return `ثابت ${fixed} تومان · ${months.toLocaleString("fa-IR")} ماه در سال`;
+  }
+  return `متغیر (سهم دانش‌آموزان) · ${months.toLocaleString("fa-IR")} ماه در سال`;
+}
+
+function formatLastLogin(iso: string): string {
+  const s = formatIsoDateTimeShamsi(iso);
+  return s === "—" ? s : toPersianDigits(s);
+}
+
+/** Page numbers to show (null = gap), e.g. 1 … 4 5 6 … 12. */
+function pageWindow(page: number, total: number): (number | null)[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out: (number | null)[] = [1];
+  const from = Math.max(2, page - 1);
+  const to = Math.min(total - 1, page + 1);
+  if (from > 2) out.push(null);
+  for (let i = from; i <= to; i++) out.push(i);
+  if (to < total - 1) out.push(null);
+  out.push(total);
+  return out;
+}
+
 function mapUser(u: UserApi): UserRow {
   const name = `${u.first_name} ${u.last_name}`.trim();
   const roleCode = (u.role_code || u.role || "").toLowerCase();
@@ -113,6 +176,8 @@ function mapUser(u: UserApi): UserRow {
     roleCode,
     status: u.is_active ? "active" : "inactive",
     createdAt: formatIsoDateShamsi(u.created_at),
+    phone: u.phone ?? "",
+    lastLogin: u.last_login_at ? formatLastLogin(u.last_login_at) : "هنوز وارد نشده",
     assignedStudentsCount: u.assigned_students_count ?? 0,
   } as UserRow;
 }
@@ -276,9 +341,9 @@ const Users = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(10);
+  const navigate = useNavigate();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailsUserId, setDetailsUserId] = useState<number | null>(null);
@@ -466,62 +531,223 @@ const Users = () => {
     }
   };
 
+  const fa = (n: number) => n.toLocaleString("fa-IR");
+  const roleCounts = new Map((summary?.by_role ?? []).map((r) => [r.role_id, r]));
+  const totalUsers = summary?.total ?? (summary?.by_role ?? []).reduce((a, r) => a + r.count, 0);
+  const activeUsers =
+    summary?.active ?? (summary?.by_role ?? []).reduce((a, r) => a + (r.active_count ?? r.count), 0);
+  const inactiveUsers = summary?.inactive ?? Math.max(0, totalUsers - activeUsers);
+  const summaryReady = !isSummaryLoading && !isSummaryError;
+  const pageNumbers = pageWindow(page, totalPages);
+
+  const quickActions = [
+    { label: "افزودن کاربر", icon: Plus, primary: true, onClick: () => setIsCreateOpen(true) },
+    { label: "تعریف نقش جدید", icon: Shield, onClick: () => setRoleDialogOpen(true) },
+    { label: "فیش حقوقی", icon: FileText, onClick: () => navigate("/payroll") },
+    { label: "ارسال یادآوری", icon: Send, onClick: () => navigate("/reminders") },
+  ];
+
   return (
     <MainLayout
       title="کاربران و نقش‌ها"
       subtitle="مدیریت دسترسی‌ها و کاربران سیستم"
     >
-      {/* Header actions */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="جستجوی کاربر..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pr-9"
-          />
-        </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 sm:flex-none"
-            onClick={() => setShowFilters((v) => !v)}
-          >
-            <Filter className="ml-2 h-4 w-4" />
-            فیلتر
-          </Button>
-          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={handleExport}>
-            <Download className="ml-2 h-4 w-4" />
-            خروجی
-          </Button>
-          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => setRoleDialogOpen(true)}>
-            <Shield className="ml-2 h-4 w-4" />
-            نقش جدید
-          </Button>
-          <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setIsCreateOpen(true)}>
-            <Plus className="ml-2 h-4 w-4" />
-            کاربر جدید
-          </Button>
-        </div>
+      <div dir="rtl" className="space-y-4 text-right">
+      {/* Role cards */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {roles.map((r, i) => {
+          const row = roleCounts.get(r.id);
+          const tone = ROLE_TONES[i % ROLE_TONES.length];
+          const Icon = roleIcon(r);
+          const selected = roleFilter === String(r.id);
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setRoleFilter(selected ? "" : String(r.id))}
+              className={cn(
+                "card-elevated flex items-center justify-between gap-3 p-4 text-right transition-colors hover:border-primary/50",
+                selected && "border-primary ring-1 ring-primary/40",
+              )}
+              title="نمایش کاربران این نقش"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-bold text-foreground">{r.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {summaryReady ? fa(row?.count ?? 0) : "—"} کاربر
+                  <span className="text-primary"> · {summaryReady ? fa(row?.students_count ?? 0) : "—"} دانش‌آموز</span>
+                </p>
+              </div>
+              <span className={cn("shrink-0 rounded-xl p-3", tone)}>
+                <Icon className="h-5 w-5" />
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {showFilters && (
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex-1 max-w-xs">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              فیلتر نقش
-            </label>
-            <Select
-              value={roleFilter || "none"}
-              onValueChange={(val) => setRoleFilter(val === "none" ? "" : val)}
-            >
-              <SelectTrigger>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Defined roles */}
+        <section className="card-elevated min-w-0 p-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 font-bold">
+              <Users2 className="h-4 w-4 text-primary" />
+              نقش‌های تعریف‌شده
+            </h3>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setRoleDialogOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              نقش جدید
+            </Button>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {roles.map((r, i) => {
+              const Icon = roleIcon(r);
+              return (
+                <div key={r.id} className="group flex items-center justify-between gap-2 border-b py-2 last:border-b-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={cn("shrink-0 rounded-md p-1", ROLE_TONES[i % ROLE_TONES.length])}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm">
+                        {r.name}
+                        {r.is_system && <span className="mr-1 text-[10px] text-muted-foreground">(سیستمی)</span>}
+                      </p>
+                      <p className="truncate text-[11px] text-muted-foreground">{roleCompensationSummary(r)}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="text-sm font-bold number-display">
+                      {summaryReady ? fa(roleCounts.get(r.id)?.count ?? 0) : "—"}
+                    </span>
+                    {!r.is_system && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setDeleteRoleTarget(r)}
+                        title="حذف نقش"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Users status */}
+        <section className="card-elevated min-w-0 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 font-bold">
+              <UserCheck className="h-4 w-4 text-primary" />
+              وضعیت کاربران
+            </h3>
+            {statusFilter && (
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setStatusFilter("")}>
+                <Eye className="h-3.5 w-3.5" />
+                نمایش همه
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: "", label: "کل کاربران", value: totalUsers, cls: "text-foreground", dot: "bg-primary" },
+              { key: "active", label: "فعال", value: activeUsers, cls: "text-emerald-700 dark:text-emerald-400", dot: "bg-emerald-500" },
+              { key: "inactive", label: "غیرفعال", value: inactiveUsers, cls: "text-destructive", dot: "bg-destructive" },
+            ].map((t) => (
+              <button
+                key={t.label}
+                type="button"
+                onClick={() => setStatusFilter(t.key)}
+                className={cn(
+                  "rounded-xl border bg-muted/30 p-3 text-center transition-colors hover:border-primary/50",
+                  statusFilter === t.key && "border-primary bg-primary/5",
+                )}
+              >
+                <p className={cn("text-2xl font-bold number-display", t.cls)}>{summaryReady ? fa(t.value) : "—"}</p>
+                <p className="mt-1 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                  <span className={cn("h-1.5 w-1.5 rounded-full", t.dot)} />
+                  {t.label}
+                </p>
+              </button>
+            ))}
+          </div>
+          {summaryReady && totalUsers > 0 && (
+            <div className="mt-4 space-y-1.5">
+              {(summary?.by_role ?? []).map((r) => {
+                const active = r.active_count ?? r.count;
+                return (
+                  <div key={r.role_id} className="flex items-center gap-2 text-xs">
+                    <span className="w-24 truncate text-muted-foreground">{r.name || "بدون نقش"}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-destructive/20">
+                      <div
+                        className="h-full rounded-full bg-emerald-500"
+                        style={{ width: `${r.count ? Math.round((active / r.count) * 100) : 0}%` }}
+                      />
+                    </div>
+                    <span className="w-14 text-left number-display" dir="ltr">
+                      {fa(active)}/{fa(r.count)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Quick access */}
+        <section className="card-elevated min-w-0 p-4">
+          <h3 className="mb-3 flex items-center gap-2 font-bold">
+            <Zap className="h-4 w-4 text-primary" />
+            دسترسی سریع
+          </h3>
+          <div className="grid grid-cols-2 gap-3">
+            {quickActions.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                onClick={q.onClick}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-xl border px-2 py-5 text-sm font-medium transition-colors",
+                  q.primary
+                    ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-card hover:border-primary/50 hover:bg-muted/40",
+                )}
+              >
+                <q.icon className="h-5 w-5" />
+                {q.label}
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* Users table */}
+      <section className="card-elevated min-w-0 overflow-hidden">
+        <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
+          <h3 className="flex items-center gap-2 font-bold">
+            <UserCog className="h-4 w-4 text-primary" />
+            فهرست کاربران و دسترسی‌ها
+          </h3>
+          <div className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
+            <div className="relative min-w-[200px] flex-1 lg:max-w-sm">
+              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="جستجو در نام، ایمیل یا شماره تماس..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-9"
+              />
+            </div>
+            <Select value={roleFilter || "none"} onValueChange={(val) => setRoleFilter(val === "none" ? "" : val)}>
+              <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="همه نقش‌ها" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">همه</SelectItem>
+                <SelectItem value="none">همه نقش‌ها</SelectItem>
                 {roles.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
                     {r.name}
@@ -529,164 +755,58 @@ const Users = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex-1 max-w-xs">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              فیلتر وضعیت
-            </label>
-            <Select
-              value={statusFilter}
-              onValueChange={(val) =>
-                setStatusFilter(val === "none" ? "" : val)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="همه وضعیت‌ها" />
+            <Select value={statusFilter || "none"} onValueChange={(val) => setStatusFilter(val === "none" ? "" : val)}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="وضعیت: همه" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">همه</SelectItem>
+                <SelectItem value="none">وضعیت: همه</SelectItem>
                 <SelectItem value="active">فعال</SelectItem>
                 <SelectItem value="inactive">غیرفعال</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={handleExport} title="خروجی CSV">
+              <Download className="ml-1 h-4 w-4" />
+              خروجی
+            </Button>
+            <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+              <Plus className="ml-1 h-4 w-4" />
+              افزودن کاربر
+            </Button>
           </div>
         </div>
-      )}
-
-      {/* Role summary cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {(summary?.by_role ?? []).map((row) => (
-          <div
-            key={row.role_id}
-            className="card-elevated p-4 cursor-pointer hover:border-primary/50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className={cn("rounded-lg p-2", roleBadgeClass(row.code))}>
-                <UserCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="font-bold text-foreground">{row.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {isSummaryLoading || isSummaryError ? "—" : row.count.toLocaleString("fa-IR")} کاربر
-                  {!isSummaryLoading && !isSummaryError && (
-                    <span className="text-primary"> · {(row.students_count ?? 0).toLocaleString("fa-IR")} دانش‌آموز</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Roles & compensation table */}
-      <div className="mb-6 card-elevated overflow-hidden">
-        <div className="border-b bg-muted/40 px-4 py-3">
-          <h2 className="text-sm font-semibold">نقش‌ها و قوانین حقوق</h2>
-          <p className="text-xs text-muted-foreground">
-            هر نقش نوع حقوق و تعداد ماه‌های پرداخت در سال دارد — مثلاً مشاور ۱۰ ماه، منشی ۱۲ ماه.
-          </p>
-        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead>
-              <tr className="border-b bg-muted/30 text-right">
-                <th className="p-3 font-medium">نقش</th>
-                <th className="p-3 font-medium">نوع حقوق</th>
-                <th className="p-3 font-medium">جزئیات</th>
-                <th className="p-3 font-medium w-24">عملیات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {roles.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="p-3">
-                    {r.name}
-                    {r.is_system && (
-                      <span className="mr-2 text-xs text-muted-foreground">(سیستمی)</span>
-                    )}
-                  </td>
-                  <td className="p-3">{COMP_KIND_LABELS[r.compensation_kind] ?? r.compensation_kind}</td>
-                  <td className="p-3 text-muted-foreground text-xs">
-                    {r.compensation_kind === "FIXED" && r.fixed_cents != null && r.fixed_cents > 0 &&
-                      `${Math.floor(r.fixed_cents / 10).toLocaleString("fa-IR")} تومان ماهانه`}
-                    {r.compensation_kind === "FIXED" && (r.fixed_cents == null || r.fixed_cents === 0) &&
-                      "۰ تومان ماهانه"}
-                    {r.compensation_kind === "VARIABLE" &&
-                      "بر اساس سهم‌های ثبت‌نام دانش‌آموزان"}
-                    {r.compensation_kind === "NET_REVENUE" &&
-                      "مجموع پرداخت‌های ماه − مجموع حقوق سایر کارمندان"}
-                    {(r.full_access && r.compensation_kind !== "NET_REVENUE") &&
-                      " — مدیرکل: درآمد خالص"}
-                    {!r.full_access && r.compensation_kind !== "NET_REVENUE" && (
-                      <span className="block mt-0.5">
-                        {r.payroll_months_count ??
-                          (r.compensation_kind === "VARIABLE" ? 10 : 12)}{" "}
-                        ماه حقوق در سال
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {!r.is_system && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => setDeleteRoleTarget(r)}
-                      >
-                        <Trash2 className="ml-1 h-3.5 w-3.5" />
-                        حذف
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Users table */}
-      <div className="card-elevated overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کاربر</th>
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش</th>
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">دانش‌آموزان</th>
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">آخرین فعالیت</th>
-                <th className="p-4 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
+              <tr className="border-b bg-muted/50 text-right text-xs text-muted-foreground">
+                <th className="p-3 font-semibold">نام و نام خانوادگی</th>
+                <th className="p-3 font-semibold">نقش</th>
+                <th className="p-3 font-semibold">تلفن</th>
+                <th className="p-3 font-semibold">ایمیل</th>
+                <th className="p-3 font-semibold">دانش‌آموزان</th>
+                <th className="p-3 font-semibold">آخرین ورود</th>
+                <th className="p-3 font-semibold">وضعیت</th>
+                <th className="p-3 font-semibold">عملیات</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="p-4 text-center text-sm text-muted-foreground"
-                  >
+                  <td colSpan={8} className="p-4 text-center text-sm text-muted-foreground">
                     در حال بارگذاری کاربران...
                   </td>
                 </tr>
               )}
               {isError && (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="p-4 text-center text-sm text-destructive"
-                  >
-                    {(error as Error)?.message ||
-                      "خطا در دریافت لیست کاربران"}
+                  <td colSpan={8} className="p-4 text-center text-sm text-destructive">
+                    {(error as Error)?.message || "خطا در دریافت لیست کاربران"}
                   </td>
                 </tr>
               )}
               {!isLoading && !isError && users.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="p-4 text-center text-sm text-muted-foreground"
-                  >
+                  <td colSpan={8} className="p-4 text-center text-sm text-muted-foreground">
                     کاربری یافت نشد.
                   </td>
                 </tr>
@@ -694,148 +814,141 @@ const Users = () => {
               {!isLoading &&
                 !isError &&
                 users.map((user) => (
-                  <tr
-                    key={user.id}
-                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
-                  >
-                  <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                        {user.name.charAt(0)}
+                  <tr key={user.id} className="border-b last:border-0 transition-colors hover:bg-muted/30">
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                          {user.name.charAt(0)}
+                        </div>
+                        <span className="whitespace-nowrap font-medium text-foreground">{user.name}</span>
                       </div>
-                      <div>
-                        <p className="font-medium text-foreground">{user.name}</p>
-                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                          roleBadgeClass(user.roleCode),
+                        )}
+                      >
+                        {user.roleLabel}
+                      </span>
+                    </td>
+                    <td className="p-3 number-display" dir="ltr">
+                      <span className="block text-right">{user.phone ? toPersianDigits(user.phone) : "—"}</span>
+                    </td>
+                    <td className="p-3 text-muted-foreground" dir="ltr">
+                      <span className="block text-right">{user.email}</span>
+                    </td>
+                    <td className="p-3">
+                      {user.assignedStudentsCount > 0 ? (
+                        <span>{fa(user.assignedStudentsCount)} نفر</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="p-3 whitespace-nowrap text-muted-foreground">{user.lastLogin}</td>
+                    <td className="p-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                          user.status === "active" ? "status-paid" : "status-debt",
+                        )}
+                      >
+                        <span className={cn("h-1.5 w-1.5 rounded-full", user.status === "active" ? "bg-success" : "bg-destructive")} />
+                        {user.status === "active" ? "فعال" : "غیرفعال"}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetailsUserId(user.id)} title="جزئیات کاربر">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditUserId(user.id)} title="ویرایش کاربر">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setDeleteUserTarget(user)}
+                          title="غیرفعال‌سازی کاربر"
+                          disabled={user.status !== "active"}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                        roleBadgeClass(user.roleCode),
-                      )}
-                    >
-                      {user.roleLabel}
-                    </span>
-                  </td>
-                  <td className="p-4 text-foreground">
-                    {user.assignedStudentsCount > 0 ? (
-                      <span>{user.assignedStudentsCount.toLocaleString("fa-IR")} نفر</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="p-4">
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                        user.status === "active" ? "status-paid" : "status-debt",
-                      )}
-                    >
-                      <span className={cn("h-1.5 w-1.5 rounded-full", user.status === "active" ? "bg-success" : "bg-destructive")} />
-                      {user.status === "active" ? "فعال" : "غیرفعال"}
-                    </span>
-                  </td>
-                  <td className="p-4 text-muted-foreground">
-                    {user.createdAt}
-                  </td>
-                  <td className="p-4">
-                    <div className="flex gap-1 flex-wrap">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => setDetailsUserId(user.id)}
-                        title="جزئیات کاربر"
-                      >
-                        <Eye className="h-4 w-4" />
-                        جزئیات
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => setEditUserId(user.id)}
-                        title="ویرایش کاربر"
-                      >
-                        <Pencil className="h-4 w-4" />
-                        ویرایش
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => setDeleteUserTarget(user)}
-                        title="حذف (غیرفعال‌سازی)"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        حذف
-                      </Button>
-                    </div>
-                  </td>
+                    </td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* Pagination */}
-      {!isError && totalItems > 0 && (
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            نمایش {rangeFrom.toLocaleString("fa-IR")} تا {rangeTo.toLocaleString("fa-IR")} از{" "}
-            {totalItems.toLocaleString("fa-IR")} کاربر
-            {isFetching && " — در حال بروزرسانی..."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">۲۵ در هر صفحه</SelectItem>
-                <SelectItem value="50">۵۰ در هر صفحه</SelectItem>
-                <SelectItem value="100">۱۰۰ در هر صفحه</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page <= 1}>
-              اول
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
-              قبلی
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              صفحه {page.toLocaleString("fa-IR")} از {totalPages.toLocaleString("fa-IR")}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-            >
-              بعدی
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage(totalPages)}
-              disabled={page >= totalPages}
-            >
-              آخر
-            </Button>
+        {/* Pagination */}
+        {!isError && totalItems > 0 && (
+          <div className="flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>تعداد در صفحه:</span>
+              <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                <SelectTrigger className="h-8 w-[76px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50, 100].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {fa(n)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                نمایش {fa(rangeFrom)} تا {fa(rangeTo)} از {fa(totalItems)} مورد
+                {isFetching && " — در حال بروزرسانی..."}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  aria-label="صفحه قبل"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                {pageNumbers.map((n, i) =>
+                  n === null ? (
+                    <span key={`gap-${i}`} className="px-1 text-muted-foreground">…</span>
+                  ) : (
+                    <Button
+                      key={n}
+                      variant={n === page ? "default" : "outline"}
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage(n)}
+                    >
+                      {fa(n)}
+                    </Button>
+                  ),
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  aria-label="صفحه بعد"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </section>
+      </div>
 
       {/* Create user dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

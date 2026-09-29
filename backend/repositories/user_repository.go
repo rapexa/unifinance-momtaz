@@ -18,6 +18,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	Update(ctx context.Context, user *models.User) error
 	SetTokensValidFrom(ctx context.Context, userID uint, t time.Time) error
+	TouchLastLogin(ctx context.Context, userID uint, t time.Time) error
 	SetPasswordAndInvalidate(ctx context.Context, userID uint, passwordHash string, t time.Time) error
 	List(ctx context.Context, limit, offset int, search, roleCode string, roleID uint, isActive *bool) ([]models.User, int64, error)
 	RoleStats(ctx context.Context) ([]UserRoleStat, error)
@@ -34,6 +35,7 @@ type UserRoleStat struct {
 	Code           string `json:"code"`
 	Name           string `json:"name"`
 	Count          int64  `json:"count"`
+	ActiveCount    int64  `json:"active_count"`
 	StudentsCount  int64  `json:"students_count"`
 }
 
@@ -104,6 +106,13 @@ func (r *GormUserRepository) SetTokensValidFrom(ctx context.Context, userID uint
 	return r.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ?", userID).
 		Update("tokens_valid_from", t).Error
+}
+
+// TouchLastLogin records a successful login time.
+func (r *GormUserRepository) TouchLastLogin(ctx context.Context, userID uint, t time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		UpdateColumn("last_login_at", t).Error
 }
 
 func (r *GormUserRepository) SetPasswordAndInvalidate(ctx context.Context, userID uint, passwordHash string, t time.Time) error {
@@ -186,7 +195,8 @@ func (r *GormUserRepository) List(ctx context.Context, limit, offset int, search
 func (r *GormUserRepository) RoleStats(ctx context.Context) ([]UserRoleStat, error) {
 	var rows []UserRoleStat
 	err := r.db.WithContext(ctx).Model(&models.User{}).
-		Select("users.role_id as role_id, COALESCE(roles.code, '') as code, COALESCE(roles.name, '') as name, COUNT(*) as count").
+		Select("users.role_id as role_id, COALESCE(roles.code, '') as code, COALESCE(roles.name, '') as name, COUNT(*) as count, " +
+			"COALESCE(SUM(CASE WHEN users.is_active THEN 1 ELSE 0 END), 0) as active_count").
 		Joins("LEFT JOIN roles ON roles.id = users.role_id").
 		Group("users.role_id, roles.code, roles.name").
 		Scan(&rows).Error

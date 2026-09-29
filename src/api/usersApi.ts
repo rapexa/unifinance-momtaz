@@ -16,6 +16,8 @@ export interface UserApi {
   permissions?: string[];
   /** دانش‌آموزانی که مشاور یا سهم نقش برایشان ثبت شده */
   assigned_students_count?: number;
+  /** آخرین ورود موفق */
+  last_login_at?: string | null;
 }
 
 export interface PaginatedUsersResponse {
@@ -54,11 +56,16 @@ export interface RoleCountRow {
   code: string;
   name: string;
   count: number;
+  /** کاربران فعال این نقش */
+  active_count?: number;
   students_count?: number;
 }
 
 export interface UsersSummary {
   by_role: RoleCountRow[];
+  total?: number;
+  active?: number;
+  inactive?: number;
 }
 
 export interface ListUsersParams {
@@ -86,7 +93,12 @@ export async function getUsersSummary(): Promise<UsersSummary> {
   }
 
   const typed = data as UsersSummary & { by_role?: RoleCountRow[] };
-  return { by_role: Array.isArray(typed?.by_role) ? typed.by_role : [] };
+  return {
+    by_role: Array.isArray(typed?.by_role) ? typed.by_role : [],
+    total: typed?.total,
+    active: typed?.active,
+    inactive: typed?.inactive,
+  };
 }
 
 export async function listUsers(

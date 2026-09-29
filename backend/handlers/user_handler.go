@@ -35,6 +35,7 @@ type UserDTO struct {
 	OrganizationID        *uint     `json:"organization_id,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 	AssignedStudentsCount int64     `json:"assigned_students_count"`
+	LastLoginAt           *time.Time `json:"last_login_at,omitempty"`
 	Permissions           []string  `json:"permissions,omitempty"` // only for GET when caller has USERS permission
 }
 
@@ -49,6 +50,7 @@ func toUserDTO(u *models.User) UserDTO {
 		IsActive:       u.IsActive,
 		OrganizationID: u.OrganizationID,
 		CreatedAt:      u.CreatedAt,
+		LastLoginAt:    u.LastLoginAt,
 	}
 	if u.Role != nil {
 		dto.RoleCode = u.Role.Code
@@ -201,19 +203,29 @@ func (h *UserHandler) Summary(c *gin.Context) {
 		Code          string `json:"code"`
 		Name          string `json:"name"`
 		Count         int64  `json:"count"`
+		ActiveCount   int64  `json:"active_count"`
 		StudentsCount int64  `json:"students_count"`
 	}
 	rows := make([]row, 0, len(stats))
+	var total, active int64
 	for _, s := range stats {
 		rows = append(rows, row{
 			RoleID:        s.RoleID,
 			Code:          s.Code,
 			Name:          s.Name,
 			Count:         s.Count,
+			ActiveCount:   s.ActiveCount,
 			StudentsCount: s.StudentsCount,
 		})
+		total += s.Count
+		active += s.ActiveCount
 	}
-	c.JSON(http.StatusOK, gin.H{"by_role": rows})
+	c.JSON(http.StatusOK, gin.H{
+		"by_role": rows,
+		"total":   total,
+		"active":  active,
+		"inactive": total - active,
+	})
 }
 
 // Get handles GET /users/:id
