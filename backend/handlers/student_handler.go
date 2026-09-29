@@ -73,6 +73,18 @@ type StudentDoc struct {
 	RemainingBalanceCents int64 `json:"remaining_balance_cents"`
 	// PaidTotalCents is sum of PAID payment amounts for this student (for UI hints).
 	PaidTotalCents int64 `json:"paid_total_cents"`
+	// MonthRemainingCents (مانده ماه): due from registration through the current Jalali month − paid.
+	MonthRemainingCents int64 `json:"month_remaining_cents"`
+	// TotalRemainingCents (مانده کل): whole contract − paid (monthly billing: fees due so far − paid).
+	TotalRemainingCents int64 `json:"total_remaining_cents"`
+	// DueToDateCents is what should have been paid through the current month.
+	DueToDateCents int64 `json:"due_to_date_cents"`
+	// InstallmentCents is this month's installment / monthly fee.
+	InstallmentCents int64 `json:"installment_cents"`
+	MonthsElapsed    int   `json:"months_elapsed"`
+	ScheduleMonths   int   `json:"schedule_months,omitempty"`
+	// EndDate (YYYY-MM-DD) is when the student stopped being active; billing stops there.
+	EndDate string `json:"end_date,omitempty"`
 	// AdvisoryStartDate is JoinDate as YYYY-MM-DD (تاریخ شروع مشاوره).
 	AdvisoryStartDate string                 `json:"advisory_start_date,omitempty"`
 	RolePayouts       []StudentRolePayoutDoc `json:"role_payouts,omitempty"`
@@ -149,6 +161,9 @@ func toStudentDoc(s *models.Student) StudentDoc {
 	if s.JoinDate != nil {
 		doc.AdvisoryStartDate = s.JoinDate.Format("2006-01-02")
 	}
+	if s.EndDate != nil {
+		doc.EndDate = s.EndDate.Format("2006-01-02")
+	}
 	if len(s.StudentRolePayouts) > 0 {
 		doc.RolePayouts = make([]StudentRolePayoutDoc, 0, len(s.StudentRolePayouts))
 		for _, rp := range s.StudentRolePayouts {
@@ -180,10 +195,6 @@ func toStudentDocSlice(students []models.Student) []StudentDoc {
 	return out
 }
 
-func computeRemainingBalanceCents(s *models.Student, paidSum, openSum int64) int64 {
-	return services.RemainingBalanceCents(s, paidSum, openSum)
-}
-
 func (h *StudentHandler) studentDocWithRemaining(ctx context.Context, s *models.Student) StudentDoc {
 	doc := toStudentDoc(s)
 	if h.payments == nil {
@@ -193,8 +204,7 @@ func (h *StudentHandler) studentDocWithRemaining(ctx context.Context, s *models.
 	if err != nil {
 		return h.withSchoolEnrollmentWarnings(ctx, doc)
 	}
-	doc.PaidTotalCents = paid[s.ID]
-	doc.RemainingBalanceCents = computeRemainingBalanceCents(s, paid[s.ID], open[s.ID])
+	applyStudentBalance(&doc, s, paid[s.ID], open[s.ID])
 	return h.withSchoolEnrollmentWarnings(ctx, doc)
 }
 
@@ -272,9 +282,21 @@ func (h *StudentHandler) applyRemainingToStudentDocs(ctx context.Context, docs [
 	}
 	for i := range docs {
 		id := students[i].ID
-		docs[i].PaidTotalCents = paid[id]
-		docs[i].RemainingBalanceCents = computeRemainingBalanceCents(&students[i], paid[id], open[id])
+		applyStudentBalance(&docs[i], &students[i], paid[id], open[id])
 	}
+}
+
+// applyStudentBalance fills paid / month remaining / total remaining from the billing schedule.
+func applyStudentBalance(doc *StudentDoc, s *models.Student, paid, open int64) {
+	b := services.StudentBalanceAt(s, paid, open, time.Now())
+	doc.PaidTotalCents = paid
+	doc.RemainingBalanceCents = b.TotalRemainingCents
+	doc.MonthRemainingCents = b.MonthRemainingCents
+	doc.TotalRemainingCents = b.TotalRemainingCents
+	doc.DueToDateCents = b.DueToDateCents
+	doc.InstallmentCents = b.InstallmentCents
+	doc.MonthsElapsed = b.MonthsElapsed
+	doc.ScheduleMonths = b.ScheduleMonths
 }
 
 // StudentStatsDoc represents summary stats for the Students page.
@@ -446,14 +468,47 @@ func (h *StudentHandler) List(c *gin.Context) {
 		return
 	}
 
-	students, total, err := h.service.List(c.Request.Context(), pageSize, offset, filter)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست دانش‌آموزان"})
-		return
+	var (
+		students []models.Student
+		total    int64
+		docs     []StudentDoc
+	)
+	if filter.HasDebt {
+		// Debt depends on the billing schedule (months since registration), so it is
+		// evaluated in Go over every matching row, then paginated.
+		filter.HasDebt = false
+		all, _, lErr := h.service.List(c.Request.Context(), 100000, 0, filter)
+		if lErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست دانش‌آموزان"})
+			return
+		}
+		allDocs := toStudentDocSlice(all)
+		h.applyRemainingToStudentDocs(c.Request.Context(), allDocs, all)
+		for i := range allDocs {
+			if allDocs[i].TotalRemainingCents > 0 {
+				docs = append(docs, allDocs[i])
+			}
+		}
+		total = int64(len(docs))
+		if offset >= len(docs) {
+			docs = []StudentDoc{}
+		} else {
+			end := offset + pageSize
+			if end > len(docs) {
+				end = len(docs)
+			}
+			docs = docs[offset:end]
+		}
+	} else {
+		var lErr error
+		students, total, lErr = h.service.List(c.Request.Context(), pageSize, offset, filter)
+		if lErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در دریافت لیست دانش‌آموزان"})
+			return
+		}
+		docs = toStudentDocSlice(students)
+		h.applyRemainingToStudentDocs(c.Request.Context(), docs, students)
 	}
-
-	docs := toStudentDocSlice(students)
-	h.applyRemainingToStudentDocs(c.Request.Context(), docs, students)
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -809,7 +864,7 @@ func (h *StudentHandler) Update(c *gin.Context) {
 	student.HomeAddress = payload.HomeAddress
 	student.RegistrationChannel = channel
 	if payload.Status != "" {
-		student.Status = models.StudentStatus(payload.Status)
+		setStudentStatus(student, models.StudentStatus(payload.Status))
 	}
 	if middleware.DataScopeUserID(c) == nil {
 		if payload.AdvisorID != nil {
@@ -998,6 +1053,21 @@ func (h *StudentHandler) HardDelete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// setStudentStatus changes status and keeps EndDate in sync: leaving ACTIVE stamps today,
+// coming back to ACTIVE clears it so monthly billing resumes.
+func setStudentStatus(st *models.Student, status models.StudentStatus) {
+	if st.Status == status {
+		return
+	}
+	if status == models.StudentStatusActive {
+		st.EndDate = nil
+	} else if st.Status == models.StudentStatusActive || st.EndDate == nil {
+		t := todayLocalMidnight()
+		st.EndDate = &t
+	}
+	st.Status = status
 }
 
 func todayLocalMidnight() time.Time {

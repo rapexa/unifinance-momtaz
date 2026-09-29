@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/access"
 	"github.com/soheilsshh/unifinance-momtaz/models"
@@ -22,13 +23,38 @@ func EffectiveEnrollmentCents(st *models.Student) int64 {
 	return 0
 }
 
-// RemainingBalanceCents matches the student list: enrollment − paid, or open charges when no enrollment.
-func RemainingBalanceCents(st *models.Student, paidSum, openSum int64) int64 {
+// StudentBalance is a student's position relative to their billing schedule.
+type StudentBalance struct {
+	models.StudentBillingPosition
+	PaidCents int64
+	// MonthRemainingCents: due through the current month − paid (مانده ماه). Negative = prepaid.
+	MonthRemainingCents int64
+	// TotalRemainingCents: whole contract − paid (مانده کل); for monthly billing the obligation
+	// is the fees due so far. Negative = paid more than the contract.
+	TotalRemainingCents int64
+}
+
+// StudentBalanceAt computes month/total remaining as of asOf. Without an enrollment amount the
+// open (PENDING/OVERDUE) charges are the balance.
+func StudentBalanceAt(st *models.Student, paidSum, openSum int64, asOf time.Time) StudentBalance {
+	out := StudentBalance{PaidCents: paidSum}
 	enroll := EffectiveEnrollmentCents(st)
-	if enroll > 0 {
-		return enroll - paidSum
+	if st == nil || enroll <= 0 {
+		out.MonthRemainingCents = openSum
+		out.TotalRemainingCents = openSum
+		return out
 	}
-	return openSum
+	out.StudentBillingPosition = st.BillingPosition(enroll, asOf)
+	out.MonthRemainingCents = out.DueToDateCents - paidSum
+	out.TotalRemainingCents = out.TotalObligationCents - paidSum
+	return out
+}
+
+// RemainingBalanceCents is the student's total remaining (مانده کل) as of now:
+// contract − paid for single/annual billing, monthly fees due so far − paid for monthly billing,
+// or open charges when no enrollment amount is set.
+func RemainingBalanceCents(st *models.Student, paidSum, openSum int64) int64 {
+	return StudentBalanceAt(st, paidSum, openSum, time.Now()).TotalRemainingCents
 }
 
 // StudentDebtCents is the positive amount a student still owes (0 if settled or prepaid).

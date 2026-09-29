@@ -2,6 +2,7 @@ package services
 
 import (
 	"testing"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 )
@@ -57,6 +58,23 @@ func TestStudentRemainingBalance_SchoolChannelScenario(t *testing.T) {
 	if RemainingBalanceCents(stB, 80_000_000, 0) != 0 {
 		t.Fatalf("expected settled remaining 0")
 	}
+}
+
+func TestStudentBalanceAt_MonthlyUsesMonthsSinceRegistration(t *testing.T) {
+	// Monthly fee 2M toman, registered 3 Jalali months ago (Mordad → Mehr), paid 4M toman.
+	join := time.Date(2026, 8, 5, 0, 0, 0, 0, time.Local)  // 14 Mordad 1405
+	asOf := time.Date(2026, 9, 29, 0, 0, 0, 0, time.Local) // 7 Mehr 1405
+	st := &models.Student{
+		EnrollmentAmountCents: 20_000_000,
+		EnrollmentBillingMode: models.EnrollmentBillingMonthly,
+		JoinDate:              &join,
+		Status:                models.StudentStatusActive,
+	}
+	b := StudentBalanceAt(st, 40_000_000, 0, asOf)
+	if b.DueToDateCents != 60_000_000 || b.MonthRemainingCents != 20_000_000 || b.TotalRemainingCents != 20_000_000 {
+		t.Fatalf("%+v", b)
+	}
+	// Previously the list showed enrollment − paid = −2M (credit) for this student.
 }
 
 func TestSchoolContractRemaining_FromStudentPaidSum(t *testing.T) {

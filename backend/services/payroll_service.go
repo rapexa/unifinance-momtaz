@@ -1223,6 +1223,8 @@ type AdvisorOpsStudentRow struct {
 	EnrollmentAmountCents int64
 	PaidTotalCents        int64
 	RemainingBalanceCents int64
+	MonthRemainingCents   int64
+	ExpectedTotalCents    int64
 	HasPaidThisMonth      bool
 }
 
@@ -1413,9 +1415,9 @@ func (s *PayrollService) ListAdvisorOps(ctx context.Context, year, month int, sc
 			case models.DeliveryModeInPerson:
 				row.StudentsInPerson++
 			}
-			enroll := EffectiveEnrollmentCents(&st)
-			row.ExpectedTotalCents += enroll
 			paid := paidLifetime[st.ID]
+			bal := StudentBalanceAt(&st, paid, 0, time.Now())
+			row.ExpectedTotalCents += bal.TotalObligationCents
 			row.PaidTotalCents += paid
 			if paidThisMonth[st.ID] {
 				row.PaidCountThisMonth++
@@ -1494,8 +1496,8 @@ func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID u
 
 	out := make([]AdvisorOpsStudentRow, 0, len(students))
 	for _, st := range students {
-		enroll := EffectiveEnrollmentCents(&st)
 		paid := paidLife[st.ID]
+		bal := StudentBalanceAt(&st, paid, 0, time.Now())
 		mode := string(st.EnrollmentBillingMode)
 		if mode == "" {
 			mode = string(models.EnrollmentBillingMonthly)
@@ -1512,9 +1514,11 @@ func (s *PayrollService) ListAdvisorOpsStudents(ctx context.Context, advisorID u
 			EnrollmentBillingMode: mode,
 			RegistrationChannel:   channel,
 			SchoolName:            st.SchoolName,
-			EnrollmentAmountCents: enroll,
+			EnrollmentAmountCents: EffectiveEnrollmentCents(&st),
 			PaidTotalCents:        paid,
-			RemainingBalanceCents: enroll - paid,
+			RemainingBalanceCents: bal.TotalRemainingCents,
+			MonthRemainingCents:   bal.MonthRemainingCents,
+			ExpectedTotalCents:    bal.TotalObligationCents,
 			HasPaidThisMonth:      paidThisMonth[st.ID],
 		})
 	}
@@ -1552,7 +1556,7 @@ func (s *PayrollService) GetAdvisorOpsUserDetail(ctx context.Context, userID uin
 	}
 	detail.StudentsTotal = len(students)
 	for _, st := range students {
-		detail.ExpectedTotalCents += st.EnrollmentAmountCents
+		detail.ExpectedTotalCents += st.ExpectedTotalCents
 		detail.StudentsPaidTotal += st.PaidTotalCents
 	}
 	detail.RemainingCents = detail.ExpectedTotalCents - detail.StudentsPaidTotal

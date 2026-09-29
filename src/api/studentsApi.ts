@@ -40,6 +40,18 @@ export interface StudentApi {
   remaining_balance_cents?: number;
   /** جمع پرداخت‌های وضعیت PAID (ریال×۱۰) */
   paid_total_cents?: number;
+  /** مانده ماه: بدهی تا پایان ماه جاری (از تاریخ ثبت‌نام) − پرداخت‌شده؛ منفی = پیش‌پرداخت */
+  month_remaining_cents?: number;
+  /** مانده کل: کل قرارداد − پرداخت‌شده (ماهانه: شهریه ماه‌های گذشته تا امروز − پرداخت‌شده) */
+  total_remaining_cents?: number;
+  /** مبلغی که تا پایان ماه جاری باید پرداخت شده باشد */
+  due_to_date_cents?: number;
+  /** قسط / شهریه همین ماه */
+  installment_cents?: number;
+  months_elapsed?: number;
+  schedule_months?: number;
+  /** YYYY-MM-DD — تاریخ پایان (غیرفعال شدن) */
+  end_date?: string;
   enrollment_amount_cents?: number;
   /** YYYY-MM-DD — تاریخ شروع مشاوره */
   advisory_start_date?: string;

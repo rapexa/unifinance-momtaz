@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
 	"github.com/soheilsshh/unifinance-momtaz/repositories"
@@ -60,6 +61,11 @@ func (s *StudentService) Delete(ctx context.Context, id uint) error {
 	st, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	if st.Status == models.StudentStatusActive || st.EndDate == nil {
+		now := time.Now()
+		end := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		st.EndDate = &end
 	}
 	st.Status = models.StudentStatusDeleted
 	if err := s.repo.Update(ctx, st); err != nil {

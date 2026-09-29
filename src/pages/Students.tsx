@@ -106,8 +106,12 @@ interface StudentRow {
   plan: string;
   /** مانده به ریال×۱۰ (هم‌واحد API) — برای بستانکار/بدهکار منفی یعنی پیش‌پرداخت نسبت به ثبت‌نام */
   remainingCents: number;
+  /** مانده ماه (بدهی تا پایان ماه جاری از تاریخ ثبت‌نام − پرداخت‌شده) */
+  monthRemainingCents: number;
   enrollmentCents: number;
   paidTotalCents: number;
+  dueToDateCents: number;
+  billingMode: string;
   status: "active" | "inactive" | "deleted";
   advisoryStart: string;
 }
@@ -358,9 +362,13 @@ function mapStudent(api: StudentApi): StudentRow {
     email: api.email || "",
     advisor: api.advisor_name?.trim() || "—",
     plan: api.current_plan_name?.trim() || "—",
-    remainingCents: api.remaining_balance_cents ?? api.balance_cents ?? 0,
+    remainingCents: api.total_remaining_cents ?? api.remaining_balance_cents ?? api.balance_cents ?? 0,
+    monthRemainingCents:
+      api.month_remaining_cents ?? api.total_remaining_cents ?? api.remaining_balance_cents ?? 0,
     enrollmentCents: api.enrollment_amount_cents ?? 0,
     paidTotalCents: api.paid_total_cents ?? 0,
+    dueToDateCents: api.due_to_date_cents ?? 0,
+    billingMode: api.enrollment_billing_mode ?? "MONTHLY",
     status:
       api.status === "DELETED"
         ? "deleted"
@@ -1123,10 +1131,11 @@ const Students = () => {
     try {
       // همه صفحات با همان فیلترهای فعلی
       const allStudents = await listAllStudents(listParams);
-      const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "مانده / وضعیت", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
+      const header = ["شناسه", "نام", "نام خانوادگی", "موبایل", "ایمیل", "مشاور", "پلن", "وضعیت", "مانده ماه", "مانده کل", "مبلغ ثبت‌نامی (تومان)", "تاریخ شروع مشاوره"];
       const rows = allStudents.map((s) => {
         const remain =
-          s.remaining_balance_cents !== undefined ? s.remaining_balance_cents : s.balance_cents ?? 0;
+          s.total_remaining_cents ?? (s.remaining_balance_cents !== undefined ? s.remaining_balance_cents : s.balance_cents ?? 0);
+        const monthRemain = s.month_remaining_cents ?? remain;
         const enc = s.enrollment_amount_cents ?? 0;
         return [
         String(s.id),
@@ -1137,6 +1146,7 @@ const Students = () => {
         s.advisor_name ?? "",
         s.current_plan_name ?? "",
         s.status === "ACTIVE" ? "فعال" : s.status === "INACTIVE" ? "غیرفعال" : "حذف‌شده",
+        studentBalanceExportText(monthRemain, enc),
         studentBalanceExportText(remain, enc),
         String(Math.round(enc / 10)),
         s.advisory_start_date ? gregorianIsoToJalali(s.advisory_start_date) : "",
@@ -1538,13 +1548,23 @@ const Students = () => {
                   <span>شروع مشاوره: {student.advisoryStart}</span>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t flex items-start justify-between gap-2">
-                <span className="text-xs text-muted-foreground shrink-0">مانده حساب</span>
-                <StudentBalanceCell
-                  remainingCents={student.remainingCents}
-                  enrollmentCents={student.enrollmentCents}
-                  align="end"
-                />
+              <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">مانده ماه</span>
+                  <StudentBalanceCell
+                    remainingCents={student.monthRemainingCents}
+                    enrollmentCents={student.enrollmentCents}
+                    align="start"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">مانده کل</span>
+                  <StudentBalanceCell
+                    remainingCents={student.remainingCents}
+                    enrollmentCents={student.enrollmentCents}
+                    align="start"
+                  />
+                </div>
               </div>
             </div>
           ))}
@@ -1561,7 +1581,18 @@ const Students = () => {
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">شروع مشاوره</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مشاور</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پلن</th>
-                  <th className="p-4 text-right text-xs font-semibold text-muted-foreground">مانده حساب</th>
+                  <th
+                    className="p-4 text-right text-xs font-semibold text-muted-foreground"
+                    title="شهریه/اقساطی که از تاریخ ثبت‌نام تا پایان ماه جاری باید پرداخت می‌شد، منهای پرداخت‌شده"
+                  >
+                    مانده ماه
+                  </th>
+                  <th
+                    className="p-4 text-right text-xs font-semibold text-muted-foreground"
+                    title="کل مبلغ قرارداد منهای پرداخت‌شده (ماهانه: شهریه ماه‌های گذشته تا امروز منهای پرداخت‌شده)"
+                  >
+                    مانده کل
+                  </th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">وضعیت</th>
                   <th className="p-4 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
                 </tr>
@@ -1592,6 +1623,13 @@ const Students = () => {
                       <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
                         {student.plan}
                       </span>
+                    </td>
+                    <td className="p-4 text-left">
+                      <StudentBalanceCell
+                        remainingCents={student.monthRemainingCents}
+                        enrollmentCents={student.enrollmentCents}
+                        align="end"
+                      />
                     </td>
                     <td className="p-4 text-left">
                       <StudentBalanceCell
@@ -1877,13 +1915,39 @@ const Students = () => {
                   {Math.round(detailsStudentData.enrollment_amount_cents / 10).toLocaleString("fa-IR")} تومان
                 </p>
               )}
+              {(detailsStudentData.enrollment_amount_cents ?? 0) > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {detailsStudentData.enrollment_billing_mode === "SCHOOL_ENROLLMENT"
+                    ? `قرارداد سالانه در ${(detailsStudentData.schedule_months ?? 0).toLocaleString("fa-IR")} قسط`
+                    : detailsStudentData.enrollment_billing_mode === "SINGLE_SESSION"
+                      ? "تک‌جلسه‌ای"
+                      : `شهریه ماهانه · ${(detailsStudentData.months_elapsed ?? 0).toLocaleString("fa-IR")} ماه از تاریخ ثبت‌نام`}
+                  {" · "}تا پایان این ماه باید{" "}
+                  {Math.round((detailsStudentData.due_to_date_cents ?? 0) / 10).toLocaleString("fa-IR")} تومان پرداخت شده باشد
+                  {" · "}پرداخت‌شده {Math.round((detailsStudentData.paid_total_cents ?? 0) / 10).toLocaleString("fa-IR")} تومان
+                </p>
+              )}
               <div className="flex flex-wrap items-start gap-2">
-                <span className="text-muted-foreground shrink-0">مانده حساب:</span>
+                <span className="text-muted-foreground shrink-0">مانده ماه:</span>
                 <StudentBalanceCell
                   remainingCents={
-                    detailsStudentData.remaining_balance_cents !== undefined
-                      ? detailsStudentData.remaining_balance_cents
-                      : detailsStudentData.balance_cents ?? 0
+                    detailsStudentData.month_remaining_cents ??
+                    detailsStudentData.remaining_balance_cents ??
+                    detailsStudentData.balance_cents ??
+                    0
+                  }
+                  enrollmentCents={detailsStudentData.enrollment_amount_cents ?? 0}
+                  align="start"
+                />
+              </div>
+              <div className="flex flex-wrap items-start gap-2">
+                <span className="text-muted-foreground shrink-0">مانده کل:</span>
+                <StudentBalanceCell
+                  remainingCents={
+                    detailsStudentData.total_remaining_cents ??
+                    detailsStudentData.remaining_balance_cents ??
+                    detailsStudentData.balance_cents ??
+                    0
                   }
                   enrollmentCents={detailsStudentData.enrollment_amount_cents ?? 0}
                   align="start"

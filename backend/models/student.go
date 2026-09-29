@@ -284,6 +284,8 @@ type Student struct {
 	Status    StudentStatus `gorm:"type:varchar(32);not null;default:'ACTIVE';index"`
 	// JoinDate is the advisory/consulting start date (calendar day; time is normalized to local midnight).
 	JoinDate *time.Time
+	// EndDate is set when the student stops being ACTIVE; monthly billing stops accruing after it.
+	EndDate *time.Time
 
 	// Parent contacts
 	FatherName  string `gorm:"size:100"`
