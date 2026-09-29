@@ -71,6 +71,13 @@ func main() {
 	fiscalYearService := services.NewFiscalYearService(db)
 	bankAccountService := services.NewBankAccountService(db)
 	expenseService := services.NewExpenseService(db)
+	licenseService := services.NewLicenseService(db, cfg)
+	if licenseService.Enabled() {
+		st := licenseService.Status(context.Background())
+		log.Printf("license: state=%s read_only=%v", st.State, st.ReadOnly)
+	} else {
+		log.Println("license: disabled in this build (no public key compiled in)")
+	}
 	zarinpalService := services.NewZarinpalService(cfg.Zarinpal.MerchantID, cfg.Zarinpal.Sandbox, cfg.Zarinpal.CallbackURL)
 
 	// Handlers (Controllers)
@@ -90,6 +97,7 @@ func main() {
 	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
 	bankAccountHandler := handlers.NewBankAccountHandler(bankAccountService)
 	expenseHandler := handlers.NewExpenseHandler(expenseService)
+	licenseHandler := handlers.NewLicenseHandler(licenseService)
 	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
 	// Gin engine (custom recovery logs panics in Persian-friendly JSON)
@@ -151,6 +159,11 @@ func main() {
 	// Protected routes
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(cfg, db))
+	// Subscription: read-only when expired, plan limits on new students/users.
+	protected.Use(middleware.LicenseGuard(licenseService))
+
+	protected.GET("/license", licenseHandler.Get)
+	protected.PUT("/license", licenseHandler.Update)
 
 	// current user endpoint
 	protected.GET("/users/me", func(c *gin.Context) {

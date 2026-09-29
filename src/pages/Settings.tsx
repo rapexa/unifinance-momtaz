@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { SubscriptionCard } from "@/components/license/SubscriptionCard";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +42,7 @@ import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import { SHAMSI_MONTH_NAMES } from "@/lib/shamsi";
 
 const Settings = () => {
+  const { profile } = useCurrentUser();
   const queryClient = useQueryClient();
 
   const [newFYName, setNewFYName] = useState("");
@@ -199,6 +202,7 @@ const Settings = () => {
   return (
     <MainLayout title="مدیریت سال مالی" subtitle="تعریف سال مالی جاری، بستن دوره و دانلود خروجی">
       <div className="space-y-6">
+        {profile?.full_access && <SubscriptionCard />}
         {/* همیشه نمایش داده می‌شود — بدون شرط */}
         <div className="card-elevated border-2 border-primary/25 p-4 sm:p-5">
           <p className="mb-3 text-sm font-bold text-foreground">عملیات سال مالی</p>
