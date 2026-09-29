@@ -16,9 +16,7 @@ function resolveApiBase(raw: string | undefined): string {
   return value.replace(/\/$/, "");
 }
 
-export const API_BASE = resolveApiBase(
-  typeof import.meta !== "undefined" ? (import.meta as any).env?.VITE_API_BASE_URL : undefined,
-);
+export const API_BASE = resolveApiBase(import.meta.env?.VITE_API_BASE_URL as string | undefined);
 
 if (typeof console !== "undefined") {
   console.info("[api] API_BASE =", API_BASE);
