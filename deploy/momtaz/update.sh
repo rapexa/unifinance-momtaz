@@ -149,6 +149,12 @@ backup_db() {
   find "$BACKUP_DIR" -name 'db-*.sql.gz' -mtime +30 -delete 2>/dev/null || true
 }
 
+# Start the API fully detached from this script and terminal (own session, no inherited
+# stdout), so the script returns and closing SSH does not stop the API.
+start_detached() { # dir
+  (cd "$1" && exec setsid nohup "$BIN_PATH" >>"$1/server.log" 2>&1 </dev/null) &
+}
+
 restart_api() {
   case "$API_MANAGER" in
     systemd) $SUDO systemctl restart "$API_UNIT" ;;
@@ -156,11 +162,11 @@ restart_api() {
     process)
       kill "$API_PID" 2>/dev/null || true
       for _ in $(seq 1 20); do kill -0 "$API_PID" 2>/dev/null || break; sleep 0.5; done
-      (cd "${API_CWD:-$APP_DIR/backend}" && nohup "$BIN_PATH" >>"${API_CWD:-$APP_DIR/backend}/server.log" 2>&1 &)
+      start_detached "${API_CWD:-$APP_DIR/backend}"
       ;;
     *)
       if [[ -f "$APP_DIR/backend/config.yaml" ]]; then
-        (cd "$APP_DIR/backend" && nohup "$BIN_PATH" >>"$APP_DIR/backend/server.log" 2>&1 &)
+        start_detached "$APP_DIR/backend"
       else
         die "نمی‌دانم API را چطور اجرا کنم؛ SERVICE=<نام سرویس> بدهید"
       fi
