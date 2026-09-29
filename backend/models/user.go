@@ -19,12 +19,13 @@ type User struct {
 	Role   *Role `gorm:"constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
 
 	// Auth & security (Settings > Security tab)
-	PasswordHash     string `gorm:"size:255;not null"`
-	PlainPassword    string `gorm:"-"`
+	// Never serialized: raw models.User values are returned by the auth endpoints.
+	PasswordHash     string `gorm:"size:255;not null" json:"-"`
+	PlainPassword    string `gorm:"-" json:"-"`
 	TwoFactorEnabled bool   `gorm:"not null;default:false"`
 	// TokensValidFrom invalidates every access token issued before this time.
 	// Set on logout and on password reset so old JWTs stop working immediately.
-	TokensValidFrom *time.Time `gorm:""`
+	TokensValidFrom *time.Time `gorm:"" json:"-"`
 
 	// Profile (Settings > Profile)
 	AvatarURL string `gorm:"size:512"`

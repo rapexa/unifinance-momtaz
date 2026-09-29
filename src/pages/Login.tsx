@@ -2,7 +2,7 @@ import { FormEvent, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail } from "lucide-react";
 import { login as loginApi } from "@/api/authApi";
-import { todayJalaliYear } from "@/lib/jalaliDate";
+import { toPersianDigits, todayJalaliYear } from "@/lib/jalaliDate";
 import { useSiteInfo } from "@/hooks/useSiteInfo";
 
 const Login = () => {
@@ -123,7 +123,7 @@ const Login = () => {
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          © {todayJalaliYear().toLocaleString("fa-IR")} {site?.product_name || "یونی‌فایننس"}
+          © {toPersianDigits(String(todayJalaliYear()))} {site?.product_name || "یونی‌فایننس"}
           {site?.organization_name ? ` – ${site.organization_name}` : " – داشبورد مدیریتی"}
         </p>
       </div>
