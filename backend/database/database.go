@@ -50,9 +50,17 @@ func Init() (*gorm.DB, error) {
 			},
 		)
 
-		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: gormLogger,
-		})
+		// In Docker the database may still be starting: retry for about a minute.
+		for attempt := 1; attempt <= 30; attempt++ {
+			db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
+				Logger: gormLogger,
+			})
+			if err == nil {
+				return
+			}
+			log.Printf("database: connection attempt %d failed: %v", attempt, err)
+			time.Sleep(2 * time.Second)
+		}
 	})
 
 	return db, err

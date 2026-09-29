@@ -24,8 +24,6 @@ var (
 	ErrFiscalYearMustBeClosedFirst = errors.New("فقط سال مالی بسته قابل حذف کامل است")
 )
 
-const defaultAdminEmail = "admin@example.com"
-
 // fiscalCloseTables lists every table whose rows are soft-deleted by Close (and restored
 // by Restore). Kept in one place so the two stay in sync.
 var fiscalCloseTables = []string{
@@ -144,9 +142,14 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 			First(&gm).Error; err != nil {
 			return err
 		}
-		var admin models.User
-		if err := tx.Where("email = ?", defaultAdminEmail).First(&admin).Error; err != nil {
+		// Keep every general manager (not just the default admin@example.com account, whose
+		// email a customer may have changed).
+		var keepIDs []uint
+		if err := tx.Model(&models.User{}).Where("role_id = ?", gm.ID).Pluck("id", &keepIDs).Error; err != nil {
 			return err
+		}
+		if len(keepIDs) == 0 {
+			return errors.New("هیچ کاربر مدیرکلی یافت نشد")
 		}
 
 		// --- Soft-delete operational data (most-dependent first) ---
@@ -196,15 +199,15 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 		}
 
 		// Non-admin users, their permissions and notification settings.
-		if err := tx.Where("user_id != ?", admin.ID).
+		if err := tx.Where("user_id NOT IN ?", keepIDs).
 			Delete(&models.UserPermission{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("user_id != ?", admin.ID).
+		if err := tx.Where("user_id NOT IN ?", keepIDs).
 			Delete(&models.NotificationSetting{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("id != ?", admin.ID).
+		if err := tx.Where("id NOT IN ?", keepIDs).
 			Delete(&models.User{}).Error; err != nil {
 			return err
 		}
@@ -225,11 +228,6 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 				Delete(&models.Role{}).Error; err != nil {
 				return err
 			}
-		}
-
-		// Ensure admin stays on the system role (safe even if already correct).
-		if err := tx.Model(&admin).Update("role_id", gm.ID).Error; err != nil {
-			return err
 		}
 
 		// Stamp every row soft-deleted in THIS close with one canonical timestamp so Restore

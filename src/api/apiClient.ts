@@ -3,9 +3,22 @@ import { localizeApiError } from "@/lib/apiError";
 
 const DEFAULT_API_BASE = "http://localhost:8081/api/v1";
 
-export const API_BASE =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  DEFAULT_API_BASE;
+/**
+ * VITE_API_BASE_URL may be absolute (https://api.example.com/api/v1) or relative ("/api/v1").
+ * A relative base resolves against the current origin, so one build (Docker image) works on
+ * every customer domain where the API and the app share the origin.
+ */
+function resolveApiBase(raw: string | undefined): string {
+  const value = (raw || "").trim() || DEFAULT_API_BASE;
+  if (value.startsWith("/") && typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}${value}`.replace(/\/$/, "");
+  }
+  return value.replace(/\/$/, "");
+}
+
+export const API_BASE = resolveApiBase(
+  typeof import.meta !== "undefined" ? (import.meta as any).env?.VITE_API_BASE_URL : undefined,
+);
 
 if (typeof console !== "undefined") {
   console.info("[api] API_BASE =", API_BASE);

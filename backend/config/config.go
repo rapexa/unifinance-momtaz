@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -22,6 +23,42 @@ type Config struct {
 	Zarinpal    ZarinpalConfig    `mapstructure:"zarinpal"`
 	FrontendURL string            `mapstructure:"frontend_url"`
 	Melipayamak MelipayamakConfig `mapstructure:"melipayamak"`
+
+	// StaticDir, when set, is a built frontend (dist) served by the API itself on the same
+	// origin — used by the Docker image so one container serves one customer.
+	StaticDir string `mapstructure:"static_dir"`
+
+	Bootstrap BootstrapConfig `mapstructure:"bootstrap"`
+	License   LicenseConfig   `mapstructure:"license"`
+	SaaS      SaaSConfig      `mapstructure:"saas"`
+}
+
+// BootstrapConfig seeds a fresh installation (new customer). It is used only while the
+// database has no full-access admin yet; later changes are made in the app.
+type BootstrapConfig struct {
+	OrgName        string `mapstructure:"org_name"`
+	AdminEmail     string `mapstructure:"admin_email"`
+	AdminPassword  string `mapstructure:"admin_password"`
+	AdminFirstName string `mapstructure:"admin_first_name"`
+	AdminLastName  string `mapstructure:"admin_last_name"`
+	AdminPhone     string `mapstructure:"admin_phone"`
+}
+
+// LicenseConfig holds the customer's license key (see pkg/license). A key saved from the
+// settings page takes precedence over this one.
+type LicenseConfig struct {
+	Key     string `mapstructure:"key"`
+	KeyFile string `mapstructure:"key_file"`
+}
+
+// SaaSConfig configures the vendor's own instance (sales page, demo requests).
+type SaaSConfig struct {
+	// Vendor enables the public sales page at "/" and the demo-request (lead) inbox.
+	Vendor bool `mapstructure:"vendor"`
+	// ProductName is shown on the sales page.
+	ProductName string `mapstructure:"product_name"`
+	// NotifyPhone receives an SMS for every new demo request (needs melipayamak.from).
+	NotifyPhone string `mapstructure:"notify_phone"`
 }
 
 type ServerConfig struct {
@@ -85,6 +122,10 @@ func LoadConfig() (*Config, error) {
 		if exe, e := os.Executable(); e == nil {
 			v.AddConfigPath(filepath.Dir(exe))
 		}
+		// Every key can be overridden by an environment variable with the UNIFINANCE_
+		// prefix, e.g. UNIFINANCE_DB_PASS or UNIFINANCE_BOOTSTRAP_ADMIN_EMAIL (Docker).
+		v.SetEnvPrefix("UNIFINANCE")
+		v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 		v.AutomaticEnv()
 
 		setDefaults(v)
@@ -142,6 +183,19 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("melipayamak.username", "")
 	v.SetDefault("melipayamak.api_key", "")
 	v.SetDefault("melipayamak.from", "")
+
+	v.SetDefault("static_dir", "")
+	v.SetDefault("bootstrap.org_name", "")
+	v.SetDefault("bootstrap.admin_email", "")
+	v.SetDefault("bootstrap.admin_password", "")
+	v.SetDefault("bootstrap.admin_first_name", "")
+	v.SetDefault("bootstrap.admin_last_name", "")
+	v.SetDefault("bootstrap.admin_phone", "")
+	v.SetDefault("license.key", "")
+	v.SetDefault("license.key_file", "")
+	v.SetDefault("saas.vendor", false)
+	v.SetDefault("saas.product_name", "یونی‌فایننس")
+	v.SetDefault("saas.notify_phone", "")
 }
 
 func normalize(c *Config) {
@@ -159,6 +213,19 @@ func normalize(c *Config) {
 	}
 	if c.JWT.RefreshExpiryHours <= 0 {
 		c.JWT.RefreshExpiryHours = 24 * 7
+	}
+	if strings.TrimSpace(c.SaaS.ProductName) == "" {
+		c.SaaS.ProductName = "یونی‌فایننس"
+	}
+	if len(c.CORS.AllowOrigins) == 1 && strings.Contains(c.CORS.AllowOrigins[0], ",") {
+		// UNIFINANCE_CORS_ALLOW_ORIGINS="https://a,https://b"
+		parts := strings.Split(c.CORS.AllowOrigins[0], ",")
+		c.CORS.AllowOrigins = c.CORS.AllowOrigins[:0]
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				c.CORS.AllowOrigins = append(c.CORS.AllowOrigins, p)
+			}
+		}
 	}
 	if len(c.CORS.AllowOrigins) == 0 {
 		c.CORS.AllowOrigins = []string{"http://localhost:8080", "http://127.0.0.1:8080"}

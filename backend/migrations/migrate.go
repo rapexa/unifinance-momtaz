@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
@@ -350,14 +351,24 @@ func fixUsersWithoutRole(db *gorm.DB) {
 }
 
 func seedOrganizationAndAdmin(db *gorm.DB) {
-	org := models.Organization{
-		Name:  "گروه مشاوره تحصیلی و روانشناسی",
-		Phone: "021-88888888",
-		Email: "info@example.com",
-	}
+	cfg := config.MustLoadConfig()
+	b := cfg.Bootstrap
 
-	if err := db.Where("name = ?", org.Name).FirstOrCreate(&org).Error; err != nil {
-		log.Fatalf("migrations: failed to seed organization: %v", err)
+	// One organization per installation: reuse the existing one (it may have been renamed
+	// in settings), otherwise create it from bootstrap.org_name.
+	var org models.Organization
+	if err := db.Order("id ASC").First(&org).Error; err != nil {
+		org = models.Organization{
+			Name:  strings.TrimSpace(b.OrgName),
+			Phone: "",
+			Email: "",
+		}
+		if org.Name == "" {
+			org.Name = "گروه مشاوره تحصیلی و روانشناسی"
+		}
+		if err := db.Create(&org).Error; err != nil {
+			log.Fatalf("migrations: failed to seed organization: %v", err)
+		}
 	}
 
 	var gm models.Role
@@ -365,44 +376,63 @@ func seedOrganizationAndAdmin(db *gorm.DB) {
 		log.Fatalf("migrations: general_manager role missing: %v", err)
 	}
 
-	const adminEmail = "admin@example.com"
-
-	var count int64
-	if err := db.Model(&models.User{}).
-		Where("email = ?", adminEmail).
-		Count(&count).Error; err != nil {
+	// Seed an admin only for a fresh installation (no general manager yet). Re-creating the
+	// default account on every start would bring its default password back.
+	var admins int64
+	if err := db.Model(&models.User{}).Where("role_id = ?", gm.ID).Count(&admins).Error; err != nil {
 		log.Fatalf("migrations: failed to check admin user: %v", err)
 	}
-
-	if count == 0 {
-		admin := models.User{
-			FirstName:      "مدیر",
-			LastName:       "سیستم",
-			Email:          adminEmail,
-			Phone:          "09121234567",
-			IsActive:       true,
-			PlainPassword:  "change-me-please",
-			OrganizationID: &org.ID,
-			RoleID:         gm.ID,
-		}
-
-		if err := db.Create(&admin).Error; err != nil {
-			log.Fatalf("migrations: failed to create admin user: %v", err)
-		}
-		for _, p := range models.AllPermissions {
-			if err := db.Create(&models.UserPermission{UserID: admin.ID, Permission: p}).Error; err != nil {
-				log.Printf("migrations: warning seeding admin permission %s: %v", p, err)
-			}
-		}
-		log.Println("migrations: seeded default admin user (email: admin@example.com, password: change-me-please). Please change this in production.")
+	if admins > 0 {
 		return
 	}
 
-	var adminUser models.User
-	if err := db.Where("email = ?", adminEmail).First(&adminUser).Error; err == nil {
-		if adminUser.RoleID != gm.ID {
-			adminUser.RoleID = gm.ID
-			_ = db.Save(&adminUser)
+	email := strings.ToLower(strings.TrimSpace(b.AdminEmail))
+	password := b.AdminPassword
+	defaultAccount := email == ""
+	if defaultAccount {
+		email = "admin@example.com"
+		password = "change-me-please"
+	}
+	if len(password) < 8 {
+		log.Fatalf("migrations: bootstrap.admin_password must be at least 8 characters")
+	}
+	first, last := strings.TrimSpace(b.AdminFirstName), strings.TrimSpace(b.AdminLastName)
+	if first == "" && last == "" {
+		first, last = "مدیر", "سیستم"
+	}
+
+	var existing models.User
+	if err := db.Unscoped().Where("email = ?", email).First(&existing).Error; err == nil {
+		// The account exists (maybe archived) but lost its role: promote it back.
+		if err := db.Unscoped().Model(&existing).Updates(map[string]interface{}{
+			"role_id": gm.ID, "is_active": true, "deleted_at": nil,
+		}).Error; err != nil {
+			log.Printf("migrations: warning restoring admin %s: %v", email, err)
 		}
+		return
+	}
+
+	admin := models.User{
+		FirstName:      first,
+		LastName:       last,
+		Email:          email,
+		Phone:          strings.TrimSpace(b.AdminPhone),
+		IsActive:       true,
+		PlainPassword:  password,
+		OrganizationID: &org.ID,
+		RoleID:         gm.ID,
+	}
+	if err := db.Create(&admin).Error; err != nil {
+		log.Fatalf("migrations: failed to create admin user: %v", err)
+	}
+	for _, p := range models.AllPermissions {
+		if err := db.Create(&models.UserPermission{UserID: admin.ID, Permission: p}).Error; err != nil {
+			log.Printf("migrations: warning seeding admin permission %s: %v", p, err)
+		}
+	}
+	if defaultAccount {
+		log.Println("migrations: seeded default admin user (email: admin@example.com, password: change-me-please). Please change this in production.")
+	} else {
+		log.Printf("migrations: seeded admin user %s from bootstrap settings", email)
 	}
 }

@@ -118,6 +118,12 @@ func main() {
 	// Serve uploaded files (e.g. profile avatars)
 	r.Static("/uploads", "uploads")
 
+	// Docker/SaaS: serve the built web app from the same origin as the API.
+	if cfg.StaticDir != "" {
+		log.Printf("serving web app from %s", cfg.StaticDir)
+		r.NoRoute(handlers.SPAHandler(cfg.StaticDir))
+	}
+
 	// ZarinPal callback – browser is redirected here by ZarinPal after payment.
 	// Must be at root level (checkout.momtaz-team.ir/payment/callback).
 	r.GET("/payment/callback", paymentGatewayHandler.Callback)
