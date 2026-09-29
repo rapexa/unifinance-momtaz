@@ -28,7 +28,8 @@ func TestAdvisorAccrualDueForPeriod_AnnualTenPercentTenMonths(t *testing.T) {
 	advisorID := uint(9)
 	pct := 10.0
 	months := 10
-	join := time.Date(2026, 1, 15, 0, 0, 0, 0, time.Local)
+	// 1404/11/05 (Bahman) → period key January 2026; Aban 1405 is key October 2026.
+	join := time.Date(2026, 1, 25, 0, 0, 0, 0, time.Local)
 	st := &Student{
 		AdvisorID:                &advisorID,
 		EnrollmentBillingMode:    EnrollmentBillingSchoolEnrollment,
@@ -62,6 +63,47 @@ func TestAdvisorAccrualDueForPeriod_AnnualTenPercentTenMonths(t *testing.T) {
 	// Month 11 out of window
 	if AdvisorAccrualDueForPeriod(st, 2026, 11) != 0 {
 		t.Fatal("expected 0 outside accrual window")
+	}
+}
+
+// Accrual months selected as Jalali months (Mehr..Tir) follow exact Jalali month keys.
+func TestAdvisorAccrualDueForPeriod_JalaliMaskMehrToTir(t *testing.T) {
+	advisorID := uint(9)
+	fixed := int64(20_000_000)
+	// Mehr..Tir = Jalali months 7..12 and 1..4 (10 months).
+	mask := 0
+	for _, jm := range []int{7, 8, 9, 10, 11, 12, 1, 2, 3, 4} {
+		mask |= 1 << (jm - 1)
+	}
+	// 1405/07/05 (Mehr) — registered in Mehr.
+	join := time.Date(2026, 9, 27, 0, 0, 0, 0, time.Local)
+	st := &Student{
+		AdvisorID:                   &advisorID,
+		EnrollmentBillingMode:       EnrollmentBillingSchoolEnrollment,
+		AdvisorCommissionKind:       StudentAdvisorCommFixedMonthly,
+		AdvisorCommissionFixedCents: &fixed,
+		AdvisorAccrualMonthMask:     &mask,
+		JoinDate:                    &join,
+		Status:                      StudentStatusActive,
+	}
+	// Shahrivar 1405 (key Aug 2026): before registration.
+	if got := AdvisorAccrualDueForPeriod(st, 2026, 8); got != 0 {
+		t.Fatalf("shahrivar due=%d want 0", got)
+	}
+	// Mehr 1405 = key Sep 2026: first accrual month.
+	if got := AdvisorAccrualDueForPeriod(st, 2026, 9); got != fixed {
+		t.Fatalf("mehr due=%d want %d", got, fixed)
+	}
+	if idx, ok := AdvisorAccrualMonthIndexForPeriod(st, 2026, 9); !ok || idx != 1 {
+		t.Fatalf("mehr idx=%d ok=%v", idx, ok)
+	}
+	// Tir 1406 = key June 2027: 10th (last) month.
+	if idx, ok := AdvisorAccrualMonthIndexForPeriod(st, 2027, 6); !ok || idx != 10 {
+		t.Fatalf("tir idx=%d ok=%v", idx, ok)
+	}
+	// Mordad 1406 = key July 2027: not selected.
+	if got := AdvisorAccrualDueForPeriod(st, 2027, 7); got != 0 {
+		t.Fatalf("mordad due=%d want 0", got)
 	}
 }
 

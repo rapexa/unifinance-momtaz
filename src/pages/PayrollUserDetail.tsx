@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Download, RefreshCw } from "lucide-react";
+import { ArrowRight, Banknote, Download, RefreshCw, Trash2 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -30,13 +29,15 @@ import {
   jalaliToGregorianIso,
   formatIsoDateShamsi,
   todayJalaliString,
+  currentPeriodKey,
+  addPeriodKeyMonths,
 } from "@/lib/jalaliDate";
+import { BalanceBadge } from "@/components/payroll/BalanceBadge";
 import {
   getPayrollUserLedger,
   recalculatePayrollUser,
-  markPayrollEntryPaid,
-  markPayrollEntryPending,
   createStaffPayout,
+  deleteStaffPayout,
   type PayrollUserLedgerApi,
   type PaymentShareLineApi,
   type AccrualShareLineApi,
@@ -48,12 +49,14 @@ export default function PayrollUserDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = Number(userIdParam);
-  const now = new Date();
-  const year = Number(searchParams.get("year")) || now.getFullYear();
-  const month = Number(searchParams.get("month")) || now.getMonth() + 1;
+  const nowKey = currentPeriodKey();
+  const year = Number(searchParams.get("year")) || nowKey.year;
+  const month = Number(searchParams.get("month")) || nowKey.month;
+  const goToPeriod = (delta: number) => {
+    const k = addPeriodKeyMonths(year, month, delta);
+    setSearchParams({ year: String(k.year), month: String(k.month) });
+  };
 
-  const [markPaidOpen, setMarkPaidOpen] = useState(false);
-  const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString());
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [payoutAmountTomans, setPayoutAmountTomans] = useState("");
   const [payoutDate, setPayoutDate] = useState(todayJalaliString());
@@ -91,6 +94,7 @@ export default function PayrollUserDetail() {
     queryClient.invalidateQueries({ queryKey: ["payroll-user-ledger", userId] });
     queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
     queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
   };
 
   const recalcMutation = useMutation({
@@ -101,39 +105,6 @@ export default function PayrollUserDetail() {
     },
     onError: (err: Error) => {
       toast({ variant: "destructive", title: "خطا در محاسبه فیش", description: err.message });
-    },
-  });
-
-  const entryId = ledger?.entry_id ?? currentSalary?.id;
-
-  const markPaidMutation = useMutation({
-    mutationFn: (paid_at: string) => {
-      if (!entryId) {
-        return Promise.reject(new Error("ابتدا فیش این ماه را محاسبه کنید"));
-      }
-      return markPayrollEntryPaid(entryId, { paid_at });
-    },
-    onSuccess: () => {
-      setMarkPaidOpen(false);
-      invalidate();
-      toast({ title: "پرداخت ثبت شد", description: "فیش قفل شد." });
-    },
-    onError: (err: Error) => {
-      toast({ variant: "destructive", title: "خطا در ثبت پرداخت", description: err.message });
-    },
-  });
-
-  const markPendingMutation = useMutation({
-    mutationFn: () => {
-      if (!entryId) return Promise.reject(new Error("فیش یافت نشد"));
-      return markPayrollEntryPending(entryId);
-    },
-    onSuccess: () => {
-      invalidate();
-      toast({ title: "به در انتظار برگشت" });
-    },
-    onError: (err: Error) => {
-      toast({ variant: "destructive", title: "خطا", description: err.message });
     },
   });
 
@@ -152,8 +123,29 @@ export default function PayrollUserDetail() {
     },
   });
 
+  const deletePayoutMutation = useMutation({
+    mutationFn: (id: number) => deleteStaffPayout(id),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "پرداخت حذف شد", description: "مانده حساب دوباره محاسبه شد." });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "خطا در حذف پرداخت", description: err.message });
+    },
+  });
+
   const entryStatus = ledger?.entry_status ?? currentSalary?.status ?? "";
   const isPaid = entryStatus === "PAID" || !!ledger?.entry_locked;
+  const monthLedger = ledger?.month_ledger;
+  const closingCents = monthLedger?.closing_cents ?? ledger?.settlement_balance_cents ?? 0;
+
+  const openPayout = () => {
+    const due = Math.max(0, ledger?.settlement_balance_cents ?? 0);
+    setPayoutAmountTomans(due > 0 ? formatGroupedFaIntInput(String(Math.floor(due / 10))) : "");
+    setPayoutDate(todayJalaliString());
+    setPayoutNote("");
+    setPayoutOpen(true);
+  };
 
   const handlePrint = () => {
     if (!ledger) return;
@@ -175,7 +167,10 @@ export default function PayrollUserDetail() {
         <p><strong>${studentsCountLabel(ledger.students_count_scope)}:</strong> ${ledger.students_count}</p>
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(ledger.total_salary_cents)} تومان</p>
-        <p><strong>وضعیت:</strong> ${isPaid ? "پرداخت شده" : "در انتظار"}</p>
+        <p><strong>مانده از ماه قبل:</strong> ${formatSigned(monthLedger?.opening_cents ?? 0)}</p>
+        <p><strong>پرداختی این ماه:</strong> ${formatCentsToToman(monthLedger?.paid_cents ?? 0)} تومان</p>
+        <p><strong>مانده کل:</strong> ${formatSigned(closingCents)}</p>
+        <p><strong>وضعیت:</strong> ${isPaid ? "تسویه شده" : "تسویه نشده"}</p>
       </body>
       </html>
     `);
@@ -213,34 +208,20 @@ export default function PayrollUserDetail() {
             <span className="font-medium">
               {formatPayrollPeriod(year, month)}
             </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const d = new Date(year, month - 2, 1);
-                setSearchParams({ year: String(d.getFullYear()), month: String(d.getMonth() + 1) });
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={() => goToPeriod(-1)}>
               ماه قبل
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const d = new Date(year, month, 1);
-                setSearchParams({ year: String(d.getFullYear()), month: String(d.getMonth() + 1) });
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={() => goToPeriod(1)}>
               ماه بعد
             </Button>
           </div>
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">محاسبه فیش</span> سند حقوق ماه را می‌سازد یا به‌روز می‌کند.{" "}
-          <span className="font-medium text-foreground">تیک پرداخت شده</span> یعنی فیش ماه قفل می‌شود.{" "}
-          <span className="font-medium text-foreground">تسویه با کارمند</span> پرداخت نقدی واقعی به کارمند را ثبت می‌کند
-          و مانده بدهکار/بستانکار را نشان می‌دهد.
+          هر پرداخت دانش‌آموز سهم این کارمند را به حقوق همان ماه اضافه می‌کند.{" "}
+          <span className="font-medium text-foreground">مانده کل</span> = مانده از ماه قبل + حقوق این ماه − پرداختی این ماه؛
+          کم‌پرداخت به ماه بعد منتقل می‌شود و پرداخت اضافه، بدهی کارمند به ما حساب می‌شود.{" "}
+          <span className="font-medium text-foreground">ثبت پرداخت</span> پول واقعی پرداخت‌شده را ثبت می‌کند.
         </div>
 
         {isLoading && <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>}
@@ -263,55 +244,45 @@ export default function PayrollUserDetail() {
 
             <section className="space-y-3">
               <h2 className="text-base font-semibold">خلاصه ماه</h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <SummaryCard label="حقوق ثابت" value={formatCentsToToman(ledger.base_salary_cents)} />
                 <SummaryCard
-                  label="حقوق متغیر"
+                  label="حقوق متغیر (سهم از پرداخت‌ها)"
                   value={formatCentsToToman(ledger.variable_salary_cents)}
                   accent
                 />
-                <SummaryCard label="جمع کل" value={formatCentsToToman(ledger.total_salary_cents)} />
+                <SummaryCard label="حقوق این ماه (جمع)" value={formatCentsToToman(ledger.total_salary_cents)} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">پرداخت شده</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Switch
-                      checked={!!isPaid}
-                      disabled={
-                        markPaidMutation.isPending ||
-                        markPendingMutation.isPending ||
-                        recalcMutation.isPending
-                      }
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          if (!entryId) {
-                            toast({
-                              variant: "destructive",
-                              title: "فیش وجود ندارد",
-                              description: "ابتدا محاسبه فیش را بزنید.",
-                            });
-                            return;
-                          }
-                          setMarkPaidDate(todayJalaliString());
-                          setMarkPaidOpen(true);
-                        } else if (window.confirm("فیش از حالت پرداخت‌شده خارج شود؟")) {
-                          markPendingMutation.mutate();
-                        }
-                      }}
-                    />
-                    <span className="text-sm font-medium">{isPaid ? "بله" : "خیر"}</span>
-                  </div>
-                  {isPaid && currentSalary?.paid_at && (
+                  <p className="text-xs text-muted-foreground">مانده از ماه قبل</p>
+                  <BalanceBadge className="mt-1" cents={monthLedger?.opening_cents ?? 0} />
+                </div>
+                <SummaryCard label="پرداختی این ماه" value={formatCentsToToman(monthLedger?.paid_cents ?? 0)} />
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">مانده ماه (حقوق − پرداختی)</p>
+                  <BalanceBadge className="mt-1" cents={monthLedger?.month_balance_cents ?? 0} />
+                </div>
+                <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3">
+                  <p className="text-xs text-muted-foreground">مانده کل پایان ماه</p>
+                  <BalanceBadge className="mt-1" cents={closingCents} />
+                  {isPaid && ledger.entry_status === "PAID" && currentSalary?.paid_at && (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {formatIsoDateShamsi(currentSalary.paid_at)}
+                      حقوق این ماه در {formatIsoDateShamsi(currentSalary.paid_at)} تسویه شد
                     </p>
                   )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button size="sm" className="gap-2" onClick={openPayout}>
+                  <Banknote className="h-4 w-4" />
+                  ثبت پرداخت
+                </Button>
                 <Button
                   size="sm"
+                  variant="secondary"
                   className="gap-2"
-                  disabled={!!isPaid || recalcMutation.isPending}
+                  disabled={recalcMutation.isPending}
                   onClick={() => recalcMutation.mutate()}
                 >
                   <RefreshCw className={cn("h-4 w-4", recalcMutation.isPending && "animate-spin")} />
@@ -325,25 +296,91 @@ export default function PayrollUserDetail() {
             </section>
 
             <section className="space-y-3">
+              <h2 className="text-base font-semibold">گردش حساب ماه به ماه</h2>
+              <div className="card-elevated overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-3 text-right text-xs text-muted-foreground">ماه</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">مانده از قبل</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">حقوق ماه</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">پرداختی ماه</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">مانده ماه</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">مانده کل</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">وضعیت</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!ledger.ledger_months?.length ? (
+                      <tr>
+                        <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                          گردشی ثبت نشده است.
+                        </td>
+                      </tr>
+                    ) : (
+                      [...ledger.ledger_months].reverse().map((m) => (
+                        <tr
+                          key={`${m.period_year}-${m.period_month}`}
+                          className={cn(
+                            "border-b last:border-0",
+                            m.period_year === year && m.period_month === month && "bg-primary/5",
+                          )}
+                        >
+                          <td className="p-3">
+                            <Link
+                              className="text-primary hover:underline"
+                              to={`/payroll/users/${userId}?year=${m.period_year}&month=${m.period_month}`}
+                            >
+                              {formatPayrollPeriod(m.period_year, m.period_month)}
+                            </Link>
+                          </td>
+                          <td className="p-3 number-display"><span dir="ltr">{formatSignedShort(m.opening_cents)}</span></td>
+                          <td className="p-3 number-display">{formatCentsToToman(m.accrued_cents)}</td>
+                          <td className="p-3 number-display text-emerald-700 dark:text-emerald-400">
+                            {m.paid_cents ? formatCentsToToman(m.paid_cents) : "—"}
+                          </td>
+                          <td className="p-3 number-display"><span dir="ltr">{formatSignedShort(m.month_balance_cents)}</span></td>
+                          <td className="p-3">
+                            <BalanceBadge cents={m.closing_cents} />
+                          </td>
+                          <td className="p-3 text-xs">
+                            {m.accrued_cents <= 0
+                              ? "—"
+                              : m.settled
+                                ? `تسویه${m.settled_at ? ` (${formatIsoDateShamsi(m.settled_at)})` : ""}`
+                                : "تسویه نشده"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                مثبت = بدهی ما به کارمند · منفی (−) = کارمند بیشتر دریافت کرده و به ما بدهکار است.
+              </p>
+            </section>
+
+            <section className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-base font-semibold">تسویه با کارمند</h2>
-                <Button size="sm" onClick={() => {
-                  setPayoutDate(todayJalaliString());
-                  setPayoutOpen(true);
-                }}>
+                <Button size="sm" onClick={openPayout}>
                   ثبت پرداخت
                 </Button>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <SummaryCard
-                  label="حقوق تجمعی (سهم از پرداخت‌ها)"
+                  label="حقوق تجمعی (همه ماه‌ها)"
                   value={formatCentsToToman(ledger.settlement_accrued_cents ?? 0)}
                 />
                 <SummaryCard
                   label="پرداخت‌های ثبت‌شده به کارمند"
                   value={formatCentsToToman(ledger.settlement_paid_out_cents ?? 0)}
                 />
-                <SettlementBalanceCard balanceCents={ledger.settlement_balance_cents ?? 0} />
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">مانده کل تا امروز</p>
+                  <BalanceBadge className="mt-1" cents={ledger.settlement_balance_cents ?? 0} />
+                </div>
               </div>
               <div className="card-elevated overflow-x-auto">
                 <table className="w-full min-w-[480px] text-sm">
@@ -352,12 +389,13 @@ export default function PayrollUserDetail() {
                       <th className="p-3 text-right text-xs text-muted-foreground">تاریخ</th>
                       <th className="p-3 text-right text-xs text-muted-foreground">مبلغ</th>
                       <th className="p-3 text-right text-xs text-muted-foreground">توضیح</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {!ledger.settlement_payouts?.length ? (
                       <tr>
-                        <td colSpan={3} className="p-6 text-center text-muted-foreground">
+                        <td colSpan={4} className="p-6 text-center text-muted-foreground">
                           پرداختی به کارمند ثبت نشده است.
                         </td>
                       </tr>
@@ -370,7 +408,28 @@ export default function PayrollUserDetail() {
                           <td className="p-3 number-display font-medium">
                             {formatCentsToToman(p.amount_cents)}
                           </td>
-                          <td className="p-3 text-muted-foreground">{p.note || "—"}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {p.note || "—"}
+                            {p.source === "MIGRATED" && (
+                              <span className="mr-1 text-[10px]">(از فیش‌های قبلی)</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-left">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              disabled={deletePayoutMutation.isPending}
+                              title="حذف پرداخت"
+                              onClick={() => {
+                                if (window.confirm("این پرداخت حذف شود؟ مانده حساب دوباره محاسبه می‌شود.")) {
+                                  deletePayoutMutation.mutate(p.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -448,8 +507,8 @@ export default function PayrollUserDetail() {
                       <th className="p-3 text-right text-xs text-muted-foreground">ثابت</th>
                       <th className="p-3 text-right text-xs text-muted-foreground">متغیر</th>
                       <th className="p-3 text-right text-xs text-muted-foreground">جمع</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">پرداخت شده</th>
-                      <th className="p-3 text-right text-xs text-muted-foreground">تاریخ</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">تسویه</th>
+                      <th className="p-3 text-right text-xs text-muted-foreground">تاریخ تسویه</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -487,7 +546,7 @@ export default function PayrollUserDetail() {
                           <td className="p-3 number-display font-medium">
                             {formatCentsToToman(sal.total_salary_cents)}
                           </td>
-                          <td className="p-3">{sal.status === "PAID" ? "بله" : "خیر"}</td>
+                          <td className="p-3">{sal.status === "PAID" ? "تسویه شده" : "تسویه نشده"}</td>
                           <td className="p-3 text-muted-foreground">
                             {sal.paid_at ? formatIsoDateShamsi(sal.paid_at) : "—"}
                           </td>
@@ -502,44 +561,16 @@ export default function PayrollUserDetail() {
         )}
       </div>
 
-      <Dialog open={markPaidOpen} onOpenChange={setMarkPaidOpen}>
-        <DialogContent className="sm:max-w-md" dir="rtl">
-          <DialogHeader>
-            <DialogTitle>ثبت پرداخت فیش</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2 text-right">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">تاریخ پرداخت</label>
-              <JalaliDatePicker value={markPaidDate} onChange={setMarkPaidDate} clearable={false} />
-            </div>
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setMarkPaidOpen(false)}>
-                انصراف
-              </Button>
-              <Button
-                disabled={markPaidMutation.isPending}
-                onClick={() => {
-                  const iso = jalaliToGregorianIso(markPaidDate.trim());
-                  if (!iso) {
-                    toast({ variant: "destructive", title: "تاریخ نامعتبر است" });
-                    return;
-                  }
-                  markPaidMutation.mutate(iso);
-                }}
-              >
-                تأیید پرداخت
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={payoutOpen} onOpenChange={setPayoutOpen}>
         <DialogContent className="sm:max-w-md" dir="rtl">
           <DialogHeader>
             <DialogTitle>ثبت پرداخت به کارمند</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2 text-right">
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm flex items-center justify-between">
+              <span className="text-muted-foreground">مانده کل تا امروز</span>
+              <BalanceBadge cents={ledger?.settlement_balance_cents ?? 0} />
+            </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">مبلغ (تومان)</label>
               <Input
@@ -612,35 +643,15 @@ function SummaryCard({
   );
 }
 
-function SettlementBalanceCard({ balanceCents }: { balanceCents: number }) {
-  const isZero = balanceCents === 0;
-  const orgOwes = balanceCents > 0;
-  const label = isZero
-    ? "تسویه کامل"
-    : orgOwes
-      ? "مانده بدهکار سازمان"
-      : "مانده بستانکار سازمان";
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-3",
-        isZero && "bg-muted/20",
-        orgOwes && "border-amber-500/40 bg-amber-500/5",
-        !isZero && !orgOwes && "border-emerald-500/40 bg-emerald-500/5",
-      )}
-    >
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "mt-1 text-xl font-bold number-display",
-          orgOwes && "text-amber-700 dark:text-amber-400",
-          !isZero && !orgOwes && "text-emerald-700 dark:text-emerald-400",
-        )}
-      >
-        {formatCentsToToman(Math.abs(balanceCents))}
-      </p>
-    </div>
-  );
+function formatSignedShort(cents: number): string {
+  if (!cents) return "—";
+  return `${cents < 0 ? "−" : ""}${formatCentsToToman(Math.abs(cents))}`;
+}
+
+function formatSigned(cents: number): string {
+  if (!cents) return "۰ تومان";
+  const abs = formatCentsToToman(Math.abs(cents));
+  return cents > 0 ? `${abs} تومان (بدهی ما به کارمند)` : `${abs} تومان (بدهی کارمند به ما)`;
 }
 
 function BreakdownBlock({ ledger }: { ledger: PayrollUserLedgerApi }) {

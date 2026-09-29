@@ -255,6 +255,7 @@ func main() {
 		payroll.GET("/users/:user_id/ledger", payrollHandler.GetUserLedger)
 		payroll.GET("/users/:user_id/settlement", payrollHandler.GetStaffSettlement)
 		payroll.POST("/users/:user_id/payouts", payrollHandler.CreateStaffPayout)
+		payroll.DELETE("/payouts/:id", payrollHandler.DeleteStaffPayout)
 		payroll.POST("/users/:user_id/recalculate", payrollHandler.RecalculateUser)
 		payroll.GET("/advisor-ops", payrollHandler.ListAdvisorOps)
 		payroll.GET("/advisor-ops/:user_id/detail", payrollHandler.GetAdvisorOpsUserDetail)

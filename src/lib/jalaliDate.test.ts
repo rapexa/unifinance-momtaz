@@ -100,3 +100,26 @@ describe("jalaliDate conversions", () => {
     expect(formatGregorianPeriodJalali(2024, 3)).toBe("فروردین 1403");
   });
 });
+
+describe("period keys", () => {
+  it("maps every Jalali month to the Gregorian month it starts in", async () => {
+    const { jalaliToPeriodKey, gregorianPeriodToJalali } = await import("./jalaliDate");
+    for (let jy = 1400; jy <= 1410; jy++) {
+      for (let jm = 1; jm <= 12; jm++) {
+        const key = jalaliToPeriodKey(jy, jm);
+        const start = jalaliToGregorian(jy, jm, 1);
+        expect([key.year, key.month]).toEqual([start.gy, start.gm]);
+        expect(gregorianPeriodToJalali(key.year, key.month)).toEqual({ year: jy, month: jm });
+      }
+    }
+  });
+
+  it("moves keys month by month across the Jalali new year", async () => {
+    const { addPeriodKeyMonths, jalaliToPeriodKey, gregorianPeriodToJalali } = await import("./jalaliDate");
+    const esfand = jalaliToPeriodKey(1404, 12);
+    const next = addPeriodKeyMonths(esfand.year, esfand.month, 1);
+    expect(gregorianPeriodToJalali(next.year, next.month)).toEqual({ year: 1405, month: 1 });
+    const prev = addPeriodKeyMonths(next.year, next.month, -2);
+    expect(gregorianPeriodToJalali(prev.year, prev.month)).toEqual({ year: 1404, month: 11 });
+  });
+});

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/models"
+	"github.com/soheilsshh/unifinance-momtaz/pkg/jalali"
 	"gorm.io/gorm"
 )
 
@@ -48,6 +49,12 @@ type PayrollSummary struct {
 	TotalVariableCents int64 `json:"total_variable_cents"`
 	TotalPaidCents     int64 `json:"total_paid_cents"`
 	TotalPendingCents  int64 `json:"total_pending_cents"`
+	// Cash paid to staff during the month (staff payouts).
+	TotalPaidOutCents int64 `json:"total_paid_out_cents"`
+	// Sum of positive balances at month end (what the organization still owes staff).
+	TotalOutstandingCents int64 `json:"total_outstanding_cents"`
+	// Sum of negative balances at month end (staff overpaid; they owe the organization).
+	TotalCreditCents int64 `json:"total_credit_cents"`
 }
 
 // PayrollService encapsulates payroll-related business logic.
@@ -104,13 +111,44 @@ func (s *PayrollService) GetMonthlySummary(ctx context.Context, year, month int,
 		return PayrollSummary{}, err
 	}
 
+	start, endEx := payrollPeriodBounds(year, month)
+	var paidOut int64
+	pq := s.db.WithContext(ctx).Model(&models.StaffPayout{}).
+		Where("paid_at >= ? AND paid_at < ?", start, endEx)
+	if scopeUser != nil {
+		pq = pq.Where("user_id = ?", *scopeUser)
+	}
+	if err := pq.Select("COALESCE(SUM(amount_cents), 0)").Scan(&paidOut).Error; err != nil {
+		return PayrollSummary{}, err
+	}
+
+	var userIDs []uint
+	if err := baseQ().Distinct("user_id").Pluck("user_id", &userIDs).Error; err != nil {
+		return PayrollSummary{}, err
+	}
+	balances, err := s.StaffBalancesForPeriod(ctx, userIDs, year, month)
+	if err != nil {
+		return PayrollSummary{}, err
+	}
+	var outstanding, credit int64
+	for _, b := range balances {
+		if b.ClosingCents > 0 {
+			outstanding += b.ClosingCents
+		} else {
+			credit += -b.ClosingCents
+		}
+	}
+
 	return PayrollSummary{
-		PeriodYear:         year,
-		PeriodMonth:        month,
-		TotalBaseCents:     totalBase,
-		TotalVariableCents: totalVariable,
-		TotalPaidCents:     totalPaid,
-		TotalPendingCents:  totalPending,
+		PeriodYear:            year,
+		PeriodMonth:           month,
+		TotalBaseCents:        totalBase,
+		TotalVariableCents:    totalVariable,
+		TotalPaidCents:        totalPaid,
+		TotalPendingCents:     totalPending,
+		TotalPaidOutCents:     paidOut,
+		TotalOutstandingCents: outstanding,
+		TotalCreditCents:      credit,
 	}, nil
 }
 
@@ -212,41 +250,13 @@ func (s *PayrollService) GetSchemes(ctx context.Context) ([]models.Role, error) 
 	return roles, nil
 }
 
-// DefaultPeriod returns current year and month in local time.
+// DefaultPeriod returns the period key of the current Jalali month.
 func DefaultPeriod(now time.Time) (int, int) {
-	year, month, _ := now.Date()
-	return year, int(month)
+	return PeriodOf(now)
 }
 
 func payrollPeriodBounds(year, month int) (start, endExclusive time.Time) {
-	loc := time.Local
-	start = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	endExclusive = start.AddDate(0, 1, 0)
-	return start, endExclusive
-}
-
-// payrollMonthIndexInYear returns the 1-based month index within the payroll year.
-// Uses the open fiscal year's start month when available; otherwise calendar year (January = 1).
-func (s *PayrollService) payrollMonthIndexInYear(ctx context.Context, year, month int) int {
-	loc := time.Local
-	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, loc)
-
-	var fy models.FiscalYear
-	if err := s.db.WithContext(ctx).
-		Where("status = ?", models.FiscalYearOpen).
-		Order("start_date ASC").
-		First(&fy).Error; err == nil {
-		start := time.Date(fy.StartDate.Year(), fy.StartDate.Month(), 1, 0, 0, 0, 0, loc)
-		if !target.Before(start) {
-			yearStart = start
-		}
-	}
-
-	if target.Before(yearStart) {
-		return 0
-	}
-	return (target.Year()-yearStart.Year())*12 + int(target.Month()-yearStart.Month()) + 1
+	return PeriodBounds(year, month)
 }
 
 func derefInt64(p *int64) int64 {
@@ -313,12 +323,11 @@ func (s *PayrollService) RecalculateAccrualForStudent(ctx context.Context, st *m
 	if st == nil || st.JoinDate == nil {
 		return nil
 	}
-	start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	sy, sm := PeriodOf(*st.JoinDate)
 	for i := 0; i < 36; i++ {
-		t := start.AddDate(0, i, 0)
-		y, m, _ := t.Date()
-		if models.AdvisorAccrualDueForPeriod(st, y, int(m)) > 0 {
-			if err := s.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m)); err != nil {
+		y, m := PeriodAdd(sy, sm, i)
+		if models.AdvisorAccrualDueForPeriod(st, y, m) > 0 {
+			if err := s.RecalculateEntriesForPeriod(ctx, y, m); err != nil {
 				return err
 			}
 		}
@@ -509,24 +518,73 @@ func (s *PayrollService) ResolveStudentsCountsByUserIDs(ctx context.Context, use
 // FIXED: base = FixedCents, variable = sum of all PaymentPayrollShare for user in period.
 // VARIABLE: base = 0, variable = sum of all PaymentPayrollShare for user in period.
 func (s *PayrollService) ComputeCompensationForUser(ctx context.Context, userID uint, year, month int) (PayrollCompensationBreakdown, error) {
-	var u models.User
-	if err := s.db.WithContext(ctx).Preload("Role").First(&u, userID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return PayrollCompensationBreakdown{}, ErrPayrollUserNotFound
-		}
-		return PayrollCompensationBreakdown{}, err
-	}
-	if u.Role == nil {
-		return PayrollCompensationBreakdown{}, ErrPayrollNoRole
-	}
-	r := u.Role
-
-	sc, err := s.resolveStudentsCountForLoadedUser(ctx, &u)
+	cc, err := s.loadCompContext(ctx, userID)
 	if err != nil {
 		return PayrollCompensationBreakdown{}, err
 	}
+	return s.computeCompensation(ctx, cc, year, month)
+}
 
-	monthIndex := s.payrollMonthIndexInYear(ctx, year, month)
+// compContext caches per-user lookups so a ledger can compute many months cheaply.
+type compContext struct {
+	user       models.User
+	sc         StudentCountResult
+	fyStartIdx int
+	hasFY      bool
+}
+
+func (s *PayrollService) loadCompContext(ctx context.Context, userID uint) (*compContext, error) {
+	var u models.User
+	if err := s.db.WithContext(ctx).Preload("Role").First(&u, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPayrollUserNotFound
+		}
+		return nil, err
+	}
+	if u.Role == nil {
+		return nil, ErrPayrollNoRole
+	}
+	sc, err := s.resolveStudentsCountForLoadedUser(ctx, &u)
+	if err != nil {
+		return nil, err
+	}
+	cc := &compContext{user: u, sc: sc}
+	cc.fyStartIdx, cc.hasFY = s.openFiscalYearStartIndex(ctx)
+	return cc, nil
+}
+
+// openFiscalYearStartIndex returns the period index of the open fiscal year's first month.
+func (s *PayrollService) openFiscalYearStartIndex(ctx context.Context) (int, bool) {
+	var fy models.FiscalYear
+	if err := s.db.WithContext(ctx).
+		Where("status = ?", models.FiscalYearOpen).
+		Order("start_date ASC").
+		First(&fy).Error; err != nil {
+		return 0, false
+	}
+	return PeriodIndex(PeriodOf(fy.StartDate)), true
+}
+
+func monthIndexInPayrollYear(fyStartIdx int, hasFY bool, year, month int) int {
+	target := PeriodIndex(year, month)
+	jy, _ := jalali.JalaliFromKey(year, month)
+	y0, m0 := jalali.KeyFromJalali(jy, 1)
+	yearStart := PeriodIndex(y0, m0)
+	if hasFY && target >= fyStartIdx {
+		yearStart = fyStartIdx
+	}
+	if target < yearStart {
+		return 0
+	}
+	return target - yearStart + 1
+}
+
+func (s *PayrollService) computeCompensation(ctx context.Context, cc *compContext, year, month int) (PayrollCompensationBreakdown, error) {
+	r := cc.user.Role
+	userID := cc.user.ID
+	sc := cc.sc
+
+	monthIndex := monthIndexInPayrollYear(cc.fyStartIdx, cc.hasFY, year, month)
 	if r.CompensationKind != models.CompNetRevenue && !r.RolePaysInPayrollMonth(monthIndex) {
 		return PayrollCompensationBreakdown{
 			CompensationKind:   r.CompensationKind,
@@ -785,8 +843,9 @@ func (s *PayrollService) listUserAccrualShareLines(ctx context.Context, userID u
 	return out, sum, nil
 }
 
-// RecalculateUserPeriod creates or refreshes the PENDING payslip for one user/month and returns breakdown.
-// PAID payslips are locked.
+// RecalculateUserPeriod creates or refreshes the payslip for one user/month from role rules
+// (clearing any manual override) and returns the breakdown. Payment status stays derived
+// from the staff ledger, so recalculating a settled month is allowed.
 func (s *PayrollService) RecalculateUserPeriod(ctx context.Context, userID uint, year, month int) (*models.PayrollEntry, CompensationBreakdownDetail, error) {
 	if year < 1 || month < 1 || month > 12 {
 		return nil, CompensationBreakdownDetail{}, ErrPayrollInvalidPeriod
@@ -795,36 +854,31 @@ func (s *PayrollService) RecalculateUserPeriod(ctx context.Context, userID uint,
 	err := s.db.WithContext(ctx).
 		Where("user_id = ? AND period_year = ? AND period_month = ?", userID, year, month).
 		First(&existing).Error
+	var entry *models.PayrollEntry
 	if err == nil {
-		if existing.Status == models.PayrollStatusPaid {
-			detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
-			if dErr != nil {
-				return nil, CompensationBreakdownDetail{}, ErrPayrollEntryPaidLocked
-			}
-			return nil, detail, ErrPayrollEntryPaidLocked
+		entry, err = s.UpdateEntry(ctx, existing.ID, UpdateEntryParams{RecalculateFromRoleRules: true})
+		if err != nil {
+			return nil, CompensationBreakdownDetail{}, err
 		}
-		entry, uErr := s.UpdateEntry(ctx, existing.ID, UpdateEntryParams{RecalculateFromRoleRules: true})
-		if uErr != nil {
-			return nil, CompensationBreakdownDetail{}, uErr
+	} else if errors.Is(err, gorm.ErrRecordNotFound) {
+		entry, err = s.CreateEntry(ctx, CreateEntryParams{
+			UserID:         userID,
+			PeriodYear:     year,
+			PeriodMonth:    month,
+			ApplyRoleRules: true,
+			Status:         models.PayrollStatusPending,
+		})
+		if err != nil {
+			return nil, CompensationBreakdownDetail{}, err
 		}
-		detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
-		if dErr != nil {
-			return entry, CompensationBreakdownDetail{}, dErr
-		}
-		return entry, detail, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	} else {
 		return nil, CompensationBreakdownDetail{}, err
 	}
-	entry, cErr := s.CreateEntry(ctx, CreateEntryParams{
-		UserID:         userID,
-		PeriodYear:     year,
-		PeriodMonth:    month,
-		ApplyRoleRules: true,
-		Status:         models.PayrollStatusPending,
-	})
-	if cErr != nil {
-		return nil, CompensationBreakdownDetail{}, cErr
+	if _, lErr := s.GetStaffLedger(ctx, userID, year, month); lErr != nil {
+		return entry, CompensationBreakdownDetail{}, lErr
+	}
+	if fresh, gErr := s.GetEntryByID(ctx, entry.ID); gErr == nil {
+		entry = fresh
 	}
 	detail, dErr := s.GetCompensationBreakdownDetail(ctx, userID, year, month)
 	if dErr != nil {
@@ -844,6 +898,8 @@ type CreateEntryParams struct {
 	StudentsCount       int
 	StudentsCountSet    bool // when false and !ApplyRoleRules, resolve KPI from role scope
 	Status              models.PayrollStatus
+	// ManualOverride marks amounts typed by an admin (skipped by automatic recalculation).
+	ManualOverride bool
 }
 
 // CreateEntry creates a new payroll entry (payslip). Total = Base + Variable.
@@ -886,6 +942,7 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 			"students_count":        p.StudentsCount,
 			"status":                p.Status,
 			"paid_at":               gorm.Expr("NULL"),
+			"manual_override":       p.ManualOverride,
 		}
 		if p.Status == models.PayrollStatusPaid {
 			updates["paid_at"] = time.Now()
@@ -915,6 +972,7 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 		TotalSalaryCents:    total,
 		StudentsCount:       p.StudentsCount,
 		Status:              p.Status,
+		ManualOverride:      p.ManualOverride,
 	}
 	if p.Status == models.PayrollStatusPaid {
 		now := time.Now()
@@ -932,39 +990,62 @@ func (s *PayrollService) CreateEntry(ctx context.Context, p CreateEntryParams) (
 
 var ErrPayrollEntryNotFound = errors.New("payroll entry not found")
 
-// RecalculateAllPendingEntriesForPeriod recomputes base/variable/total for every PENDING payroll row
-// in the given calendar month (local time). Call after payment_payroll_shares change so حقوق matches پرداخت‌ها.
-// NET_REVENUE (مدیرکل) rows are updated last so shares from other users are already fresh.
-func (s *PayrollService) RecalculateAllPendingEntriesForPeriod(ctx context.Context, year, month int) error {
+// RecalculateEntriesForPeriod refreshes every payslip of one month from role rules and PAID
+// payments (manual overrides excepted) — including months already settled, so a late or
+// back-dated student payment always reaches the advisor's balance. Users with payment shares
+// in the month get a payslip if they had none. Payment statuses are then re-derived.
+func (s *PayrollService) RecalculateEntriesForPeriod(ctx context.Context, year, month int) error {
 	if year < 1 || month < 1 || month > 12 {
 		return nil
 	}
+	start, endEx := payrollPeriodBounds(year, month)
+	var shareUsers []uint
+	if err := s.db.WithContext(ctx).Raw(`
+SELECT DISTINCT pps.user_id FROM payment_payroll_shares pps
+INNER JOIN payments ON payments.id = pps.payment_id AND payments.deleted_at IS NULL
+INNER JOIN users ON users.id = pps.user_id AND users.deleted_at IS NULL
+WHERE pps.deleted_at IS NULL AND payments.status = ?
+  AND payments.paid_at >= ? AND payments.paid_at < ?
+`, models.PaymentStatusPaid, start, endEx).Scan(&shareUsers).Error; err != nil {
+		return err
+	}
+	for _, uid := range shareUsers {
+		if err := s.EnsureEntryForUserPeriod(ctx, uid, year, month); err != nil &&
+			!errors.Is(err, ErrPayrollNoRole) && !errors.Is(err, ErrPayrollUserNotFound) {
+			return err
+		}
+	}
+
 	var entries []models.PayrollEntry
 	if err := s.db.WithContext(ctx).Preload("User.Role").
-		Where("period_year = ? AND period_month = ? AND status = ?", year, month, models.PayrollStatusPending).
+		Where("period_year = ? AND period_month = ?", year, month).
 		Find(&entries).Error; err != nil {
 		return err
 	}
-	var firstPass, lastPass []uint
-	for _, e := range entries {
-		if e.User.Role != nil && e.User.Role.CompensationKind == models.CompNetRevenue {
-			lastPass = append(lastPass, e.ID)
-		} else {
-			firstPass = append(firstPass, e.ID)
+	nowY, nowM := DefaultPeriod(time.Now())
+	currentIdx := PeriodIndex(nowY, nowM)
+	for i := range entries {
+		e := &entries[i]
+		if e.User.ID == 0 || e.User.Role == nil {
+			continue
 		}
-	}
-	recalc := func(ids []uint) error {
-		for _, id := range ids {
-			if _, err := s.UpdateEntry(ctx, id, UpdateEntryParams{RecalculateFromRoleRules: true}); err != nil {
-				return err
+		cc, err := s.loadCompContext(ctx, e.UserID)
+		if err != nil {
+			if errors.Is(err, ErrPayrollNoRole) || errors.Is(err, ErrPayrollUserNotFound) {
+				continue
 			}
+			return err
 		}
-		return nil
+		if _, err := s.syncEntryAmounts(ctx, cc, e, year, month, currentIdx); err != nil {
+			return err
+		}
 	}
-	if err := recalc(firstPass); err != nil {
-		return err
+	for i := range entries {
+		if _, err := s.GetStaffLedger(ctx, entries[i].UserID, 0, 0); err != nil {
+			return err
+		}
 	}
-	return recalc(lastPass)
+	return nil
 }
 
 // GetEntryByID returns a single payroll entry by ID.
@@ -992,15 +1073,13 @@ type UpdateEntryParams struct {
 }
 
 // UpdateEntry updates an existing payroll entry. Total is recalculated from base + variable.
-// Recalculate / amount edits are blocked when status is PAID (use MarkPending first).
+// Explicit amounts mark the payslip as a manual override; RecalculateFromRoleRules clears it.
+// PAID/PENDING is derived from staff payouts (see staff ledger); Status/PaidAt are only
+// honoured for payslips without payouts to keep older clients working.
 func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntryParams) (*models.PayrollEntry, error) {
 	entry, err := s.GetEntryByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	changingAmounts := p.RecalculateFromRoleRules || p.BaseSalaryCents != nil || p.VariableSalaryCents != nil || p.StudentsCount != nil
-	if entry.Status == models.PayrollStatusPaid && changingAmounts {
-		return nil, ErrPayrollEntryPaidLocked
 	}
 	if p.RecalculateFromRoleRules {
 		br, err := s.ComputeCompensationForUser(ctx, entry.UserID, entry.PeriodYear, entry.PeriodMonth)
@@ -1010,27 +1089,18 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		entry.BaseSalaryCents = br.BaseSalaryCents
 		entry.VariableSalaryCents = br.VariableSalaryCents
 		entry.StudentsCount = br.StudentsCount
+		entry.ManualOverride = false
 	}
 	if p.BaseSalaryCents != nil {
 		entry.BaseSalaryCents = *p.BaseSalaryCents
+		entry.ManualOverride = true
 	}
 	if p.VariableSalaryCents != nil {
 		entry.VariableSalaryCents = *p.VariableSalaryCents
+		entry.ManualOverride = true
 	}
 	if p.StudentsCount != nil {
 		entry.StudentsCount = *p.StudentsCount
-	}
-	if p.PaidAt != nil {
-		entry.PaidAt = p.PaidAt
-	}
-	if p.Status != nil {
-		entry.Status = *p.Status
-		if *p.Status == models.PayrollStatusPaid && entry.PaidAt == nil {
-			now := time.Now()
-			entry.PaidAt = &now
-		} else if *p.Status == models.PayrollStatusPending {
-			entry.PaidAt = nil
-		}
 	}
 	entry.TotalSalaryCents = entry.BaseSalaryCents + entry.VariableSalaryCents
 	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).Where("id = ?", entry.ID).Updates(map[string]interface{}{
@@ -1038,47 +1108,82 @@ func (s *PayrollService) UpdateEntry(ctx context.Context, id uint, p UpdateEntry
 		"variable_salary_cents": entry.VariableSalaryCents,
 		"total_salary_cents":    entry.TotalSalaryCents,
 		"students_count":        entry.StudentsCount,
-		"status":                entry.Status,
-		"paid_at":               entry.PaidAt,
+		"manual_override":       entry.ManualOverride,
 	}).Error; err != nil {
+		return nil, err
+	}
+	if p.Status != nil {
+		switch *p.Status {
+		case models.PayrollStatusPaid:
+			paidAt := time.Now()
+			if p.PaidAt != nil {
+				paidAt = *p.PaidAt
+			}
+			if _, err := s.MarkPaid(ctx, id, paidAt); err != nil && !errors.Is(err, ErrPayrollAlreadyPaid) {
+				return nil, err
+			}
+		case models.PayrollStatusPending:
+			if _, err := s.MarkPending(ctx, id); err != nil && !errors.Is(err, ErrPayrollNotPaid) {
+				return nil, err
+			}
+		}
+	}
+	if _, err := s.GetStaffLedger(ctx, entry.UserID, entry.PeriodYear, entry.PeriodMonth); err != nil {
 		return nil, err
 	}
 	return s.GetEntryByID(ctx, entry.ID)
 }
 
-// MarkPaid marks a PENDING payslip as PAID with the given paid_at (local calendar day).
+// MarkPaid records a payout that settles every month up to and including this payslip
+// (cumulative accrual − payouts so far) on paidAt, linked to the payslip.
 func (s *PayrollService) MarkPaid(ctx context.Context, id uint, paidAt time.Time) (*models.PayrollEntry, error) {
 	entry, err := s.GetEntryByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if entry.Status == models.PayrollStatusPaid {
+	due, err := s.PayslipOutstandingCents(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+	if due <= 0 {
 		return nil, ErrPayrollAlreadyPaid
 	}
 	loc := time.Local
 	day := time.Date(paidAt.Year(), paidAt.Month(), paidAt.Day(), 12, 0, 0, 0, loc)
-	st := models.PayrollStatusPaid
-	return s.UpdateEntry(ctx, id, UpdateEntryParams{
-		Status: &st,
-		PaidAt: &day,
-	})
+	entryID := entry.ID
+	if _, err := s.CreateStaffPayout(ctx, CreateStaffPayoutParams{
+		UserID:         entry.UserID,
+		AmountCents:    due,
+		PaidAt:         day,
+		Note:           "تسویه فیش " + FormatPeriodLabel(entry.PeriodYear, entry.PeriodMonth),
+		PayrollEntryID: &entryID,
+		Source:         models.StaffPayoutSourcePayslip,
+	}, nil); err != nil {
+		return nil, err
+	}
+	return s.GetEntryByID(ctx, id)
 }
 
-// MarkPending reverts a PAID payslip to PENDING (clears paid_at). Explicit unlock for admin.
+// MarkPending removes the payouts recorded from this payslip's "paid" action.
 func (s *PayrollService) MarkPending(ctx context.Context, id uint) (*models.PayrollEntry, error) {
 	entry, err := s.GetEntryByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if entry.Status != models.PayrollStatusPaid {
-		return nil, ErrPayrollNotPaid
+	var linked []models.StaffPayout
+	if err := s.db.WithContext(ctx).Where("payroll_entry_id = ?", id).Find(&linked).Error; err != nil {
+		return nil, err
 	}
-	st := models.PayrollStatusPending
-	// Direct DB update to bypass PAID amount-lock path when only unlocking status.
-	if err := s.db.WithContext(ctx).Model(&models.PayrollEntry{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":  st,
-		"paid_at": nil,
-	}).Error; err != nil {
+	if len(linked) == 0 {
+		if entry.Status != models.PayrollStatusPaid {
+			return nil, ErrPayrollNotPaid
+		}
+		return nil, ErrPayslipHasNoPayout
+	}
+	if err := s.db.WithContext(ctx).Where("payroll_entry_id = ?", id).Delete(&models.StaffPayout{}).Error; err != nil {
+		return nil, err
+	}
+	if _, err := s.GetStaffLedger(ctx, entry.UserID, 0, 0); err != nil {
 		return nil, err
 	}
 	return s.GetEntryByID(ctx, id)
@@ -1168,10 +1273,7 @@ type AdvisorOpsUserDetail struct {
 }
 
 func periodBounds(year, month int) (from, to time.Time) {
-	loc := time.Local
-	from = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	to = from.AddDate(0, 1, 0)
-	return from, to
+	return PeriodBounds(year, month)
 }
 
 // ListAdvisorOps returns ops stats for users who advise at least one ACTIVE student.
@@ -1589,6 +1691,10 @@ type UserLedgerDetail struct {
 	SettlementPaidOutCents  int64
 	SettlementBalanceCents  int64
 	SettlementPayouts       []StaffPayoutRow
+
+	// Running balance for the requested month and the full month-by-month ledger.
+	Month        StaffLedgerMonth
+	LedgerMonths []StaffLedgerMonth
 }
 
 // GetUserLedger returns the Phase 4 employee detail page payload for one user/month.
@@ -1600,6 +1706,11 @@ func (s *PayrollService) GetUserLedger(ctx context.Context, userID uint, year, m
 		return UserLedgerDetail{}, ErrPayrollInvalidPeriod
 	}
 
+	// Bring every payslip (all months, including settled ones) up to date first.
+	ledger, err := s.SyncStaffLedger(ctx, userID, year, month)
+	if err != nil {
+		return UserLedgerDetail{}, err
+	}
 	ops, err := s.GetAdvisorOpsUserDetail(ctx, userID, year, month, scopeUser)
 	if err != nil {
 		return UserLedgerDetail{}, err
@@ -1650,14 +1761,12 @@ func (s *PayrollService) GetUserLedger(ctx context.Context, userID uint, year, m
 		out.StudentsTotal = breakdown.StudentsCount
 	}
 
-	settlement, sErr := s.GetStaffSettlement(ctx, userID, scopeUser)
-	if sErr != nil {
-		return UserLedgerDetail{}, sErr
-	}
-	out.SettlementAccruedCents = settlement.AccruedTotalCents
-	out.SettlementPaidOutCents = settlement.PaidOutTotalCents
-	out.SettlementBalanceCents = settlement.BalanceCents
-	out.SettlementPayouts = settlement.Payouts
+	out.SettlementAccruedCents = ledger.TotalAccruedCents
+	out.SettlementPaidOutCents = ledger.TotalPaidCents
+	out.SettlementBalanceCents = ledger.BalanceCents
+	out.SettlementPayouts = ledger.Payouts
+	out.Month = ledger.MonthAt(year, month)
+	out.LedgerMonths = ledger.Months
 
 	return out, nil
 }

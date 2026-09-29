@@ -217,8 +217,10 @@ export function formatJalaliDisplay(jalali: string | null | undefined): string {
 }
 
 /**
- * Approximate Jalali ↔ Gregorian month mapping (Farvardin↔March), round-trip safe.
- * Used for period filters/payroll month selectors (API still stores Gregorian YYYY-MM).
+ * Period keys: the API identifies a month by a Gregorian-looking YYYY-MM "key" that stands for
+ * the Jalali month starting inside it (Farvardin↔March, Mehr↔September, Bahman↔January).
+ * The backend treats a key as the exact Jalali month (1st .. last day), so these helpers are a
+ * lossless, round-trip-safe mapping between Jalali (year, month) and keys.
  */
 export function jalaliPeriodToGregorianYYYYMM(jYear: number, jMonth: number): string {
   const gMonth = ((jMonth + 1) % 12) + 1;
@@ -246,9 +248,35 @@ export function formatGregorianPeriodJalali(gy: number, gm: number): string {
   return `${JALALI_MONTH_NAMES[month - 1] ?? month} ${year}`;
 }
 
+/** Jalali year/month of today (actual calendar date, not the Gregorian month). */
 export function todayJalaliPeriod(): { year: number; month: number } {
   const d = new Date();
-  return gregorianPeriodToJalali(d.getFullYear(), d.getMonth() + 1);
+  const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  return { year: j.jy, month: j.jm };
+}
+
+/** API period key (year, month) for a Jalali year/month. */
+export function jalaliToPeriodKey(jYear: number, jMonth: number): { year: number; month: number } {
+  const [y, m] = jalaliPeriodToGregorianYYYYMM(jYear, jMonth).split("-").map(Number);
+  return { year: y, month: m };
+}
+
+/** API period key of the current Jalali month. */
+export function currentPeriodKey(): { year: number; month: number } {
+  const j = todayJalaliPeriod();
+  return jalaliToPeriodKey(j.year, j.month);
+}
+
+/** Move a period key by delta months (keys are consecutive like Jalali months). */
+export function addPeriodKeyMonths(year: number, month: number, delta: number): { year: number; month: number } {
+  const idx = year * 12 + (month - 1) + delta;
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
+}
+
+/** Current period key as "YYYY-MM" (for report filters). */
+export function currentPeriodKeyYYYYMM(): string {
+  const k = currentPeriodKey();
+  return `${k.year}-${String(k.month).padStart(2, "0")}`;
 }
 
 export function todayJalaliYear(): number {

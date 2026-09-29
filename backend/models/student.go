@@ -176,20 +176,19 @@ func ComputeAdvisorMonthlyAccrualCents(st *Student) int64 {
 	}
 }
 
+// accrualMonthIndex returns the 1-based position of period key (year, month) counted from the
+// Jalali month that contains joinDate.
 func accrualMonthIndex(joinDate time.Time, year, month int) (index int, ok bool) {
-	loc := time.Local
-	start := time.Date(joinDate.Year(), joinDate.Month(), 1, 0, 0, 0, 0, loc)
-	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	if target.Before(start) {
-		return 0, false
-	}
-	idx := (target.Year()-start.Year())*12 + int(target.Month()-start.Month()) + 1
+	sy, sm := jalali.KeyForTime(joinDate)
+	idx := jalali.KeyIndex(year, month) - jalali.KeyIndex(sy, sm) + 1
 	if idx < 1 {
 		return 0, false
 	}
 	return idx, true
 }
 
+// accrualMonthIndexWithMask is accrualMonthIndex restricted to the Jalali months selected in the
+// student's accrual mask (e.g. Mehr..Tir). Period keys map to exact Jalali months.
 func accrualMonthIndexWithMask(st *Student, year, month int) (index int, ok bool) {
 	if st == nil || st.JoinDate == nil {
 		return 0, false
@@ -198,21 +197,16 @@ func accrualMonthIndexWithMask(st *Student, year, month int) (index int, ok bool
 	if mask == 0 {
 		return accrualMonthIndex(*st.JoinDate, year, month)
 	}
-	loc := time.Local
-	start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, loc)
-	target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	if target.Before(start) {
+	sy, sm := jalali.KeyForTime(*st.JoinDate)
+	if jalali.KeyIndex(year, month) < jalali.KeyIndex(sy, sm) {
 		return 0, false
 	}
-	jm := jalali.MonthFromGregorian(year, month)
-	if !isJalaliMonthInMask(mask, jm) {
+	if _, jm := jalali.JalaliFromKey(year, month); !isJalaliMonthInMask(mask, jm) {
 		return 0, false
 	}
 	idx := 0
-	for t := start; !t.After(target); t = t.AddDate(0, 1, 0) {
-		y, m, _ := t.Date()
-		jmCur := jalali.MonthFromGregorian(y, int(m))
-		if isJalaliMonthInMask(mask, jmCur) {
+	for y, m := sy, sm; jalali.KeyIndex(y, m) <= jalali.KeyIndex(year, month); y, m = jalali.AddMonths(y, m, 1) {
+		if _, jm := jalali.JalaliFromKey(y, m); isJalaliMonthInMask(mask, jm) {
 			idx++
 		}
 	}

@@ -7,6 +7,12 @@ export interface PayrollSummary {
   total_variable_cents: number;
   total_paid_cents: number;
   total_pending_cents: number;
+  /** پرداخت نقدی به کارکنان در این ماه */
+  total_paid_out_cents?: number;
+  /** جمع مانده‌های مثبت پایان ماه (بدهی سازمان به کارکنان) */
+  total_outstanding_cents?: number;
+  /** جمع مانده‌های منفی پایان ماه (بدهی کارکنان به سازمان) */
+  total_credit_cents?: number;
 }
 
 export interface PayrollEntryApi {
@@ -26,6 +32,17 @@ export interface PayrollEntryApi {
   status: string;
   paid_at: string | null;
   created_at: string;
+  manual_override?: boolean;
+  /** مانده از ماه قبل (+ سازمان بدهکار، − کارمند بدهکار) */
+  opening_cents?: number;
+  /** پرداختی به کارمند در همین ماه */
+  paid_out_cents?: number;
+  /** مانده ماه = حقوق این ماه − پرداختی این ماه */
+  month_balance_cents?: number;
+  /** مانده کل پایان ماه */
+  closing_cents?: number;
+  /** مانده کل امروز */
+  balance_cents?: number;
 }
 
 export interface PaginatedPayrollEntriesResponse {
@@ -292,7 +309,26 @@ export interface StaffPayoutApi {
   amount_cents: number;
   paid_at: string;
   note?: string;
+  /** MANUAL | PAYSLIP | MIGRATED */
+  source?: string;
+  payroll_entry_id?: number;
   created_at: string;
+}
+
+/** One month of the running staff balance. */
+export interface StaffLedgerMonthApi {
+  period_year: number;
+  period_month: number;
+  entry_id?: number;
+  base_salary_cents: number;
+  variable_salary_cents: number;
+  opening_cents: number;
+  accrued_cents: number;
+  paid_cents: number;
+  month_balance_cents: number;
+  closing_cents: number;
+  settled: boolean;
+  settled_at?: string | null;
 }
 
 export interface StaffSettlementApi {
@@ -417,6 +453,8 @@ export interface PayrollUserLedgerApi extends AdvisorOpsUserDetailApi {
   settlement_paid_out_cents: number;
   settlement_balance_cents: number;
   settlement_payouts: StaffPayoutApi[];
+  month_ledger?: StaffLedgerMonthApi;
+  ledger_months?: StaffLedgerMonthApi[];
 }
 
 export async function getPayrollUserLedger(params: {
@@ -529,3 +567,14 @@ export async function createStaffPayout(
   return data as StaffPayoutApi;
 }
 
+
+export async function deleteStaffPayout(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/payroll/payouts/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    apiFail(data, "خطا در حذف پرداخت", res);
+  }
+}

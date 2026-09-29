@@ -30,9 +30,8 @@ func (s *PaymentService) recalcPendingPayrollForPaidAt(ctx context.Context, paid
 	if s.payroll == nil || paidAt == nil {
 		return
 	}
-	t := paidAt.In(time.Local)
-	y, m, _ := t.Date()
-	if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(m)); err != nil {
+	y, m := PeriodOf(*paidAt)
+	if err := s.payroll.RecalculateEntriesForPeriod(ctx, y, m); err != nil {
 		log.Printf("payroll: recalc pending for %d-%02d failed: %v", y, m, err)
 	}
 }
@@ -52,14 +51,13 @@ func (s *PaymentService) recalcPendingPayrollForStudentPaidMonths(ctx context.Co
 		if list[i].PaidAt == nil {
 			continue
 		}
-		t := list[i].PaidAt.In(time.Local)
-		y, mo, _ := t.Date()
-		key := [2]int{y, int(mo)}
+		y, mo := PeriodOf(*list[i].PaidAt)
+		key := [2]int{y, mo}
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, y, int(mo)); err != nil {
+		if err := s.payroll.RecalculateEntriesForPeriod(ctx, y, mo); err != nil {
 			log.Printf("payroll: recalc pending for %d-%02d failed: %v", y, mo, err)
 		}
 	}
@@ -209,18 +207,15 @@ func (s *PaymentService) PayrollPeriodsAffectedByStudent(ctx context.Context, st
 		if list[i].PaidAt == nil {
 			continue
 		}
-		t := list[i].PaidAt.In(time.Local)
-		y, mo, _ := t.Date()
-		add(y, int(mo))
+		add(PeriodOf(*list[i].PaidAt))
 	}
 
 	if st.JoinDate != nil {
-		start := time.Date(st.JoinDate.Year(), st.JoinDate.Month(), 1, 0, 0, 0, 0, time.Local)
+		sy, sm := PeriodOf(*st.JoinDate)
 		for i := 0; i < 36; i++ {
-			t := start.AddDate(0, i, 0)
-			y, mo, _ := t.Date()
-			if models.AdvisorAccrualDueForPeriod(&st, y, int(mo)) > 0 {
-				add(y, int(mo))
+			y, mo := PeriodAdd(sy, sm, i)
+			if models.AdvisorAccrualDueForPeriod(&st, y, mo) > 0 {
+				add(y, mo)
 			}
 		}
 	}
@@ -233,7 +228,7 @@ func (s *PaymentService) RecalculatePayrollPeriods(ctx context.Context, periods 
 		return
 	}
 	for _, p := range periods {
-		_ = s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, p[0], p[1])
+		_ = s.payroll.RecalculateEntriesForPeriod(ctx, p[0], p[1])
 	}
 }
 
@@ -495,17 +490,15 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 	if s.payroll != nil && payment.StudentID != nil {
 		months := make(map[[2]int]struct{})
 		if oldStatus == models.PaymentStatusPaid && oldPaidAtCopy != nil {
-			t := oldPaidAtCopy.In(time.Local)
-			y, m, _ := t.Date()
-			months[[2]int{y, int(m)}] = struct{}{}
+			y, m := PeriodOf(*oldPaidAtCopy)
+			months[[2]int{y, m}] = struct{}{}
 		}
 		if payment.Status == models.PaymentStatusPaid && payment.PaidAt != nil {
-			t := payment.PaidAt.In(time.Local)
-			y, m, _ := t.Date()
-			months[[2]int{y, int(m)}] = struct{}{}
+			y, m := PeriodOf(*payment.PaidAt)
+			months[[2]int{y, m}] = struct{}{}
 		}
 		for k := range months {
-			if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, k[0], k[1]); err != nil {
+			if err := s.payroll.RecalculateEntriesForPeriod(ctx, k[0], k[1]); err != nil {
 				log.Printf("payroll: recalc pending for %d-%02d failed: %v", k[0], k[1], err)
 			}
 		}
@@ -521,9 +514,7 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 	wasPaid := payment.Status == models.PaymentStatusPaid
 	var delYear, delMonth int
 	if wasPaid && payment.PaidAt != nil {
-		t := payment.PaidAt.In(time.Local)
-		y, m, _ := t.Date()
-		delYear, delMonth = y, int(m)
+		delYear, delMonth = PeriodOf(*payment.PaidAt)
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Unscoped().Where("payment_id = ?", id).
@@ -549,7 +540,7 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 		return err
 	}
 	if wasPaid && s.payroll != nil && payment.StudentID != nil {
-		if err := s.payroll.RecalculateAllPendingEntriesForPeriod(ctx, delYear, delMonth); err != nil {
+		if err := s.payroll.RecalculateEntriesForPeriod(ctx, delYear, delMonth); err != nil {
 			log.Printf("payroll: recalc pending for %d-%02d failed: %v", delYear, delMonth, err)
 		}
 	}

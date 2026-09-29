@@ -37,6 +37,12 @@ type PayrollEntry struct {
 
 	StudentsCount int `gorm:"not null;default:0"`
 
+	// Status is derived from the staff ledger: PAID once cumulative payouts cover the
+	// cumulative accrual up to and including this month (FIFO), PENDING otherwise.
 	Status PayrollStatus `gorm:"type:varchar(32);not null;index"`
 	PaidAt *time.Time    `gorm:"index"`
+
+	// ManualOverride keeps amounts typed in by an admin; automatic recalculation skips them
+	// until "محاسبه فیش" (recalculate from role rules) is requested again.
+	ManualOverride bool `gorm:"not null;default:false"`
 }

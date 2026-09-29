@@ -26,6 +26,9 @@ import {
   Eye,
   RefreshCw,
   Info,
+  ChevronRight,
+  ChevronLeft,
+  Banknote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -41,8 +44,7 @@ import {
   recalculatePayrollPeriod,
   recalculatePayrollUser,
   getPayrollUserBreakdown,
-  markPayrollEntryPaid,
-  markPayrollEntryPending,
+  createStaffPayout,
   type PayrollEntryApi,
   type CreatePayrollEntryPayload,
   type UpdatePayrollEntryPayload,
@@ -68,7 +70,12 @@ import {
   jalaliPeriodToGregorianYYYYMM,
   JALALI_MONTH_NAMES,
   jalaliYearOptions,
+  currentPeriodKey,
+  addPeriodKeyMonths,
 } from "@/lib/jalaliDate";
+import { BalanceBadge } from "@/components/payroll/BalanceBadge";
+import { balanceTone } from "@/lib/payrollBalance";
+import { ExpensesOverview } from "@/components/payroll/ExpensesOverview";
 import { formatPayrollPeriod } from "@/lib/payrollDisplay";
 
 const roleLabels: Record<string, string> = {
@@ -134,14 +141,6 @@ function EditPayrollForm({
   }, [entry.id, entry.base_salary_cents, entry.variable_salary_cents, entry.students_count]);
 
   const handleSubmit = () => {
-    if (entry.status === "PAID") {
-      toast({
-        variant: "destructive",
-        title: "فیش قفل است",
-        description: "برای ویرایش مبالغ، ابتدا تیک پرداخت را بردارید.",
-      });
-      return;
-    }
     const baseCents = parseLocalizedInt(baseTomans) * 10;
     const variableCents = parseLocalizedInt(variableTomans) * 10;
     const count = parseLocalizedInt(studentsCount);
@@ -166,7 +165,6 @@ function EditPayrollForm({
           inputMode="numeric"
           value={baseTomans}
           onChange={(e) => setBaseTomans(formatGroupedFaIntInput(e.target.value))}
-          disabled={entry.status === "PAID"}
         />
       </div>
       <div className="grid gap-2">
@@ -176,7 +174,6 @@ function EditPayrollForm({
           inputMode="numeric"
           value={variableTomans}
           onChange={(e) => setVariableTomans(formatGroupedFaIntInput(e.target.value))}
-          disabled={entry.status === "PAID"}
         />
       </div>
       <div className="grid gap-2">
@@ -188,13 +185,15 @@ function EditPayrollForm({
           inputMode="numeric"
           value={studentsCount}
           onChange={(e) => setStudentsCount(formatGroupedFaIntInput(e.target.value))}
-          disabled={entry.status === "PAID"}
         />
       </div>
-      {entry.status === "PAID" && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          این فیش پرداخت شده و قفل است. برای ویرایش، تیک «پرداخت شده» را در لیست بردارید.
-        </p>
+      <p className="text-xs text-muted-foreground">
+        مبالغی که دستی ذخیره شوند ثابت می‌مانند و با پرداخت‌های بعدی دانش‌آموزان تغییر نمی‌کنند؛
+        برای برگشت به محاسبهٔ خودکار «محاسبه فیش» را بزنید. تفاوت مبلغ با پرداخت‌های انجام‌شده
+        در مانده حساب کارمند منظور می‌شود.
+      </p>
+      {entry.manual_override && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">این فیش در حال حاضر دستی ویرایش شده است.</p>
       )}
       <div className="flex flex-col gap-2">
         <Button
@@ -202,7 +201,7 @@ function EditPayrollForm({
           variant="secondary"
           className="w-full"
           onClick={onRecalculate}
-          disabled={isSaving || entry.status === "PAID"}
+          disabled={isSaving}
         >
           محاسبه فیش از قوانین نقش و پرداخت‌ها
         </Button>
@@ -226,13 +225,42 @@ function formatCentsToToman(cents: number): string {
   return tomans.toLocaleString("fa-IR");
 }
 
+/** Text form of a signed balance for print views. */
+function formatSignedToman(cents: number): string {
+  if (!cents) return "۰ تومان";
+  const abs = formatCentsToToman(Math.abs(cents));
+  return cents > 0 ? `${abs} تومان (بدهی ما)` : `${abs} تومان (بدهی کارمند)`;
+}
+
+/** Signed amount cell: positive = we owe, negative = staff owes. */
+function SignedAmount({ cents }: { cents: number }) {
+  if (!cents) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span
+      className={cn(
+        "number-display",
+        cents > 0 ? "text-amber-700 dark:text-amber-400" : "text-destructive",
+      )}
+      title={cents > 0 ? "بدهی سازمان به کارمند" : "بدهی کارمند به سازمان"}
+      dir="ltr"
+    >
+      {cents < 0 ? "−" : ""}
+      {formatCentsToToman(Math.abs(cents))}
+    </span>
+  );
+}
+
 const Payroll = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const now = new Date();
-  // API periods are Gregorian calendar months; UI labels convert to Jalali.
-  const [currentYear] = useState(now.getFullYear());
-  const [currentMonth] = useState(now.getMonth() + 1);
+  // API period keys stand for exact Jalali months (see lib/jalaliDate).
+  const [period, setPeriod] = useState(currentPeriodKey);
+  const currentYear = period.year;
+  const currentMonth = period.month;
+  const isCurrentPeriod = (() => {
+    const k = currentPeriodKey();
+    return k.year === currentYear && k.month === currentMonth;
+  })();
   const currentJalali = todayJalaliPeriod();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -240,8 +268,18 @@ const Payroll = () => {
   const [editEntryId, setEditEntryId] = useState<number | null>(null);
   const [breakdown, setBreakdown] = useState<PayrollBreakdownApi | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
-  const [markPaidEntry, setMarkPaidEntry] = useState<PayrollEntryApi | null>(null);
-  const [markPaidDate, setMarkPaidDate] = useState(todayJalaliString());
+  const [payoutEntry, setPayoutEntry] = useState<PayrollEntryApi | null>(null);
+  const [payoutTomans, setPayoutTomans] = useState("");
+  const [payoutDate, setPayoutDate] = useState(todayJalaliString());
+  const [payoutNote, setPayoutNote] = useState("");
+
+  const openPayout = (entry: PayrollEntryApi) => {
+    const due = Math.max(0, entry.closing_cents ?? entry.total_salary_cents);
+    setPayoutTomans(due > 0 ? formatGroupedFaIntInput(String(Math.floor(due / 10))) : "");
+    setPayoutDate(todayJalaliString());
+    setPayoutNote("");
+    setPayoutEntry(entry);
+  };
 
   // Create form — Jalali year/month in UI, converted to Gregorian on submit
   const [createUserId, setCreateUserId] = useState("");
@@ -417,37 +455,22 @@ const Payroll = () => {
     },
   });
 
-  const markPaidMutation = useMutation({
-    mutationFn: ({ id, paid_at }: { id: number; paid_at: string }) =>
-      markPayrollEntryPaid(id, { paid_at }),
+  const payoutMutation = useMutation({
+    mutationFn: (p: { user_id: number; amount_cents: number; paid_at: string; note?: string }) =>
+      createStaffPayout(p.user_id, { amount_cents: p.amount_cents, paid_at: p.paid_at, note: p.note }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
-      setMarkPaidEntry(null);
-      toast({ title: "پرداخت ثبت شد", description: "فیش به‌عنوان پرداخت‌شده قفل شد." });
+      queryClient.invalidateQueries({ queryKey: ["payroll-user-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      setPayoutEntry(null);
+      toast({ title: "پرداخت ثبت شد", description: "مانده حساب کارمند به‌روز شد." });
     },
     onError: (err: Error) => {
       toast({
         variant: "destructive",
         title: "خطا در ثبت پرداخت",
-        description: err?.message ?? "درخواست ناموفق بود",
-      });
-    },
-  });
-
-  const markPendingMutation = useMutation({
-    mutationFn: (id: number) => markPayrollEntryPending(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll-entry"] });
-      toast({ title: "به در انتظار برگشت", description: "می‌توانید دوباره فیش را محاسبه کنید." });
-    },
-    onError: (err: Error) => {
-      toast({
-        variant: "destructive",
-        title: "خطا",
         description: err?.message ?? "درخواست ناموفق بود",
       });
     },
@@ -462,7 +485,7 @@ const Payroll = () => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       toast({
         title: "بازمحاسبه انجام شد",
-        description: "همهٔ فیش‌های در انتظار این ماه از پرداخت‌ها و قوانین به‌روز شدند (مدیرکل در انتها).",
+        description: "فیش‌ها و مانده حساب همهٔ کارکنان از پرداخت‌ها و قوانین نقش به‌روز شد.",
       });
     },
     onError: (err: Error) => {
@@ -546,8 +569,10 @@ const Payroll = () => {
         <p><strong>${studentsCountLabel(entry.students_count_scope)}:</strong> ${entry.students_count}</p>
         <hr/>
         <p><strong>جمع کل:</strong> ${formatCentsToToman(entry.total_salary_cents)} تومان</p>
-        <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
-        ${entry.status === "PAID" && entry.paid_at ? `<p><strong>تاریخ پرداخت:</strong> ${formatIsoDateShamsi(entry.paid_at)}</p>` : ""}
+        <p><strong>مانده از ماه قبل:</strong> ${formatSignedToman(entry.opening_cents ?? 0)}</p>
+        <p><strong>پرداختی این ماه:</strong> ${formatCentsToToman(entry.paid_out_cents ?? 0)} تومان</p>
+        <p><strong>مانده کل:</strong> ${formatSignedToman(entry.closing_cents ?? 0)}</p>
+        <p><strong>وضعیت:</strong> ${entry.status === "PAID" ? "تسویه شده" : "تسویه نشده"}</p>
       </body>
       </html>
     `);
@@ -586,41 +611,79 @@ const Payroll = () => {
         dir="rtl"
         className="space-y-0 text-right [unicode-bidi:isolate] [&_table]:w-full [&_table]:text-right [&_th]:text-right [&_td]:text-right"
       >
+      {/* Cost centers & expenses overview (salary, rent, ... this month / to date) */}
+      <ExpensesOverview year={currentYear} month={currentMonth} />
+
+      {/* Period navigation */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setPeriod((p) => addPeriodKeyMonths(p.year, p.month, -1))}
+            aria-label="ماه قبل"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[7rem] text-center font-bold">{formatPayrollPeriod(currentYear, currentMonth)}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setPeriod((p) => addPeriodKeyMonths(p.year, p.month, 1))}
+            aria-label="ماه بعد"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          {!isCurrentPeriod && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setPeriod(currentPeriodKey())}>
+              ماه جاری
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* Summary Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card-elevated p-5">
-          <p className="text-sm text-muted-foreground">کل حقوق این ماه</p>
+          <p className="text-sm text-muted-foreground">حقوق و سهم این ماه</p>
           <p className="text-2xl font-bold number-display text-foreground">
             {summaryCardsLoading ? "—" : formatCentsToToman(totalMonthCents)}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">تومان</p>
-        </div>
-        <div className="card-elevated p-5">
-          <p className="text-sm text-muted-foreground">حقوق ثابت</p>
-          <p className="text-2xl font-bold number-display text-foreground">
-            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_base_cents ?? 0)}
+          <p className="text-xs text-muted-foreground mt-1">
+            ثابت {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_base_cents ?? 0)} · متغیر{" "}
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_variable_cents ?? 0)} تومان
           </p>
-          <p className="text-xs text-muted-foreground mt-1">تومان</p>
         </div>
         <div className="card-elevated p-5">
-          <p className="text-sm text-muted-foreground">حقوق متغیر</p>
-          <p className="text-2xl font-bold number-display text-primary">
-            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_variable_cents ?? 0)}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">تومان</p>
-        </div>
-        <div className="card-elevated p-5">
-          <p className="text-sm text-muted-foreground">پرداخت شده</p>
+          <p className="text-sm text-muted-foreground">پرداختی این ماه به کارکنان</p>
           <p className="text-2xl font-bold number-display text-success">
-            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_paid_cents ?? 0)}
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_paid_out_cents ?? 0)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">تومان</p>
+        </div>
+        <div className="card-elevated p-5">
+          <p className="text-sm text-muted-foreground">مانده قابل پرداخت (بدهی ما)</p>
+          <p className="text-2xl font-bold number-display text-amber-600 dark:text-amber-400">
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_outstanding_cents ?? 0)}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">تا پایان این ماه، شامل مانده ماه‌های قبل</p>
+        </div>
+        <div className="card-elevated p-5">
+          <p className="text-sm text-muted-foreground">پرداخت اضافه (بدهی کارکنان به ما)</p>
+          <p className="text-2xl font-bold number-display text-destructive">
+            {summaryCardsLoading ? "—" : formatCentsToToman(summary?.total_credit_cents ?? 0)}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">از حقوق ماه‌های بعد کم می‌شود</p>
         </div>
       </div>
 
       <div className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div />
+          <h2 className="text-base font-semibold">پرداخت به مشاوران و کارکنان</h2>
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
             <Button
               type="button"
@@ -650,11 +713,11 @@ const Payroll = () => {
         <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2.5">
           <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
           <div className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-medium text-foreground">حقوق ثابت</span> از تعریف نقش کارمند گرفته می‌شود و از ابتدای ماه مشخص است.
-            {" "}
-            <span className="font-medium text-foreground">حقوق متغیر</span> از سهم پرداخت‌های PAID ماهانه و در صورت دانش‌آموز سالانه از «سهم قرارداد سالانه — قسط ماهانه حقوق» است.{" "}
-            <span className="font-medium text-foreground">محاسبه فیش</span> سند حقوق را می‌سازد/به‌روز می‌کند؛{" "}
-            <span className="font-medium text-foreground">تیک پرداخت شده</span> یعنی حقوق به کارمند تسویه شده و فیش قفل می‌شود.
+            هر پرداخت دانش‌آموز، سهم مشاور/نقش را به <span className="font-medium text-foreground">حقوق همان ماه</span> اضافه می‌کند
+            (حقوق ثابت نقش و قسط ماهانه قراردادهای سالانه هم در همان ماه حساب می‌شود).
+            {" "}<span className="font-medium text-foreground">مانده کل</span> = مانده از ماه قبل + حقوق این ماه − پرداختی این ماه.
+            اگر کمتر پرداخت شود، باقی‌مانده به ماه بعد منتقل می‌شود؛ اگر بیشتر پرداخت شود، کارمند به ما بدهکار می‌شود
+            و از حقوق ماه‌های بعد کم می‌شود. پرداخت‌ها به ترتیب قدیمی‌ترین ماه تسویه می‌شوند.
           </div>
         </div>
         <div className="card-elevated overflow-hidden">
@@ -670,12 +733,11 @@ const Payroll = () => {
                 </div>
               )}
               {!payrollTableLoading && !isEntriesError && (
-                <table className="w-full text-right" dir="rtl">
+                <table className="w-full min-w-[1080px] text-right" dir="rtl">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">نقش (RBAC) / نوع حقوق</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">کارمند</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           دانش‌آموزان
                           <TooltipProvider delayDuration={200}>
@@ -692,11 +754,12 @@ const Payroll = () => {
                           </TooltipProvider>
                         </span>
                       </th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق ثابت</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">حقوق متغیر</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">جمع کل</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">پرداخت شده</th>
-                      <th className="p-4 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مانده از ماه قبل</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">حقوق این ماه</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">پرداختی این ماه</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مانده ماه</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">مانده کل</th>
+                      <th className="p-3 text-right text-xs font-semibold text-muted-foreground">عملیات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -709,39 +772,37 @@ const Payroll = () => {
                     ) : (
                       entries.map((entry) => {
                         const name = [entry.user_first_name, entry.user_last_name].filter(Boolean).join(" ") || "—";
-                        const isVariable = entry.variable_salary_cents > 0 && entry.base_salary_cents === 0;
-                        const isFixed = entry.base_salary_cents > 0 && entry.variable_salary_cents === 0;
+                        const closing = entry.closing_cents ?? 0;
                         return (
                           <tr
                             key={entry.id}
                             className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                           >
-                            <td className="p-4">
+                            <td className="p-3">
                               <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                                   {name.charAt(0)}
                                 </div>
-                                <span className="font-medium text-foreground">{name}</span>
+                                <div className="min-w-0">
+                                  <button
+                                    type="button"
+                                    className="font-medium text-foreground hover:text-primary hover:underline"
+                                    onClick={() =>
+                                      navigate(
+                                        `/payroll/users/${entry.user_id}?year=${entry.period_year}&month=${entry.period_month}`,
+                                      )
+                                    }
+                                  >
+                                    {name}
+                                  </button>
+                                  <p className="text-xs text-muted-foreground">
+                                    {roleLabels[entry.user_role] ?? entry.user_role}
+                                    {entry.manual_override ? " · دستی" : ""}
+                                  </p>
+                                </div>
                               </div>
                             </td>
-                            <td className="p-4">
-                              <p className="text-muted-foreground">
-                                {roleLabels[entry.user_role] ?? entry.user_role}
-                              </p>
-                              <span
-                                className={cn(
-                                  "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                                  isFixed
-                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                    : isVariable
-                                    ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-                                    : "bg-muted text-muted-foreground"
-                                )}
-                              >
-                                {isFixed ? "ثابت" : isVariable ? "متغیر" : "ترکیبی"}
-                              </span>
-                            </td>
-                            <td className="p-4 text-foreground">
+                            <td className="p-3 text-foreground">
                               {entry.students_count > 0 ? (
                                 <span title={studentsCountTooltip(entry.students_count_scope)}>
                                   {entry.students_count.toLocaleString("fa-IR")} نفر
@@ -753,66 +814,42 @@ const Payroll = () => {
                                 "—"
                               )}
                             </td>
-                            <td className="p-4 number-display text-foreground">
-                              {entry.base_salary_cents > 0 ? formatCentsToToman(entry.base_salary_cents) : "—"}
+                            <td className="p-3">
+                              <SignedAmount cents={entry.opening_cents ?? 0} />
                             </td>
-                            <td className="p-4 number-display text-primary">
-                              {entry.variable_salary_cents > 0 ? formatCentsToToman(entry.variable_salary_cents) : "—"}
+                            <td className="p-3">
+                              <p className="font-bold number-display text-foreground">
+                                {formatCentsToToman(entry.total_salary_cents)}
+                              </p>
+                              {(entry.base_salary_cents > 0 || entry.variable_salary_cents > 0) && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  {entry.base_salary_cents > 0 && `ثابت ${formatCentsToToman(entry.base_salary_cents)}`}
+                                  {entry.base_salary_cents > 0 && entry.variable_salary_cents > 0 && " + "}
+                                  {entry.variable_salary_cents > 0 && `سهم ${formatCentsToToman(entry.variable_salary_cents)}`}
+                                </p>
+                              )}
                             </td>
-                            <td className="p-4 font-bold number-display text-foreground">
-                              {formatCentsToToman(entry.total_salary_cents)}
+                            <td className="p-3 number-display text-success">
+                              {(entry.paid_out_cents ?? 0) > 0 ? formatCentsToToman(entry.paid_out_cents ?? 0) : "—"}
                             </td>
-                            <td className="p-4">
-                              <div className="flex flex-col items-start gap-1.5">
-                                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                                  <Switch
-                                    checked={entry.status === "PAID"}
-                                    disabled={markPaidMutation.isPending || markPendingMutation.isPending}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        setMarkPaidDate(todayJalaliString());
-                                        setMarkPaidEntry(entry);
-                                      } else if (
-                                        window.confirm(
-                                          "فیش از حالت پرداخت‌شده خارج شود و دوباره قابل محاسبه باشد؟",
-                                        )
-                                      ) {
-                                        markPendingMutation.mutate(entry.id);
-                                      }
-                                    }}
-                                    aria-label="پرداخت شده"
-                                  />
-                                  <span
-                                    className={cn(
-                                      "text-xs font-medium",
-                                      entry.status === "PAID" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
-                                    )}
-                                  >
-                                    {entry.status === "PAID" ? "پرداخت شده" : "در انتظار"}
-                                  </span>
-                                </label>
-                                {entry.status === "PAID" && entry.paid_at && (
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {formatIsoDateShamsi(entry.paid_at)}
-                                  </span>
-                                )}
-                              </div>
+                            <td className="p-3">
+                              <SignedAmount cents={entry.month_balance_cents ?? 0} />
                             </td>
-                            <td className="p-4">
+                            <td className="p-3">
+                              <BalanceBadge cents={closing} />
+                            </td>
+                            <td className="p-3">
                               <div className="flex gap-1 flex-wrap">
-                                {entry.status !== "PAID" && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="gap-1 text-muted-foreground"
-                                    onClick={() => recalculateMutation.mutate(entry)}
-                                    disabled={recalculateMutation.isPending}
-                                    title="محاسبه فیش این کارمند از پرداخت‌ها و قوانین نقش"
-                                  >
-                                    <RefreshCw className="h-4 w-4" />
-                                    محاسبه فیش
-                                  </Button>
-                                )}
+                                <Button
+                                  size="sm"
+                                  variant={balanceTone(closing) === "owed" ? "default" : "outline"}
+                                  className="gap-1"
+                                  onClick={() => openPayout(entry)}
+                                  title="ثبت پرداخت به کارمند"
+                                >
+                                  <Banknote className="h-4 w-4" />
+                                  پرداخت
+                                </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -830,22 +867,30 @@ const Payroll = () => {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="gap-1"
-                                  onClick={() => setEditEntryId(entry.id)}
-                                  title="ویرایش فیش حقوق"
+                                  className="gap-1 text-muted-foreground"
+                                  onClick={() => recalculateMutation.mutate(entry)}
+                                  disabled={recalculateMutation.isPending}
+                                  title="محاسبه فیش این کارمند از پرداخت‌ها و قوانین نقش"
                                 >
-                                  <Pencil className="h-4 w-4" />
-                                  ویرایش
+                                  <RefreshCw className="h-4 w-4" />
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="gap-1"
+                                  className="gap-1 text-muted-foreground"
+                                  onClick={() => setEditEntryId(entry.id)}
+                                  title="ویرایش فیش حقوق"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-muted-foreground"
                                   onClick={() => handlePrintPdf(entry)}
                                   title="خروجی PDF فیش حقوق"
                                 >
                                   <Download className="h-4 w-4" />
-                                  PDF
                                 </Button>
                               </div>
                             </td>
@@ -1057,55 +1102,88 @@ const Payroll = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Mark Paid Dialog */}
+      {/* Payout Dialog */}
       <Dialog
-        open={markPaidEntry != null}
+        open={payoutEntry != null}
         onOpenChange={(open) => {
-          if (!open) setMarkPaidEntry(null);
+          if (!open) setPayoutEntry(null);
         }}
       >
         <DialogContent className="sm:max-w-md" dir="rtl">
           <DialogHeader>
-            <DialogTitle>ثبت پرداخت فیش</DialogTitle>
+            <DialogTitle>ثبت پرداخت به کارمند</DialogTitle>
           </DialogHeader>
-          {markPaidEntry && (
+          {payoutEntry && (
             <div className="space-y-4 py-2 text-right">
               <p className="text-sm text-muted-foreground">
-                {[markPaidEntry.user_first_name, markPaidEntry.user_last_name].filter(Boolean).join(" ")} —{" "}
-                {formatPayrollPeriod(markPaidEntry.period_year, markPaidEntry.period_month)}
+                {[payoutEntry.user_first_name, payoutEntry.user_last_name].filter(Boolean).join(" ")} —{" "}
+                {formatPayrollPeriod(payoutEntry.period_year, payoutEntry.period_month)}
               </p>
-              <p className="text-sm">
-                مبلغ:{" "}
-                <span className="font-bold number-display">
-                  {formatCentsToToman(markPaidEntry.total_salary_cents)} تومان
-                </span>
-              </p>
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">مانده از ماه قبل</span>
+                  <SignedAmount cents={payoutEntry.opening_cents ?? 0} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">حقوق این ماه</span>
+                  <span className="number-display">{formatCentsToToman(payoutEntry.total_salary_cents)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">پرداختی این ماه</span>
+                  <span className="number-display">{formatCentsToToman(payoutEntry.paid_out_cents ?? 0)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-1 font-medium">
+                  <span>مانده کل</span>
+                  <BalanceBadge cents={payoutEntry.closing_cents ?? 0} />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">مبلغ پرداخت (تومان)</label>
+                <Input
+                  inputMode="numeric"
+                  value={payoutTomans}
+                  onChange={(e) => setPayoutTomans(formatGroupedFaIntInput(e.target.value))}
+                  placeholder="مثلاً ۵٬۰۰۰٬۰۰۰"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  مبلغ پیش‌فرض = کل مانده قابل پرداخت. اگر کمتر بپردازید باقی‌مانده به ماه بعد می‌رود؛ اگر بیشتر، کارمند بدهکار می‌شود.
+                </p>
+              </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">تاریخ پرداخت</label>
-                <JalaliDatePicker value={markPaidDate} onChange={setMarkPaidDate} clearable={false} />
+                <JalaliDatePicker value={payoutDate} onChange={setPayoutDate} clearable={false} />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">توضیح (اختیاری)</label>
+                <Input value={payoutNote} onChange={(e) => setPayoutNote(e.target.value)} placeholder="مثلاً واریز به حساب" />
               </div>
               <DialogFooter className="gap-2 sm:gap-0">
-                <Button type="button" variant="outline" onClick={() => setMarkPaidEntry(null)}>
+                <Button type="button" variant="outline" onClick={() => setPayoutEntry(null)}>
                   انصراف
                 </Button>
                 <Button
                   type="button"
-                  disabled={markPaidMutation.isPending}
+                  disabled={payoutMutation.isPending}
                   onClick={() => {
-                    const paidTrimmed = markPaidDate.trim();
-                    if (!paidTrimmed) {
-                      toast({ variant: "destructive", title: "تاریخ پرداخت را وارد کنید" });
+                    const tomans = parseLocalizedInt(payoutTomans);
+                    if (!tomans || tomans <= 0) {
+                      toast({ variant: "destructive", title: "مبلغ نامعتبر است" });
                       return;
                     }
-                    const paidAtGregorian = jalaliToGregorianIso(paidTrimmed);
-                    if (!paidAtGregorian) {
+                    const iso = jalaliToGregorianIso(payoutDate.trim());
+                    if (!iso) {
                       toast({ variant: "destructive", title: "تاریخ پرداخت نامعتبر است" });
                       return;
                     }
-                    markPaidMutation.mutate({ id: markPaidEntry.id, paid_at: paidAtGregorian });
+                    payoutMutation.mutate({
+                      user_id: payoutEntry.user_id,
+                      amount_cents: tomans * 10,
+                      paid_at: iso,
+                      note: payoutNote.trim() || undefined,
+                    });
                   }}
                 >
-                  {markPaidMutation.isPending ? "در حال ذخیره..." : "تأیید پرداخت"}
+                  {payoutMutation.isPending ? "در حال ذخیره..." : "ثبت پرداخت"}
                 </Button>
               </DialogFooter>
             </div>
@@ -1140,7 +1218,7 @@ const Payroll = () => {
               <p className="text-xs text-muted-foreground">
                 {studentsCountLabel(breakdown.students_count_scope)}:{" "}
                 {breakdown.students_count.toLocaleString("fa-IR")}
-                {breakdown.entry_locked ? " · فیش پرداخت‌شده (قفل)" : null}
+                {breakdown.entry_locked ? " · تسویه شده" : null}
               </p>
 
               <div>
@@ -1255,38 +1333,22 @@ const Payroll = () => {
                 {detailEntry.students_count}
               </p>
               <p><strong>جمع کل:</strong> {formatCentsToToman(detailEntry.total_salary_cents)} تومان</p>
-              <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "پرداخت شده" : "در انتظار"}</p>
+              <p><strong>وضعیت:</strong> {detailEntry.status === "PAID" ? "تسویه شده" : "تسویه نشده"}</p>
               {detailEntry.status === "PAID" && (
-                <p><strong>تاریخ پرداخت:</strong> {formatIsoDateShamsi(detailEntry.paid_at)}</p>
+                <p><strong>تاریخ تسویه:</strong> {formatIsoDateShamsi(detailEntry.paid_at)}</p>
               )}
+              <p><strong>مانده کل پایان ماه:</strong> <BalanceBadge cents={detailEntry.closing_cents ?? 0} /></p>
               <div className="flex flex-wrap gap-2 pt-2">
-                {detailEntry.status !== "PAID" ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => {
-                      setMarkPaidDate(todayJalaliString());
-                      setMarkPaidEntry(detailEntry);
-                    }}
-                  >
-                    ثبت پرداخت شده
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={markPendingMutation.isPending}
-                    onClick={() => {
-                      if (window.confirm("فیش از حالت پرداخت‌شده خارج شود؟")) {
-                        markPendingMutation.mutate(detailEntry.id);
-                        setDetailEntryId(null);
-                      }
-                    }}
-                  >
-                    بازگشت به در انتظار
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    openPayout(detailEntry);
+                    setDetailEntryId(null);
+                  }}
+                >
+                  ثبت پرداخت
+                </Button>
               </div>
             </div>
           )}

@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/soheilsshh/unifinance-momtaz/config"
 	"github.com/soheilsshh/unifinance-momtaz/database"
@@ -23,6 +24,7 @@ func Run() {
 	autoMigrate(db)
 	backfillRolePayrollMonths(db)
 	backfillPaymentPayrollShares(db)
+	migratePaidPayslipsToStaffPayouts(db)
 	seedRolesAndPermissions(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
@@ -95,6 +97,7 @@ func autoMigrate(db *gorm.DB) {
 		&models.PayrollReminder{},
 		&models.FiscalYear{},
 		&models.StaffPayout{},
+		&models.SchemaMarker{},
 	); err != nil {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}
@@ -135,6 +138,75 @@ func backfillPaymentPayrollShares(db *gorm.DB) {
 		return
 	}
 	log.Println("migrations: payment payroll shares backfill finished")
+}
+
+// runOnce executes fn a single time per database, recorded in schema_markers.
+func runOnce(db *gorm.DB, name string, fn func(tx *gorm.DB) error) {
+	var n int64
+	if err := db.Model(&models.SchemaMarker{}).Where("name = ?", name).Count(&n).Error; err != nil {
+		log.Printf("migrations: check marker %s: %v", name, err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := fn(tx); err != nil {
+			return err
+		}
+		return tx.Create(&models.SchemaMarker{Name: name}).Error
+	}); err != nil {
+		log.Printf("migrations: %s failed: %v", name, err)
+		return
+	}
+	log.Printf("migrations: %s finished", name)
+}
+
+// migratePaidPayslipsToStaffPayouts converts payslips that were toggled "paid" before the
+// staff ledger existed into payout rows, so the running balance keeps them as paid.
+// Staff members who already have payouts recorded were using the payout ledger (the toggle
+// only locked the payslip there), so their payslips are not converted to avoid double counting.
+func migratePaidPayslipsToStaffPayouts(db *gorm.DB) {
+	runOnce(db, "2026_09_staff_ledger_paid_payslips", func(tx *gorm.DB) error {
+		var withPayouts []uint
+		if err := tx.Model(&models.StaffPayout{}).Distinct("user_id").Pluck("user_id", &withPayouts).Error; err != nil {
+			return err
+		}
+		skip := make(map[uint]bool, len(withPayouts))
+		for _, id := range withPayouts {
+			skip[id] = true
+		}
+		var entries []models.PayrollEntry
+		if err := tx.Where("status = ? AND total_salary_cents > 0", models.PayrollStatusPaid).
+			Order("period_year, period_month, id").Find(&entries).Error; err != nil {
+			return err
+		}
+		converted := 0
+		for _, e := range entries {
+			if skip[e.UserID] {
+				continue
+			}
+			paidAt := time.Now()
+			if e.PaidAt != nil {
+				paidAt = *e.PaidAt
+			}
+			id := e.ID
+			row := models.StaffPayout{
+				UserID:         e.UserID,
+				AmountCents:    e.TotalSalaryCents,
+				PaidAt:         paidAt,
+				Note:           "انتقال از فیش پرداخت‌شده " + services.FormatPeriodLabel(e.PeriodYear, e.PeriodMonth),
+				PayrollEntryID: &id,
+				Source:         models.StaffPayoutSourceMigrated,
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+			converted++
+		}
+		log.Printf("migrations: converted %d paid payslip(s) into staff payouts (skipped %d staff with existing payouts)", converted, len(skip))
+		return nil
+	})
 }
 
 func ptrI64(v int64) *int64 { return &v }

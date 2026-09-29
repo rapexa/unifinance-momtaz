@@ -29,6 +29,12 @@ type PayrollSummaryDTO struct {
 	TotalVariableCents int64 `json:"total_variable_cents"`
 	TotalPaidCents     int64 `json:"total_paid_cents"`
 	TotalPendingCents  int64 `json:"total_pending_cents"`
+	// Cash paid to staff in this month (payouts).
+	TotalPaidOutCents int64 `json:"total_paid_out_cents"`
+	// Σ positive month-end balances (organization still owes staff).
+	TotalOutstandingCents int64 `json:"total_outstanding_cents"`
+	// Σ negative month-end balances (staff overpaid, owe the organization).
+	TotalCreditCents int64 `json:"total_credit_cents"`
 }
 
 // PayrollEntryDTO is the public representation of a payroll entry row.
@@ -48,6 +54,14 @@ type PayrollEntryDTO struct {
 	Status              string     `json:"status"`
 	PaidAt              *time.Time `json:"paid_at,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
+	ManualOverride      bool       `json:"manual_override"`
+
+	// Running settlement balance (positive = organization owes staff, negative = staff owes).
+	OpeningCents     int64 `json:"opening_cents"`      // مانده از ماه قبل
+	PaidOutCents     int64 `json:"paid_out_cents"`     // پرداختی این ماه
+	MonthBalanceCents int64 `json:"month_balance_cents"` // مانده ماه = حقوق این ماه − پرداختی این ماه
+	ClosingCents     int64 `json:"closing_cents"`      // مانده کل در پایان ماه
+	BalanceCents     int64 `json:"balance_cents"`      // مانده کل امروز
 }
 
 // PayrollSchemeDTO represents the salary scheme per role (from Role model).
@@ -75,6 +89,7 @@ func toPayrollEntryDTO(e *models.PayrollEntry) PayrollEntryDTO {
 		Status:              string(e.Status),
 		PaidAt:              e.PaidAt,
 		CreatedAt:           e.CreatedAt,
+		ManualOverride:      e.ManualOverride,
 	}
 	if e.User.ID != 0 {
 		dto.UserFirstName = e.User.FirstName
@@ -105,7 +120,39 @@ func (h *PayrollHandler) enrichPayrollEntryDTO(c *gin.Context, dto PayrollEntryD
 			dto.StudentsCountScope = string(sc.Scope)
 		}
 	}
-	return dto
+	dtos := []PayrollEntryDTO{dto}
+	h.applyBalances(c, dtos)
+	return dtos[0]
+}
+
+// applyBalances fills running settlement columns for entries of one period.
+func (h *PayrollHandler) applyBalances(c *gin.Context, dtos []PayrollEntryDTO) {
+	if len(dtos) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(dtos))
+	seen := map[uint]struct{}{}
+	for _, d := range dtos {
+		if _, ok := seen[d.UserID]; !ok {
+			seen[d.UserID] = struct{}{}
+			ids = append(ids, d.UserID)
+		}
+	}
+	balances, err := h.service.StaffBalancesForPeriod(c.Request.Context(), ids, dtos[0].PeriodYear, dtos[0].PeriodMonth)
+	if err != nil {
+		return
+	}
+	for i := range dtos {
+		b, ok := balances[dtos[i].UserID]
+		if !ok || dtos[i].PeriodYear != dtos[0].PeriodYear || dtos[i].PeriodMonth != dtos[0].PeriodMonth {
+			continue
+		}
+		dtos[i].OpeningCents = b.OpeningCents
+		dtos[i].PaidOutCents = b.PaidCents
+		dtos[i].MonthBalanceCents = b.AccruedCents - b.PaidCents
+		dtos[i].ClosingCents = b.ClosingCents
+		dtos[i].BalanceCents = b.BalanceCents
+	}
 }
 
 func toPayrollEntryDTOSlice(entries []models.PayrollEntry) []PayrollEntryDTO {
@@ -178,6 +225,10 @@ func (h *PayrollHandler) GetSummary(c *gin.Context) {
 		TotalVariableCents: summary.TotalVariableCents,
 		TotalPaidCents:     summary.TotalPaidCents,
 		TotalPendingCents:  summary.TotalPendingCents,
+
+		TotalPaidOutCents:     summary.TotalPaidOutCents,
+		TotalOutstandingCents: summary.TotalOutstandingCents,
+		TotalCreditCents:      summary.TotalCreditCents,
 	}
 	c.JSON(http.StatusOK, dto)
 }
@@ -202,8 +253,13 @@ func (h *PayrollHandler) RecalculatePeriod(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در آماده‌سازی فیش‌های حقوقی"})
 		return
 	}
-	if err := h.service.RecalculateAllPendingEntriesForPeriod(c.Request.Context(), year, month); err != nil {
+	if err := h.service.RecalculateEntriesForPeriod(c.Request.Context(), year, month); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بازمحاسبه حقوق"})
+		return
+	}
+	// Bring every month of every active staff ledger up to date (late payments, missing months).
+	if err := h.service.SyncAllStaffLedgers(c.Request.Context(), year, month); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بازمحاسبه مانده حساب کارکنان"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "year": year, "month": month})
@@ -356,6 +412,7 @@ func (h *PayrollHandler) ListEntries(c *gin.Context) {
 	if counts, err := h.service.ResolveStudentsCountsByUserIDs(c.Request.Context(), userIDs); err == nil {
 		applyStudentCountResults(dtos, counts)
 	}
+	h.applyBalances(c, dtos)
 	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -455,6 +512,7 @@ func (h *PayrollHandler) CreateEntry(c *gin.Context) {
 			return
 		}
 		params.BaseSalaryCents = *req.BaseSalaryCents
+		params.ManualOverride = true
 		if req.VariableSalaryCents != nil {
 			params.VariableSalaryCents = *req.VariableSalaryCents
 		}
@@ -668,7 +726,9 @@ func (h *PayrollHandler) MarkPaid(c *gin.Context) {
 		case services.ErrPayrollEntryNotFound:
 			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 		case services.ErrPayrollAlreadyPaid:
-			c.JSON(http.StatusConflict, gin.H{"error": "این فیش قبلاً به‌عنوان پرداخت‌شده ثبت شده است"})
+			c.JSON(http.StatusConflict, gin.H{"error": "مبلغی برای تسویه این فیش باقی نمانده است"})
+		case services.ErrPayrollForbidden:
+			c.JSON(http.StatusForbidden, gin.H{"error": "ثبت پرداخت فقط برای مدیر مجاز است"})
 		case services.ErrPayrollEntryPaidLocked:
 			c.JSON(http.StatusConflict, gin.H{"error": "فیش پرداخت‌شده قفل است"})
 		default:
@@ -707,6 +767,8 @@ func (h *PayrollHandler) MarkPending(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "فیش حقوقی یافت نشد"})
 		case services.ErrPayrollNotPaid:
 			c.JSON(http.StatusBadRequest, gin.H{"error": "این فیش پرداخت‌شده نیست"})
+		case services.ErrPayslipHasNoPayout:
+			c.JSON(http.StatusConflict, gin.H{"error": "این فیش با پرداخت‌های ثبت‌شده در «تسویه با کارمند» تسویه شده است؛ برای برگشت، همان پرداخت را حذف کنید"})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در بازگرداندن فیش به حالت در انتظار"})
 		}
@@ -774,11 +836,46 @@ type AdvisorOpsPaymentDTO struct {
 }
 
 type StaffPayoutDTO struct {
-	ID          uint      `json:"id"`
-	AmountCents int64     `json:"amount_cents"`
-	PaidAt      time.Time `json:"paid_at"`
-	Note        string    `json:"note,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID             uint      `json:"id"`
+	AmountCents    int64     `json:"amount_cents"`
+	PaidAt         time.Time `json:"paid_at"`
+	Note           string    `json:"note,omitempty"`
+	Source         string    `json:"source,omitempty"`
+	PayrollEntryID *uint     `json:"payroll_entry_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// StaffLedgerMonthDTO is one month of the running staff balance.
+type StaffLedgerMonthDTO struct {
+	PeriodYear          int        `json:"period_year"`
+	PeriodMonth         int        `json:"period_month"`
+	EntryID             *uint      `json:"entry_id,omitempty"`
+	BaseSalaryCents     int64      `json:"base_salary_cents"`
+	VariableSalaryCents int64      `json:"variable_salary_cents"`
+	OpeningCents        int64      `json:"opening_cents"`
+	AccruedCents        int64      `json:"accrued_cents"`
+	PaidCents           int64      `json:"paid_cents"`
+	MonthBalanceCents   int64      `json:"month_balance_cents"`
+	ClosingCents        int64      `json:"closing_cents"`
+	Settled             bool       `json:"settled"`
+	SettledAt           *time.Time `json:"settled_at,omitempty"`
+}
+
+func toStaffLedgerMonthDTO(m services.StaffLedgerMonth) StaffLedgerMonthDTO {
+	return StaffLedgerMonthDTO{
+		PeriodYear:          m.PeriodYear,
+		PeriodMonth:         m.PeriodMonth,
+		EntryID:             m.EntryID,
+		BaseSalaryCents:     m.BaseSalaryCents,
+		VariableSalaryCents: m.VariableSalaryCents,
+		OpeningCents:        m.OpeningCents,
+		AccruedCents:        m.AccruedCents,
+		PaidCents:           m.PaidCents,
+		MonthBalanceCents:   m.AccruedCents - m.PaidCents,
+		ClosingCents:        m.ClosingCents,
+		Settled:             m.Settled,
+		SettledAt:           m.SettledAt,
+	}
 }
 
 type StaffSettlementDTO struct {
@@ -1120,6 +1217,8 @@ func (h *PayrollHandler) writePayrollComputeError(c *gin.Context, err error) boo
 		c.JSON(http.StatusBadRequest, gin.H{"error": "مبلغ پرداخت باید بزرگ‌تر از صفر باشد"})
 	case services.ErrStaffPayoutInvalidPaidAt:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تاریخ پرداخت نامعتبر است"})
+	case services.ErrStaffPayoutNotFound:
+		c.JSON(http.StatusNotFound, gin.H{"error": "پرداخت یافت نشد"})
 	default:
 		return false
 	}
@@ -1284,6 +1383,11 @@ func (h *PayrollHandler) GetUserLedger(c *gin.Context) {
 		EntryLocked:         detail.EntryLocked,
 	})
 
+	ledgerMonths := make([]StaffLedgerMonthDTO, len(detail.LedgerMonths))
+	for i, m := range detail.LedgerMonths {
+		ledgerMonths[i] = toStaffLedgerMonthDTO(m)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":                   detail.UserID,
 		"first_name":                detail.FirstName,
@@ -1322,6 +1426,8 @@ func (h *PayrollHandler) GetUserLedger(c *gin.Context) {
 		"settlement_paid_out_cents": detail.SettlementPaidOutCents,
 		"settlement_balance_cents":  detail.SettlementBalanceCents,
 		"settlement_payouts":        toStaffPayoutDTOs(detail.SettlementPayouts),
+		"month_ledger":              toStaffLedgerMonthDTO(detail.Month),
+		"ledger_months":             ledgerMonths,
 	})
 }
 
@@ -1329,11 +1435,13 @@ func toStaffPayoutDTOs(rows []services.StaffPayoutRow) []StaffPayoutDTO {
 	out := make([]StaffPayoutDTO, len(rows))
 	for i, r := range rows {
 		out[i] = StaffPayoutDTO{
-			ID:          r.ID,
-			AmountCents: r.AmountCents,
-			PaidAt:      r.PaidAt,
-			Note:        r.Note,
-			CreatedAt:   r.CreatedAt,
+			ID:             r.ID,
+			AmountCents:    r.AmountCents,
+			PaidAt:         r.PaidAt,
+			Note:           r.Note,
+			Source:         r.Source,
+			PayrollEntryID: r.PayrollEntryID,
+			CreatedAt:      r.CreatedAt,
 		}
 	}
 	return out
@@ -1411,11 +1519,30 @@ func (h *PayrollHandler) CreateStaffPayout(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, StaffPayoutDTO{
-		ID:          row.ID,
-		AmountCents: row.AmountCents,
-		PaidAt:      row.PaidAt,
-		Note:        row.Note,
-		CreatedAt:   row.CreatedAt,
+		ID:             row.ID,
+		AmountCents:    row.AmountCents,
+		PaidAt:         row.PaidAt,
+		Note:           row.Note,
+		Source:         row.Source,
+		PayrollEntryID: row.PayrollEntryID,
+		CreatedAt:      row.CreatedAt,
 	})
+}
+
+// DeleteStaffPayout handles DELETE /payroll/payouts/:id (admin correction).
+func (h *PayrollHandler) DeleteStaffPayout(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "شناسه پرداخت نامعتبر است"})
+		return
+	}
+	if err := h.service.DeleteStaffPayout(c.Request.Context(), uint(id), middleware.DataScopeUserID(c)); err != nil {
+		if h.writePayrollComputeError(c, err) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "خطا در حذف پرداخت"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
