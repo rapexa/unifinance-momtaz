@@ -34,7 +34,7 @@ var fiscalCloseTables = []string{
 	"plans", "plan_features",
 	"students", "enrollments",
 	"student_role_payouts",
-	"payroll_entries", "staff_payouts",
+	"payroll_entries", "staff_payouts", "expenses",
 	"payments", "payment_payroll_shares", "payment_reminders",
 }
 
@@ -164,6 +164,10 @@ func (s *FiscalYearService) Close(ctx context.Context, id uint) (*models.FiscalY
 		}
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
 			Delete(&models.StaffPayout{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&models.Expense{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).

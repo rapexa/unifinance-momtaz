@@ -68,6 +68,7 @@ func main() {
 	reminderService := services.NewReminderService(db, melipayamakService)
 	fiscalYearService := services.NewFiscalYearService(db)
 	bankAccountService := services.NewBankAccountService(db)
+	expenseService := services.NewExpenseService(db)
 	zarinpalService := services.NewZarinpalService(cfg.Zarinpal.MerchantID, cfg.Zarinpal.Sandbox, cfg.Zarinpal.CallbackURL)
 
 	// Handlers (Controllers)
@@ -85,6 +86,7 @@ func main() {
 	reminderHandler := handlers.NewReminderHandler(reminderService)
 	fiscalYearHandler := handlers.NewFiscalYearHandler(fiscalYearService)
 	bankAccountHandler := handlers.NewBankAccountHandler(bankAccountService)
+	expenseHandler := handlers.NewExpenseHandler(expenseService)
 	paymentGatewayHandler := handlers.NewPaymentGatewayHandler(paymentService, zarinpalService, db, cfg.FrontendURL)
 
 	// Gin engine (custom recovery logs panics in Persian-friendly JSON)
@@ -247,6 +249,25 @@ func main() {
 		bankAccounts.POST("", bankAccountHandler.Create)
 		bankAccounts.PUT("/:id", bankAccountHandler.Update)
 		bankAccounts.DELETE("/:id", bankAccountHandler.Delete)
+	}
+
+	// Cost centers & expenses (مراکز هزینه و هزینه‌ها) — part of payroll & expenses
+	costCenters := protected.Group("/cost-centers")
+	costCenters.Use(middleware.PermissionMiddleware(permService, models.PermPayroll))
+	{
+		costCenters.GET("", expenseHandler.ListCostCenters)
+		costCenters.POST("", expenseHandler.CreateCostCenter)
+		costCenters.PUT("/:id", expenseHandler.UpdateCostCenter)
+		costCenters.DELETE("/:id", expenseHandler.DeleteCostCenter)
+	}
+	expenses := protected.Group("/expenses")
+	expenses.Use(middleware.PermissionMiddleware(permService, models.PermPayroll))
+	{
+		expenses.GET("", expenseHandler.Lines)
+		expenses.GET("/summary", expenseHandler.Summary)
+		expenses.POST("", expenseHandler.CreateExpense)
+		expenses.PUT("/:id", expenseHandler.UpdateExpense)
+		expenses.DELETE("/:id", expenseHandler.DeleteExpense)
 	}
 
 	// Dashboard: only for users with DASHBOARD permission (admin by default)

@@ -25,6 +25,7 @@ func Run() {
 	backfillRolePayrollMonths(db)
 	backfillPaymentPayrollShares(db)
 	migratePaidPayslipsToStaffPayouts(db)
+	seedCostCenters(db)
 	seedRolesAndPermissions(db)
 	migrateLegacyUserRoleColumn(db)
 	fixUsersWithoutRole(db)
@@ -99,6 +100,8 @@ func autoMigrate(db *gorm.DB) {
 		&models.FiscalYear{},
 		&models.StaffPayout{},
 		&models.SchemaMarker{},
+		&models.CostCenter{},
+		&models.Expense{},
 	); err != nil {
 		log.Fatalf("migrations: auto-migrate failed: %v", err)
 	}
@@ -206,6 +209,32 @@ func migratePaidPayslipsToStaffPayouts(db *gorm.DB) {
 			converted++
 		}
 		log.Printf("migrations: converted %d paid payslip(s) into staff payouts (skipped %d staff with existing payouts)", converted, len(skip))
+		return nil
+	})
+}
+
+// seedCostCenters creates the built-in salary cost center and a rent example once.
+func seedCostCenters(db *gorm.DB) {
+	runOnce(db, "2026_09_seed_cost_centers", func(tx *gorm.DB) error {
+		var n int64
+		if err := tx.Model(&models.CostCenter{}).Where("kind = ?", models.CostCenterKindSalary).Count(&n).Error; err != nil {
+			return err
+		}
+		if n == 0 {
+			if err := tx.Create(&models.CostCenter{
+				Name: "حقوق و دستمزد", Kind: models.CostCenterKindSalary, IsSystem: true, IsActive: true,
+				Description: "پرداخت‌های ثبت‌شده به مشاوران و کارکنان (خودکار از بخش حقوق)",
+			}).Error; err != nil {
+				return err
+			}
+		}
+		var total int64
+		if err := tx.Model(&models.CostCenter{}).Count(&total).Error; err != nil {
+			return err
+		}
+		if total <= 1 {
+			return tx.Create(&models.CostCenter{Name: "اجاره دفتر", Kind: models.CostCenterKindGeneral, IsActive: true, SortOrder: 1}).Error
+		}
 		return nil
 	})
 }
