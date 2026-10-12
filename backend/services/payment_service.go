@@ -63,10 +63,64 @@ func (s *PaymentService) recalcPendingPayrollForStudentPaidMonths(ctx context.Co
 	}
 }
 
-// rebuildPaymentPayrollShares replaces split rows for a payment from StudentRolePayout rows
-// plus optional advisor contract share when advisor commission is set and not overridden by role payouts.
+// rebuildPaymentPayrollShares rebuilds split rows for one payment. When the student has a
+// ONE_TIME role payout, the student's first PAID payment may have changed (new, cancelled,
+// re-dated payment), so every other PAID payment of that student is rebuilt as well.
 // It runs every write on the given db handle, so callers can pass a transaction for atomicity.
 func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, db *gorm.DB, paymentID uint) error {
+	if err := s.rebuildSinglePaymentShares(ctx, db, paymentID); err != nil {
+		return err
+	}
+	var p models.Payment
+	if err := db.WithContext(ctx).Select("id", "student_id").First(&p, paymentID).Error; err != nil {
+		return err
+	}
+	if p.StudentID == nil {
+		return nil
+	}
+	hasOneTime, err := studentHasOneTimePayout(ctx, db, *p.StudentID)
+	if err != nil || !hasOneTime {
+		return err
+	}
+	var ids []uint
+	if err := db.WithContext(ctx).Model(&models.Payment{}).
+		Where("student_id = ? AND status = ? AND id <> ?", *p.StudentID, models.PaymentStatusPaid, paymentID).
+		Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.rebuildSinglePaymentShares(ctx, db, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// studentHasOneTimePayout reports whether the student has a ONE_TIME (حق جذب) role payout.
+func studentHasOneTimePayout(ctx context.Context, db *gorm.DB, studentID uint) (bool, error) {
+	var n int64
+	err := db.WithContext(ctx).Model(&models.StudentRolePayout{}).
+		Where("student_id = ? AND amount_kind = ?", studentID, models.StudentRolePayoutOneTime).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// firstPaidPaymentID returns the student's earliest PAID payment (by paid_at, then id), or 0.
+func firstPaidPaymentID(ctx context.Context, db *gorm.DB, studentID uint) (uint, error) {
+	var ids []uint
+	err := db.WithContext(ctx).Model(&models.Payment{}).
+		Where("student_id = ? AND status = ?", studentID, models.PaymentStatusPaid).
+		Order("paid_at ASC, id ASC").Limit(1).
+		Pluck("id", &ids).Error
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	return ids[0], nil
+}
+
+// rebuildSinglePaymentShares replaces split rows for a payment from StudentRolePayout rows
+// plus optional advisor contract share when advisor commission is set and not overridden by role payouts.
+func (s *PaymentService) rebuildSinglePaymentShares(ctx context.Context, db *gorm.DB, paymentID uint) error {
 	var p models.Payment
 	if err := db.WithContext(ctx).First(&p, paymentID).Error; err != nil {
 		return err
@@ -94,10 +148,22 @@ func (s *PaymentService) rebuildPaymentPayrollShares(ctx context.Context, db *go
 	if err := db.WithContext(ctx).Preload("StudentRolePayouts").First(&st, *p.StudentID).Error; err != nil {
 		return err
 	}
+	// ONE_TIME payouts (حق جذب) count only on the student's first PAID payment.
+	isFirstPaid := false
+	for i := range st.StudentRolePayouts {
+		if st.StudentRolePayouts[i].IsOneTime() {
+			firstID, err := firstPaidPaymentID(ctx, db, st.ID)
+			if err != nil {
+				return err
+			}
+			isFirstPaid = firstID == p.ID
+			break
+		}
+	}
 	// Aggregate shares per user
 	agg := map[uint]int64{}
 	for _, rp := range st.StudentRolePayouts {
-		share := rp.ComputeShareCents(p.AmountCents)
+		share := rp.ComputeShareCents(p.AmountCents, isFirstPaid)
 		if share <= 0 {
 			continue
 		}
@@ -155,7 +221,7 @@ func (s *PaymentService) RebuildAllPaidPaymentPayrollShares(ctx context.Context)
 		return err
 	}
 	for _, id := range ids {
-		if err := s.rebuildPaymentPayrollShares(ctx, s.db, id); err != nil {
+		if err := s.rebuildSinglePaymentShares(ctx, s.db, id); err != nil {
 			return err
 		}
 	}
@@ -171,7 +237,7 @@ func (s *PaymentService) RecalculatePaidSharesForStudent(ctx context.Context, st
 		return err
 	}
 	for i := range list {
-		if err := s.rebuildPaymentPayrollShares(ctx, s.db, list[i].ID); err != nil {
+		if err := s.rebuildSinglePaymentShares(ctx, s.db, list[i].ID); err != nil {
 			return err
 		}
 	}
@@ -413,6 +479,7 @@ func (s *PaymentService) Create(ctx context.Context, p CreatePaymentParams) (*mo
 	}
 	if hasStudent {
 		s.recalcPendingPayrollForPaidAt(ctx, payment.PaidAt)
+		s.recalcPayrollForOneTimePayouts(ctx, payment.StudentID)
 	}
 	created, _ := s.repo.FindByID(ctx, payment.ID)
 	if created != nil {
@@ -517,6 +584,7 @@ func (s *PaymentService) Update(ctx context.Context, id uint, p UpdatePaymentPar
 				log.Printf("payroll: recalc pending for %d-%02d failed: %v", k[0], k[1], err)
 			}
 		}
+		s.recalcPayrollForOneTimePayouts(ctx, payment.StudentID)
 	}
 	return payment, nil
 }
@@ -558,8 +626,21 @@ func (s *PaymentService) SoftDelete(ctx context.Context, id uint) error {
 		if err := s.payroll.RecalculateEntriesForPeriod(ctx, delYear, delMonth); err != nil {
 			log.Printf("payroll: recalc pending for %d-%02d failed: %v", delYear, delMonth, err)
 		}
+		s.recalcPayrollForOneTimePayouts(ctx, payment.StudentID)
 	}
 	return nil
+}
+
+// recalcPayrollForOneTimePayouts refreshes every paid month of the student when it has a
+// ONE_TIME payout, since the first PAID payment (and so the حق جذب month) may have moved.
+func (s *PaymentService) recalcPayrollForOneTimePayouts(ctx context.Context, studentID *uint) {
+	if s.payroll == nil || studentID == nil {
+		return
+	}
+	if ok, err := studentHasOneTimePayout(ctx, s.db, *studentID); err != nil || !ok {
+		return
+	}
+	s.recalcPendingPayrollForStudentPaidMonths(ctx, *studentID)
 }
 
 func (s *PaymentService) adjustStudentBalanceByPaidDelta(ctx context.Context, db *gorm.DB, studentID uint, deltaCents int64) error {

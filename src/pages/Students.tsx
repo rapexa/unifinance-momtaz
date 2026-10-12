@@ -229,7 +229,7 @@ function todayJalaliDate(): string {
   return todayJalaliString();
 }
 
-type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT";
+type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT" | "ONE_TIME";
 
 function appendAdvisorCommissionFields(
   payload: UpdateStudentPayload | CreateStudentPayload,
@@ -335,7 +335,7 @@ function buildRolePayoutPayload(rows: RolePayoutFormRow[]): StudentRolePayoutPay
       user_id: Number(r.userId),
       amount_kind: r.amountKind,
       ...(r.amountKind === "PERCENT" ? { percent: parseLocalizedFloat(r.percent) } : {}),
-      ...(r.amountKind === "FIXED_PER_PAYMENT" ? { fixed_cents: parseLocalizedInt(r.fixedCents) * 10 } : {}),
+      ...(r.amountKind !== "PERCENT" ? { fixed_cents: parseLocalizedInt(r.fixedCents) * 10 } : {}),
     }));
 }
 
@@ -501,7 +501,7 @@ function EditStudentForm({
     !r.userId ||
     (r.amountKind === "PERCENT" &&
       (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-    (r.amountKind === "FIXED_PER_PAYMENT" &&
+    (r.amountKind !== "PERCENT" &&
       (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
   );
 
@@ -1887,7 +1887,9 @@ const Students = () => {
                         {(rp.role_name || `نقش #${rp.role_id}`)} / {(rp.user_name || `کاربر #${rp.user_id}`)}:{" "}
                         {rp.amount_kind === "PERCENT"
                           ? `${rp.percent ?? 0}٪ از مبلغ هر پرداخت`
-                          : `${formatBalance(rp.fixed_cents)} تومان به ازای هر پرداخت پرداخت‌شده`}
+                          : rp.amount_kind === "ONE_TIME"
+                            ? `${formatBalance(rp.fixed_cents)} تومان یک‌بار (حق جذب، روی اولین پرداخت)`
+                            : `${formatBalance(rp.fixed_cents)} تومان به ازای هر پرداخت پرداخت‌شده`}
                       </li>
                     ))}
                   </ul>
@@ -2282,7 +2284,7 @@ const Students = () => {
                   !r.userId ||
                   (r.amountKind === "PERCENT" &&
                     (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                  (r.amountKind !== "PERCENT" &&
                     (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
                 );
                 if (createCommissionInvalid || createRolePayoutInvalid) return;
@@ -2341,7 +2343,7 @@ const Students = () => {
                   !r.userId ||
                   (r.amountKind === "PERCENT" &&
                     (!r.percent.trim() || parseLocalizedFloat(r.percent) <= 0 || parseLocalizedFloat(r.percent) > 100)) ||
-                  (r.amountKind === "FIXED_PER_PAYMENT" &&
+                  (r.amountKind !== "PERCENT" &&
                     (!r.fixedCents.trim() || parseLocalizedInt(r.fixedCents) < 0))
                 )
               }

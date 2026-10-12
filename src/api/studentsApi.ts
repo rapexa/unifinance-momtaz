@@ -77,7 +77,7 @@ export interface StudentRolePayoutApi {
   role_name?: string;
   user_id: number;
   user_name?: string;
-  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT";
+  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT" | "ONE_TIME";
   percent?: number;
   fixed_cents?: number;
 }
@@ -229,7 +229,7 @@ export interface CreateStudentPayload {
 export interface StudentRolePayoutPayload {
   role_id: number;
   user_id: number;
-  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT";
+  amount_kind: "PERCENT" | "FIXED_PER_PAYMENT" | "ONE_TIME";
   percent?: number;
   fixed_cents?: number;
 }

@@ -1266,7 +1266,7 @@ func normalizeStudentRolePayoutPayloads(items []studentRolePayoutPayload) ([]mod
 			}
 			sumPercent += *it.Percent
 			row.Percent = it.Percent
-		case models.StudentAdvisorCommFixed:
+		case models.StudentAdvisorCommFixed, models.StudentRolePayoutOneTime:
 			if it.FixedCents == nil || *it.FixedCents < 0 {
 				return nil, fmt.Errorf("مبلغ ثابت سهم نقش/کاربر در ردیف %d نامعتبر است", i+1)
 			}

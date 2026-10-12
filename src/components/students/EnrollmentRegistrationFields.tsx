@@ -22,7 +22,7 @@ import {
   toggleMonthInMask,
 } from "./enrollmentBillingUtils";
 
-export type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT";
+export type PayoutAmountKind = "PERCENT" | "FIXED_PER_PAYMENT" | "ONE_TIME";
 
 export interface RolePayoutFormRow {
   key: string;
@@ -329,6 +329,7 @@ export function EnrollmentRegistrationFields({
                   <SelectContent>
                     <SelectItem value="PERCENT">درصدی از مبلغ پرداخت</SelectItem>
                     <SelectItem value="FIXED_PER_PAYMENT">مبلغ ثابت به ازای هر پرداخت پرداخت‌شده</SelectItem>
+                    <SelectItem value="ONE_TIME">مبلغ ثابت یک‌بار (حق جذب، روی اولین پرداخت)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -358,7 +359,11 @@ export function EnrollmentRegistrationFields({
                       ),
                     )
                   }
-                  placeholder="تومان، هر بار پرداخت ثبت شود"
+                  placeholder={
+                    row.amountKind === "ONE_TIME"
+                      ? "تومان، فقط یک‌بار با اولین پرداخت دانش‌آموز"
+                      : "تومان، هر بار پرداخت ثبت شود"
+                  }
                   inputMode="numeric"
                   dir="ltr"
                 />
